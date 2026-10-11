@@ -450,3 +450,35 @@ flowchart LR
 | 4 | `pytest tests/ -q` | 后端测试结果不变（`conftest.py` 继续 `create_all`） |
 
 > 说明：`backend/demo.db` 为本地 SQLite 演示库（`scripts/configure_local.py` 生成 `DATABASE_URL=sqlite:///./demo.db`）；`backend/test_pytest.db` 为测试库，二者互不影响，验收仅针对前者。
+---
+
+## 2.12 服务层下沉重构设计（阶段3 · T20）
+
+> 本小节为阶段3编码任务「将路由文件中的业务逻辑下沉至服务层」的增量设计，对应 `tasks.md` 的 T20。上游依据：本 `design.md` 2.2.1 后端分层模块（HTTP/路由层与业务领域分离）、`docs/代码规范.md`「分层」一节。目标为纯重构：接口地址、参数、返回内容、状态码、错误信息全部保持不变。
+
+### 2.12.1 现状与目标
+
+**存量现状**：`app/api/v1/` 下路由函数混杂业务判断、查询拼装与事务提交（`db.query`/`db.add`/`db.commit`），违反「路由层只做取参数、鉴权、调用、返回」的分层约定。
+
+**目标结构**：
+
+| 层 | 职责 | 本次改动 |
+|---|---|---|
+| `app/api/v1/` | 解析请求、鉴权依赖、调用 service、返回 schema | 移除业务逻辑，仅保留路由职责 |
+| `app/services/` | 业务规则、状态流转、事务 | 新增，承接下沉逻辑 |
+
+### 2.12.2 服务划分
+
+| 新建文件 | 承接来源 | 职责 |
+|---|---|---|
+| `item_service.py` | `items.py` | 物品创建/列表/详情/标点/路线/特征提取/候选获取 |
+| `claim_service.py` | `claims.py` | 认领创建/审核/完成三段逻辑及辅助函数 |
+| `ticket_service.py` | `tickets.py` | 工单列表/创建/接单/授权路线/查路线/反馈 |
+| `matching_service.py` | `items.py` 候选打分 | 导出 `find_candidates`，输入寻物记录返回 ≤3 候选 |
+| `user_service.py` | `auth.py` + `admin.py` | 合并「检查用户名存在并创建用户」 |
+
+### 2.12.3 关键约束
+
+- `claim_service.py` 中 `serialize_claim_mutation`、`lock_items`、`replay`、`restore_unclaimed`、`editable_claim` 及创建/审核/完成逻辑原样搬移，加锁顺序、flush/commit 位置、条件更新语句不变。
+- 不改 `tests/`、`models/`、`schemas/`；不新增依赖；不顺手优化其他问题。
+- 验收：测试仍 18 通过 1 跳过；`ruff check` 无报错；五个路由文件不再出现 `db.query`/`db.add`/`db.commit`。

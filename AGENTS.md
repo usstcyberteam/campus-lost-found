@@ -47,3 +47,6 @@ React + TypeScript（Vite + Leaflet 图片地图）· FastAPI · PostgreSQL · D
 - 需求规格见 `spec.md`，架构见 `design.md`，任务见 `tasks.md`。
 - EARS 验收场景与权限矩阵已在三份文档中定义。
 - 测试集中在 `backend/tests/test_acceptance.py`，覆盖权限、私密字段、归还唯一性、工单授权。
+## 代码规范
+
+开发必须遵守 docs/代码规范.md。

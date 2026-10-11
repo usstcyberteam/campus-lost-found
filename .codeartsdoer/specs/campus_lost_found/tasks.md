@@ -7,7 +7,7 @@
 | 特性名 | `campus_lost_found` |
 | 写入路径 | `.codeartsdoer/specs/campus_lost_found/tasks.md` |
 | 上游输入 | `spec.md` v1.0 + `design.md` v1.0（含 2.11 节 T02 细化） |
-| 状态 | v1.1（2026-10-11，新增 T02 细化任务） |
+| 状态 | v1.2（2026-10-11，新增 T02 细化任务 + T20 服务层下沉重构） |
 
 ## 0. 约定与负责人
 
@@ -230,3 +230,17 @@ flowchart LR
 - [ ] 再次执行 `alembic upgrade head`，确认幂等不报错（无待应用迁移）
 - [ ] 执行 `alembic check`，确认模型与迁移一致、无差异
 - [ ] 执行 `backend` 的 `pytest tests/ -q`，确认后端测试结果不变
+## 8. T20 服务层下沉重构（B）
+
+> 对应 `design.md` 2.12 节。纯重构：接口地址、参数、返回内容、状态码、错误信息全部保持不变。
+
+- **目标**：将路由文件中的业务逻辑下沉至 services 层。
+- **允许修改**：`backend/app/api/v1/{items,claims,tickets,auth,admin}.py`；新建 `backend/app/services/{item_service,claim_service,ticket_service,matching_service,user_service}.py`。
+- **要求**：
+  1. 路由函数只保留「取参数、鉴权依赖、调用 service、返回结果」。
+  2. `claim_service.py` 原样搬移 `serialize_claim_mutation`、`lock_items`、`replay`、`restore_unclaimed`、`editable_claim` 及创建/审核/完成三段逻辑，加锁顺序、flush/commit 位置、条件更新语句不变。
+  3. `matching_service.py` 导出 `find_candidates(db, lost_item)`，返回 ≤3 候选。
+  4. `user_service.py` 合并 auth/admin 重复的「检查用户名存在并创建用户」。
+  5. 删除 `auth.py` 中未使用的导入。
+- **禁止**：不改 `tests/`、`models/`、`schemas/`；不新增依赖；不顺手优化其他问题。
+- **验收**：测试 18 通过 1 跳过；`ruff check` 通过；五路由无 `db.query`/`db.add`/`db.commit`。
