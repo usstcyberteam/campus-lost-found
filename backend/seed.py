@@ -1,9 +1,10 @@
+from pydantic import TypeAdapter
+
+from app.config import get_settings
 from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine
 from app.models import Layer, Role, User
 from app.schemas.validation import Password
-from pydantic import TypeAdapter
-from app.config import get_settings
 
 _LAYER_SPECS = [
     {"name": "室外示意图", "image_path": "outdoor.jpg", "width": 1280, "height": 2276},

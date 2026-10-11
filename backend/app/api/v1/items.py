@@ -82,7 +82,9 @@ def get_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Dep
 
 
 @router.post("/{item_id}/map-anchor")
-def set_map_anchor(item_id: uuid.UUID, body: MapAnchorRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def set_map_anchor(
+    item_id: uuid.UUID, body: MapAnchorRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     item = db.get(Item, item_id)
     if item is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")
@@ -100,7 +102,9 @@ def set_map_anchor(item_id: uuid.UUID, body: MapAnchorRequest, db: Session = Dep
 
 
 @router.post("/{item_id}/route")
-def create_route(item_id: uuid.UUID, body: RouteCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_route(
+    item_id: uuid.UUID, body: RouteCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     item = db.get(Item, item_id)
     if item is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")
@@ -143,7 +147,9 @@ def get_route(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = De
 
 
 @router.post("/{item_id}/extract")
-def extract(item_id: uuid.UUID, text: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def extract(
+    item_id: uuid.UUID, text: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     item = db.get(Item, item_id)
     if item is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")

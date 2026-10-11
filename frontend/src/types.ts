@@ -1,11 +1,5 @@
 export type Direction = 'lost' | 'found'
-export type ItemStatus =
-  | 'searching'
-  | 'reviewing'
-  | 'found'
-  | 'withdrawn'
-  | 'pending'
-  | 'returned'
+export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned'
 export type Source = 'manual' | 'rule' | 'cache' | 'model'
 
 export interface Item {

@@ -29,8 +29,11 @@ export default function ItemForm() {
         precise_location: preciseLocation || null,
       })
       navigate('/')
-    } catch (error) { setError(errorMessage(error)) }
-    finally { setBusy(false) }
+    } catch (error) {
+      setError(errorMessage(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -47,10 +50,20 @@ export default function ItemForm() {
         <input placeholder="类别（如 雨伞）" value={category} onChange={(e) => setCategory(e.target.value)} required />
         <input placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} required />
         <textarea placeholder="描述" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <input placeholder="地点（楼层级，如 图书馆2F）" value={locationArea} onChange={(e) => setLocationArea(e.target.value)} />
-        <input placeholder="精确位置（仅自己可见）" value={preciseLocation} onChange={(e) => setPreciseLocation(e.target.value)} />
+        <input
+          placeholder="地点（楼层级，如 图书馆2F）"
+          value={locationArea}
+          onChange={(e) => setLocationArea(e.target.value)}
+        />
+        <input
+          placeholder="精确位置（仅自己可见）"
+          value={preciseLocation}
+          onChange={(e) => setPreciseLocation(e.target.value)}
+        />
         {error && <p style={{ color: '#dc2626' }}>{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? '发布中…' : '提交'}</button>
+        <button type="submit" disabled={busy}>
+          {busy ? '发布中…' : '提交'}
+        </button>
       </form>
     </div>
   )

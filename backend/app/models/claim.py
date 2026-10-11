@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,7 +17,9 @@ class Claim(Base):
     lost_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("item.id"), nullable=True)
     applicant_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False)
     reviewer_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"), nullable=True)
-    status: Mapped[ClaimStatus] = mapped_column(SAEnum(ClaimStatus, native_enum=False, length=16), nullable=False, default=ClaimStatus.pending)
+    status: Mapped[ClaimStatus] = mapped_column(
+        SAEnum(ClaimStatus, native_enum=False, length=16), nullable=False, default=ClaimStatus.pending
+    )
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

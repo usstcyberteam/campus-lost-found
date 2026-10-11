@@ -19,10 +19,20 @@ export default function Home() {
     if (direction) params.direction = direction
     if (category) params.category = category
     if (status) params.status = status
-    client.get('/items', { params }).then(res => { if (active) setItems(res.data) })
-      .catch(e => { if (active) setError(errorMessage(e)) })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    client
+      .get('/items', { params })
+      .then((res) => {
+        if (active) setItems(res.data)
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
   }, [direction, category, status])
 
   return (
@@ -41,7 +51,9 @@ export default function Home() {
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">全部状态</option>
           {Object.entries(statusLabels).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
+            <option key={k} value={k}>
+              {v}
+            </option>
           ))}
         </select>
       </div>

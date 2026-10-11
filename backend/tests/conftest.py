@@ -1,8 +1,8 @@
 import os
 import secrets
-from sqlalchemy.engine import make_url
 
 import pytest
+from sqlalchemy.engine import make_url
 
 test_url = os.environ.get("TEST_DATABASE_URL", "sqlite:///./test_pytest.db")
 if os.environ.get("TEST_DATABASE_URL") and not (make_url(test_url).database or "").endswith("_test"):
@@ -10,10 +10,10 @@ if os.environ.get("TEST_DATABASE_URL") and not (make_url(test_url).database or "
 os.environ["DATABASE_URL"] = test_url
 os.environ["JWT_SECRET"] = secrets.token_urlsafe(48)
 
-from app import models  # noqa: E402,F401
-from app.database import Base, engine  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app import models  # noqa: E402,F401
+from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 

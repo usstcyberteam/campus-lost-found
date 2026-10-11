@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-from typing import Annotated
 
 from app.models.enums import ClaimStatus, EvidenceKind
 

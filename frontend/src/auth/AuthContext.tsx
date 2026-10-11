@@ -35,12 +35,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       setToken(saved)
-      client.get('/auth/me').then(r => {
-        if (active) { setTokenState(saved); setRole(r.data.role); setUserId(r.data.id) }
-      }).catch(() => { if (active) logout() })
-        .finally(() => { if (active) setReady(true) })
+      client
+        .get('/auth/me')
+        .then((r) => {
+          if (active) {
+            setTokenState(saved)
+            setRole(r.data.role)
+            setUserId(r.data.id)
+          }
+        })
+        .catch(() => {
+          if (active) logout()
+        })
+        .finally(() => {
+          if (active) setReady(true)
+        })
     } else setReady(true)
-    return () => { active = false; window.removeEventListener('auth-expired', logout) }
+    return () => {
+      active = false
+      window.removeEventListener('auth-expired', logout)
+    }
   }, [])
 
   async function accept(token: string) {
@@ -52,7 +66,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(r.data.role)
       setUserId(r.data.id)
       setReady(true)
-    } catch (e) { logout(); throw e }
+    } catch (e) {
+      logout()
+      throw e
+    }
   }
   async function login(username: string, password: string) {
     const res = await client.post('/auth/login', { username, password })
@@ -62,9 +79,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await client.post('/auth/register', { username, password, display_name: displayName })
     await accept(res.data.token)
   }
-  return <AuthContext.Provider value={{ token: tokenState, role, userId, ready, login, register, logout }}>
-    {children}
-  </AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={{ token: tokenState, role, userId, ready, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext)

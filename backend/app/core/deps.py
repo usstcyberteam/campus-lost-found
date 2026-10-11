@@ -1,5 +1,5 @@
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -24,7 +24,7 @@ def get_current_user(
     try:
         user_id = uuid.UUID(payload["sub"])
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效") from None
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")

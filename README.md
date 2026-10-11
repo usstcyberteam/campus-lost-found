@@ -67,6 +67,8 @@ PostgreSQL 数据保存在命名卷。本配置供本地开发与演示使用，
 
 ```powershell
 cd backend
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m ruff format --check .
 .venv/Scripts/python -m pytest tests/ -q
 ```
 
@@ -74,6 +76,7 @@ SQLite 默认跳过 PostgreSQL 并发用例。验证并发时，先创建**以 `
 
 ```powershell
 cd frontend
+npm run lint
 npm run build
 npm audit
 ```

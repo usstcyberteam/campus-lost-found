@@ -25,17 +25,8 @@ export default function Login() {
     <div style={{ maxWidth: 360, margin: '80px auto', padding: 24 }}>
       <h1>校园寻物局</h1>
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-        <input
-          placeholder="用户名"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-        <input
-          placeholder="密码"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <input placeholder="用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <input placeholder="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <p style={{ color: '#dc2626' }}>{error}</p>}
         <button type="submit">登录</button>
       </form>

@@ -35,7 +35,12 @@ def get_layer_image(layer_id: uuid.UUID, db: Session = Depends(get_db), user: Us
 
 
 @router.post("/{layer_id}/calibrate", response_model=LayerOut)
-def calibrate(layer_id: uuid.UUID, body: CalibrateRequest, db: Session = Depends(get_db), user: User = Depends(require_role(Role.admin))):
+def calibrate(
+    layer_id: uuid.UUID,
+    body: CalibrateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.admin)),
+):
     layer = db.get(Layer, layer_id)
     if layer is None:
         raise ApiError(404, "NOT_FOUND", "图层不存在")
@@ -47,12 +52,19 @@ def calibrate(layer_id: uuid.UUID, body: CalibrateRequest, db: Session = Depends
 
 
 @router.get("/{layer_id}/simulated-points", response_model=list[SimulatedPointOut])
-def list_simulated_points(layer_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff, Role.admin))):
+def list_simulated_points(
+    layer_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff, Role.admin))
+):
     return db.query(SimulatedPoint).filter(SimulatedPoint.layer_id == layer_id).all()
 
 
 @router.post("/{layer_id}/simulated-points", response_model=SimulatedPointOut)
-def create_simulated_point(layer_id: uuid.UUID, body: SimulatedPointCreate, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff, Role.admin))):
+def create_simulated_point(
+    layer_id: uuid.UUID,
+    body: SimulatedPointCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.staff, Role.admin)),
+):
     point = SimulatedPoint(
         layer_id=layer_id,
         label=body.label,

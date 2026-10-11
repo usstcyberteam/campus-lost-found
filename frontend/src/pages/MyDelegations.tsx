@@ -21,15 +21,38 @@ export default function MyDelegations() {
 
   useEffect(() => {
     let active = true
-    Promise.all([client.get('/me/items'), client.get('/me/claims'), client.get('/me/tickets'), client.get('/me/badges')])
-      .then(([i, c, t, b]) => { if (active) { setItems(i.data); setClaims(c.data); setTickets(t.data); setBadges(b.data) } })
-      .catch(e => { if (active) setError(errorMessage(e)) })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    Promise.all([
+      client.get('/me/items'),
+      client.get('/me/claims'),
+      client.get('/me/tickets'),
+      client.get('/me/badges'),
+    ])
+      .then(([i, c, t, b]) => {
+        if (active) {
+          setItems(i.data)
+          setClaims(c.data)
+          setTickets(t.data)
+          setBadges(b.data)
+        }
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   if (loading) return <main className="page">加载中…</main>
-  if (error) return <main className="page"><p role="alert">{error}</p></main>
+  if (error)
+    return (
+      <main className="page">
+        <p role="alert">{error}</p>
+      </main>
+    )
   return (
     <div style={{ padding: 24 }}>
       <h1>我的委托</h1>
@@ -52,7 +75,9 @@ export default function MyDelegations() {
       {claims.length === 0 && <p>暂无</p>}
       <ul>
         {claims.map((c) => (
-          <li key={c.id}><Link to={'/items/' + c.found_item_id}>认领物品</Link> · {claimStatusLabels[c.status]}</li>
+          <li key={c.id}>
+            <Link to={'/items/' + c.found_item_id}>认领物品</Link> · {claimStatusLabels[c.status]}
+          </li>
         ))}
       </ul>
 

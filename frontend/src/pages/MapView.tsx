@@ -35,12 +35,19 @@ export default function MapView() {
 
   useEffect(() => {
     let active = true
-    client.get('/layers').then((r) => {
-      if (!active) return
-      setLayers(r.data)
-      if (r.data.length > 0) setSelected(r.data[0].id)
-    }).catch(e => { if (active) setError(errorMessage(e)) })
-    return () => { active = false }
+    client
+      .get('/layers')
+      .then((r) => {
+        if (!active) return
+        setLayers(r.data)
+        if (r.data.length > 0) setSelected(r.data[0].id)
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e))
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   useEffect(() => {
@@ -74,7 +81,9 @@ export default function MapView() {
           objectUrl = url
           L.imageOverlay(url, bounds).addTo(map)
         })
-        .catch(e => { if (active) setError(errorMessage(e, '底图加载失败')) })
+        .catch((e) => {
+          if (active) setError(errorMessage(e, '底图加载失败'))
+        })
     }
 
     map.fitBounds(bounds)
@@ -82,7 +91,10 @@ export default function MapView() {
     map.on('click', (e) => {
       const nx = e.latlng.lng / layer.width
       const ny = e.latlng.lat / layer.height
-      L.popup().setLatLng(e.latlng).setContent(`归一化坐标 (${nx.toFixed(3)}, ${ny.toFixed(3)})`).openOn(map)
+      L.popup()
+        .setLatLng(e.latlng)
+        .setContent(`归一化坐标 (${nx.toFixed(3)}, ${ny.toFixed(3)})`)
+        .openOn(map)
     })
     return () => {
       active = false
@@ -100,9 +112,17 @@ export default function MapView() {
     let active = true
     setPoints([])
     if (!selected || (role !== 'staff' && role !== 'admin')) return
-    client.get(`/layers/${selected}/simulated-points`).then((r) => { if (active) setPoints(r.data) })
-      .catch(e => { if (active) setError(errorMessage(e)) })
-    return () => { active = false }
+    client
+      .get(`/layers/${selected}/simulated-points`)
+      .then((r) => {
+        if (active) setPoints(r.data)
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e))
+      })
+    return () => {
+      active = false
+    }
   }, [selected, role])
 
   useEffect(() => {
@@ -133,7 +153,10 @@ export default function MapView() {
           </option>
         ))}
       </select>
-      <div ref={containerRef} style={{ height: 560, marginTop: 12, border: '1px solid #cbd5e1', background: '#f8fafc' }} />
+      <div
+        ref={containerRef}
+        style={{ height: 560, marginTop: 12, border: '1px solid #cbd5e1', background: '#f8fafc' }}
+      />
       <p style={{ color: '#6b7280' }}>
         点击地图获取归一化坐标；{calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
       </p>

@@ -1,8 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role
@@ -49,8 +49,11 @@ def assign(ticket_id: uuid.UUID, db: Session = Depends(get_db), user: User = Dep
     ticket = db.get(Ticket, ticket_id)
     if ticket is None:
         raise ApiError(404, "NOT_FOUND", "工单不存在")
-    result = db.execute(update(Ticket).where(Ticket.id == ticket_id, Ticket.status == TicketStatus.pending)
-                        .values(assignee_user_id=user.id, status=TicketStatus.processing))
+    result = db.execute(
+        update(Ticket)
+        .where(Ticket.id == ticket_id, Ticket.status == TicketStatus.pending)
+        .values(assignee_user_id=user.id, status=TicketStatus.processing)
+    )
     if result.rowcount != 1:
         db.rollback()
         raise ApiError(409, "STATE_CONFLICT", "工单已被接单或已反馈")
@@ -94,7 +97,12 @@ def get_ticket_route(ticket_id: uuid.UUID, db: Session = Depends(get_db), user: 
 
 
 @router.post("/{ticket_id}/feedback", response_model=TicketOut)
-def feedback(ticket_id: uuid.UUID, body: FeedbackRequest, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff))):
+def feedback(
+    ticket_id: uuid.UUID,
+    body: FeedbackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.staff)),
+):
     ticket = db.get(Ticket, ticket_id)
     if ticket is None:
         raise ApiError(404, "NOT_FOUND", "工单不存在")

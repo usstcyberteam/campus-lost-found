@@ -12,7 +12,15 @@ export default function Layout() {
 
   return (
     <div>
-      <nav style={{ display: 'flex', gap: 16, padding: '12px 24px', background: '#ffffff', borderBottom: '1px solid #e5e7eb' }}>
+      <nav
+        style={{
+          display: 'flex',
+          gap: 16,
+          padding: '12px 24px',
+          background: '#ffffff',
+          borderBottom: '1px solid #e5e7eb',
+        }}
+      >
         <Link to="/">大厅</Link>
         <Link to="/publish">发布</Link>
         <Link to="/me">我的委托</Link>
