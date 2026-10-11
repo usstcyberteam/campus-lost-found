@@ -2,7 +2,7 @@ from pydantic import TypeAdapter
 
 from app.config import get_settings
 from app.core.security import hash_password
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal
 from app.models import Layer, Role, User
 from app.schemas.validation import Password
 
@@ -14,7 +14,7 @@ _LAYER_SPECS = [
 
 
 def seed() -> None:
-    Base.metadata.create_all(engine)
+
     db = SessionLocal()
     try:
         if db.query(User).filter(User.username == "admin").first() is None:

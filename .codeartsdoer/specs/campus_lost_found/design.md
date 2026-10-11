@@ -343,3 +343,110 @@ status：lost=`寻找中/核验中/已找回/已撤销`；found=`待认领/核�
 | 真实性 | 目标冒充结果、假设冒充结论、模拟冒充真实 |
 
 **边界**：仅引用已确认清单，不新增业务规则，不自动购买/发布/提交。
+---
+
+## 2.11 数据库迁移基线与索引设计（阶段3 · T02 细化）
+
+> 本小节为阶段3编码任务「建立 Alembic 迁移基线，并为常用查询列补索引」的增量设计，对应 `tasks.md` 的 T02。上游依据：`spec.md` 3.3 资源依赖（Alembic）、本 `design.md` 2.3 数据模型与 2.5 T1/T02。硬约束：不改表名/列名/列类型；不改 `backend/tests/conftest.py`（测试继续 `create_all`）。
+
+### 2.11.1 需求与存量功能对比
+
+**本任务开始前的存量现状**：
+
+| 存量项 | 位置 | 说明 |
+|---|---|---|
+| 12 个 SQLAlchemy 模型 | `backend/app/models/*.py` | user / badge / item / attachment / item_feature / route / candidate / layer / simulated_point / claim / claim_evidence / ticket，均已定义 |
+| Alembic 环境 | `backend/alembic/env.py` | `target_metadata = Base.metadata`，连接取自 `get_settings().database_url`；但 `versions/` 无任何迁移版本，schema 无版本追踪 |
+| 建表方式 | `seed.py`、`tests/conftest.py` | 依赖 `Base.metadata.create_all` 建表，不产生可回放的迁移历史 |
+| 索引现状 | 各模型文件 | 仅个别外键列带 `index=True`，未系统覆盖本任务清单 |
+
+**需求功能对比**：
+
+| 需求功能 | 存量匹配情况 | 判定 |
+|---|---|---|
+| 8 组常用查询列补索引 | 部分列已带 `index=True`，需系统补齐 17 个索引 | 需扩展 |
+| 生成初始迁移基线（12 表 + 全部索引） | `versions/` 为空，无迁移版本 | 需新增 |
+| `seed.py` 仅写管理员与图层种子数据 | 现依赖 `create_all` 建表后再写种子 | 需改造 |
+| Dockerfile 启动命令「迁移→种子→启动」 | 当前无迁移步骤 | 需改造 |
+| README 本地运行步骤增加 `alembic upgrade head` | 当前无迁移步骤 | 需改造 |
+
+### 2.11.2 索引设计
+
+**索引清单（17 个，按表分组）**：
+
+| 表 | 列 | 索引用途 |
+|---|---|---|
+| item | owner_user_id | 按发布者反查「我的委托」 |
+| item | direction | 寻物/拾获方向筛选 |
+| item | status | 状态筛选（大厅列表） |
+| item | created_at | 列表按时间倒序 |
+| claim | found_item_id | 按拾获物品反查认领 |
+| claim | lost_item_id | 按寻物物品反查认领 |
+| claim | applicant_user_id | 按申请人反查认领 |
+| claim | status | 认领状态筛选 |
+| claim_evidence | claim_id | 按认领反查证据 |
+| ticket | item_id | 按物品反查工单 |
+| ticket | requester_user_id | 按申请人反查工单 |
+| ticket | assignee_user_id | 按处理人反查工单 |
+| ticket | status | 工单状态筛选 |
+| route | item_id | 按物品反查路线 |
+| simulated_point | layer_id | 按图层反查模拟点位 |
+| item_feature | item_id | 按物品反查特征 |
+| attachment | item_id | 按物品反查附件 |
+
+**选择依据**：17 列均为「外键列（关联/反查）」或「高频筛选列（status/direction）」或「列表排序列（created_at）」。外键列与常用筛选列加索引是项目代码规范要求（见 `docs/代码规范.md`「外键列和常用筛选列加索引」）。
+
+**实现方式与约束**：仅在对应模型 `mapped_column(...)` 上追加 `index=True`，索引名由 SQLAlchemy 默认生成 `ix_<表>_<列>`（Alembic 用 `op.f()` 规范化）。不新增显式 `Index` 对象，不改列定义、不改表名/列名/列类型。
+### 2.11.3 迁移基线设计
+
+**基线形态**：单一初始迁移 `backend/alembic/versions/xxxx_initial_schema.py`，`down_revision = None`。`upgrade()` 按依赖顺序执行 12 张表的 `op.create_table` 与全部 `op.create_index`；`downgrade()` 逆序 `op.drop_index` 与 `op.drop_table`。
+
+**枚举跨库兼容（关键决策）**：模型侧所有枚举列使用 `SAEnum(..., native_enum=False, length=N)`；迁移侧对应生成 `sa.Enum('...', name='...', native_enum=False, length=N)`。效果：
+
+- SQLite（无原生 ENUM）与 PostgreSQL（显式禁用原生 ENUM）下均落为 `VARCHAR(N)` 字符串存储，两种数据库 DDL 行为一致。
+- 避免 PostgreSQL 原生 ENUM 类型在 SQLite 下不可用，以及枚举值后续变更需 `ALTER TYPE` 的兼容成本。
+- 保证 `alembic check` 判定模型与迁移一致（模型 `SAEnum` 与迁移 `sa.Enum` 参数匹配）。
+
+**主键与默认值**：
+
+- 主键 `sa.Uuid()`：PostgreSQL 落 native UUID，SQLite 落 `CHAR(32)`，由 SQLAlchemy 类型适配，跨库一致。
+- 时间戳 `server_default=sa.text('(CURRENT_TIMESTAMP)')`：PostgreSQL 与 SQLite 均支持，与模型 `func.now()` 对齐。
+
+**迁移命令与生命周期**：
+
+| 命令 | 作用 | 使用时机 |
+|---|---|---|
+| `alembic upgrade head` | 建库/升级到最新版本 | 新环境初始化、容器启动 |
+| `alembic downgrade -1` | 回退一步 | 排错 |
+| `alembic check` | 校验模型与迁移脚本一致 | 验收 / CI |
+
+**schema 一致性保证**：模型仅追加 `index=True`（不改表名/列名/列类型），因此 `create_all` 与迁移脚本生成相同 schema。测试链路（`conftest.py` 继续 `create_all`）与迁移建库互不冲突，且迁移不依赖数据库外键报错（建表仅声明约束，业务写入前仍由 service 校验引用存在）。
+
+### 2.11.4 启动流程改造
+
+- 改造前：`seed.py`（`create_all` + 写种子）→ 启动服务。
+- 改造后：`alembic upgrade head`（建表/升级）→ `python seed.py`（仅写种子）→ `uvicorn`（启动服务）。
+
+```mermaid
+flowchart LR
+  M["alembic upgrade head<br/>建表 / 升级"] --> S["python seed.py<br/>写管理员 + 图层"] --> U["uvicorn<br/>启动服务"]
+```
+
+**各文件改动边界**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/seed.py` | 移除 `create_all`，仅保留幂等种子写入（管理员按 username 存在则跳过；图层按 name 幂等 upsert） |
+| `backend/Dockerfile` | `CMD` 改为 `alembic upgrade head && python seed.py && uvicorn app.main:app ...` |
+| `README.md` | 本地运行步骤在 `seed.py` 之前插入 `alembic upgrade head` |
+
+### 2.11.5 验收方案
+
+| # | 验收项 | 期望结果 |
+|---|---|---|
+| 1 | 删除 `backend/demo.db` → `alembic upgrade head` → `python seed.py` → 启动 → 访问 `/api/v1/health` | 全链路成功，health 返回 ok |
+| 2 | 再次执行 `alembic upgrade head` | 幂等，不报错（无待应用迁移） |
+| 3 | 执行 `alembic check` | 报告模型与迁移一致，无差异 |
+| 4 | `pytest tests/ -q` | 后端测试结果不变（`conftest.py` 继续 `create_all`） |
+
+> 说明：`backend/demo.db` 为本地 SQLite 演示库（`scripts/configure_local.py` 生成 `DATABASE_URL=sqlite:///./demo.db`）；`backend/test_pytest.db` 为测试库，二者互不影响，验收仅针对前者。

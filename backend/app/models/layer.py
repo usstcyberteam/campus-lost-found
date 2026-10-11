@@ -23,7 +23,7 @@ class SimulatedPoint(Base):
     __tablename__ = "simulated_point"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    layer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("layer.id"), nullable=False)
+    layer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("layer.id"), nullable=False, index=True)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
     norm_x: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)
     norm_y: Mapped[float] = mapped_column(Numeric(12, 8), nullable=False)

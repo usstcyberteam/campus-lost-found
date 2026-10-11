@@ -13,15 +13,19 @@ class Item(Base):
     __tablename__ = "item"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    direction: Mapped[Direction] = mapped_column(SAEnum(Direction, native_enum=False, length=8), nullable=False)
+    direction: Mapped[Direction] = mapped_column(
+        SAEnum(Direction, native_enum=False, length=8), nullable=False, index=True
+    )
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     location_area: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     precise_location: Mapped[str | None] = mapped_column(Text, nullable=True)
     time_occurred: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[ItemStatus] = mapped_column(SAEnum(ItemStatus, native_enum=False, length=16), nullable=False)
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False)
+    status: Mapped[ItemStatus] = mapped_column(
+        SAEnum(ItemStatus, native_enum=False, length=16), nullable=False, index=True
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     layer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("layer.id"), nullable=True)
     norm_x: Mapped[float | None] = mapped_column(Numeric(12, 8), nullable=True)
     norm_y: Mapped[float | None] = mapped_column(Numeric(12, 8), nullable=True)
@@ -29,7 +33,9 @@ class Item(Base):
     source: Mapped[Source] = mapped_column(
         SAEnum(Source, native_enum=False, length=8), nullable=False, default=Source.manual
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -39,7 +45,7 @@ class Attachment(Base):
     __tablename__ = "attachment"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False, index=True)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     is_evidence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -49,7 +55,7 @@ class ItemFeature(Base):
     __tablename__ = "item_feature"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False, index=True)
     labels: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[Source] = mapped_column(
@@ -63,7 +69,7 @@ class Route(Base):
     __tablename__ = "route"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False, index=True)
     layer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("layer.id"), nullable=True)
     kind: Mapped[RouteKind] = mapped_column(SAEnum(RouteKind, native_enum=False, length=16), nullable=False)
     geometry: Mapped[dict | None] = mapped_column(JSON, nullable=True)

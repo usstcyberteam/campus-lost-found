@@ -6,8 +6,8 @@
 | 阶段 | 阶段3：编码任务规划 |
 | 特性名 | `campus_lost_found` |
 | 写入路径 | `.codeartsdoer/specs/campus_lost_found/tasks.md` |
-| 上游输入 | `spec.md` v1.0 + `design.md` v1.0（2026-10-03） |
-| 状态 | v1.0（2026-10-03） |
+| 上游输入 | `spec.md` v1.0 + `design.md` v1.0（含 2.11 节 T02 细化） |
+| 状态 | v1.1（2026-10-11，新增 T02 细化任务） |
 
 ## 0. 约定与负责人
 
@@ -191,3 +191,42 @@ flowchart LR
 | M2 | 地图保存/楼层/无比例尺 | 6.7 |
 | M3 | 模型降级/来源标识/工单授权 | 6.3/6.6 |
 | M4 | 权限矩阵全量回归 + EARS 验收 | 6.1–6.8 |
+
+## 7. T02 细化任务：建立 Alembic 迁移基线与索引
+
+> 本清单对应 `design.md` 2.11 节，将 T02 细化为可执行、可勾选的编码任务。硬约束：不改表名/列名/列类型；不改 `backend/tests/conftest.py`（测试继续 `create_all`）；密钥不出现在代码、日志或对话中。
+
+### 7.1 为常用查询列补索引（17 个）
+- [ ] 在 `backend/app/models/item.py` 的 `Item` 模型，为 `owner_user_id`、`direction`、`status`、`created_at` 四列追加 `index=True`
+- [ ] 在 `backend/app/models/claim.py` 的 `Claim` 模型，为 `found_item_id`、`lost_item_id`、`applicant_user_id`、`status` 四列追加 `index=True`
+- [ ] 在 `backend/app/models/claim.py` 的 `ClaimEvidence` 模型，为 `claim_id` 列追加 `index=True`
+- [ ] 在 `backend/app/models/ticket.py` 的 `Ticket` 模型，为 `item_id`、`requester_user_id`、`assignee_user_id`、`status` 四列追加 `index=True`
+- [ ] 在 `backend/app/models/item.py` 的 `Route` 模型，为 `item_id` 列追加 `index=True`
+- [ ] 在 `backend/app/models/layer.py` 的 `SimulatedPoint` 模型，为 `layer_id` 列追加 `index=True`
+- [ ] 在 `backend/app/models/item.py` 的 `ItemFeature` 模型，为 `item_id` 列追加 `index=True`
+- [ ] 在 `backend/app/models/item.py` 的 `Attachment` 模型，为 `item_id` 列追加 `index=True`
+- [ ] 确认未改动任何表名、列名、列类型（仅追加 `index=True`）
+
+### 7.2 生成初始迁移基线
+- [ ] 在 `backend/alembic/versions/` 生成初始迁移文件（`down_revision = None`），包含当前全部 12 张表及全部索引
+- [ ] 通读迁移文件，确认枚举列以 `sa.Enum(..., native_enum=False, length=N)` 按字符串创建，与模型 `SAEnum` 参数一致
+- [ ] 确认主键用 `sa.Uuid()`、时间戳 `server_default=sa.text('(CURRENT_TIMESTAMP)')`，在 SQLite 与 PostgreSQL 下均可执行
+- [ ] 确认 `upgrade()` 按依赖顺序建表建索引，`downgrade()` 逆序删除
+
+### 7.3 改造 seed.py
+- [ ] 在 `backend/seed.py` 移除 `create_all` 建表调用，仅保留管理员与三个图层的幂等种子写入
+- [ ] 确认 `seed.py` 不再负责建表（建表交由 `alembic upgrade head` 完成）
+
+### 7.4 改造 Dockerfile 启动命令
+- [ ] 在 `backend/Dockerfile` 将启动命令改为「先 `alembic upgrade head`，再 `python seed.py`，最后启动 uvicorn」
+- [ ] 确认命令顺序为 迁移 → 种子 → 启动服务
+
+### 7.5 更新 README 运行步骤
+- [ ] 在 `README.md` 的本地运行步骤中，于 `seed.py` 之前插入 `alembic upgrade head`
+- [ ] 确认 README 对本地 SQLite 与 Docker PostgreSQL 两种环境的建表方式描述一致
+
+### 7.6 验收与回归测试
+- [ ] 删除 `backend/demo.db` 后依次执行 `alembic upgrade head`、`python seed.py`，均成功，并能启动服务访问 `/api/v1/health`
+- [ ] 再次执行 `alembic upgrade head`，确认幂等不报错（无待应用迁移）
+- [ ] 执行 `alembic check`，确认模型与迁移一致、无差异
+- [ ] 执行 `backend` 的 `pytest tests/ -q`，确认后端测试结果不变
