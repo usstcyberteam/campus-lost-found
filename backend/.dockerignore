@@ -1,0 +1,12 @@
+.venv
+venv
+__pycache__
+**/__pycache__
+*.db
+*.log
+.pytest_cache
+.env
+.env.*
+!.env.example
+storage/*
+!storage/outdoor.jpg

@@ -1,0 +1,35 @@
+# 环境与密钥
+.env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.log
+.artifacts/
+
+# 码道本地配置与索引，仅保留需求规格
+.codeartsdoer/*
+!.codeartsdoer/specs/
+
+# 文件存储（运行时数据忽略，底图保留）
+backend/storage/*
+!backend/storage/outdoor.jpg
+
+# 系统与编辑器
+.DS_Store
+.idea/
+.vscode/
