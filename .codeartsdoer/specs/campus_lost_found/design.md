@@ -619,3 +619,153 @@ GET /items 新增 `q` 参数，`category` 由精确匹配改为模糊匹配：
 | 2 | 后端 `ruff check .` | 无报错 |
 | 3 | 前端 `npm run lint` 与 `npm run build` | 通过 |
 | 4 | 打开 `/docs` | 上述接口均展示 Page 响应结构与 8 个补齐的响应模型 |
+---
+
+## 2.14 输入校验与一致性修复设计（阶段3 · T22）
+
+> 本小节为「修复一批已确认的输入校验和一致性问题」任务的增量设计。上游依据：`spec.md` 第 4/5 章（状态机与权限边界）、`docs/代码规范.md`「数据」一节（字符串字段必须有长度上限、归一化坐标用 `Field(ge=0, le=1)` 约束、写入前校验被引用的记录存在）、以及本次任务给定的 8 条缺陷清单。
+>
+> **允许修改**：`backend/app/schemas/`、`backend/app/services/`、`backend/app/api/v1/`、`backend/app/models/claim.py`、新建一个 Alembic 迁移、`backend/tests/test_validation.py`、`frontend/src/pages/StaffClaims.tsx`、`frontend/src/components/Layout.tsx`。
+>
+> **硬约束**：不改变认领流程的加锁与事务顺序；不改动第 1~8 条之外的行为。
+
+### 2.14.1 需求与存量功能对比
+
+| # | 需求功能 | 存量实现 | 代码位置 | 判定 |
+|---|---|---|---|---|
+| 1 | 归一化坐标 0~1，越界 400 | `MapAnchorRequest`/`SimulatedPointCreate` 已用 `Field(ge=0, le=1)`，越界由 `RequestValidationError` 处理器统一转 400/VALIDATION | `schemas/layer.py:27-28,45-46`、`errors.py:42` | 需扩展（补 schema 约束） |
+| 2 | 各类字符串长度上限 | 各 schema 已声明 `StringConstraints(max_length=...)` | `schemas/item.py`、`auth.py`、`staff.py`、`layer.py`、`claim.py` | 需扩展（补 schema 约束） |
+| 3 | pixels_per_meter 必须 > 0 | `CalibrateRequest` 已用 `Field(gt=0)` | `schemas/layer.py:22` | 需扩展 |
+| 4 | 路线几何按 kind 判别结构 | `RouteCreate` 已拆为 `PolylineGeometry`/`CircleGeometry` 联合 + `model_validator` | `schemas/layer.py:50-78` | 需扩展 |
+| 5 | 引用存在性校验（layer_id 404） | 三处写入均先 `db.get(Layer, ...)` 判空 | `api/v1/layers.py:68`、`services/item_service.py:105,118` | 需扩展 |
+| 6 | 特征提取 text 改请求体 + 去重更新 | `FeatureExtractRequest` 请求体 + `extract_item_features` 按 `confirmed=False` 复用 | `schemas/item.py:56`、`api/v1/items.py:69-76`、`services/item_service.py:151-163` | 需扩展 |
+| 7 | 工作人员可执行操作管理员同样可执行 | 后端 `require_role(Role.staff, Role.admin)`，前端导航含 admin | `api/v1/{claims,tickets,layers}.py`、`components/Layout.tsx:29` | 需扩展 |
+| 8 | 认领拒绝理由列 + 保存 + 返回 | `claim.review_reason` 列 + 迁移 + 审核保存 + 详情返回 + 前端理由输入 | `models/claim.py:24`、`alembic/versions/7b8c9d0e1f2a_*.py`、`services/claim_service.py:90,171`、`pages/StaffClaims.tsx:139-147` | 需扩展 |
+
+**结论**：本任务为「校验补强 + 一致性修复」，无新增实体、无新增接口，全部改动落在既有 schema/service/路由/模型/迁移/前端组件上；8 条均已在代码中落地，本节作为实现方案归档设计，记录关键决策与契约。
+
+### 2.14.2 分层归属与文件改动清单
+
+| 文件 | 分层 | 改动 |
+|---|---|---|
+| `backend/app/schemas/layer.py` | schemas | `MapAnchorRequest`/`SimulatedPointCreate` 归一化坐标 `Field(ge=0, le=1)`；`SimulatedPointCreate.label` 1~64、`description` ≤500；`CalibrateRequest.pixels_per_meter` `gt=0`；新增 `RoutePoint/PolylineGeometry/CircleGeometry`，`RouteCreate.geometry` 改为判别联合 + `model_validator` |
+| `backend/app/schemas/item.py` | schemas | `ItemCreate.description` ≤2000、`precise_location` ≤200；新增 `FeatureExtractRequest`（`text` 请求体字段 ≤2000） |
+| `backend/app/schemas/auth.py` | schemas | `RegisterRequest.contact` ≤100 |
+| `backend/app/schemas/staff.py` | schemas | `StaffCreateRequest.contact` ≤100 |
+| `backend/app/schemas/claim.py` | schemas | `ReviewRequest.reason` ≤500；`ClaimDetail` 新增 `review_reason` |
+| `backend/app/services/item_service.py` | services | `set_map_anchor`/`create_route` 写入前校验 `layer_id` 存在（404）；`extract_item_features` 复用 `confirmed=False` 的 `ItemFeature`，不新增重复记录 |
+| `backend/app/api/v1/items.py` | api | `extract` 改为从 `body: FeatureExtractRequest` 取 `text` |
+| `backend/app/api/v1/layers.py` | api | `create_simulated_point` 写入前校验 `layer_id` 存在（404） |
+| `backend/app/services/claim_service.py` | services | `review_claim` 保存 `review_reason`；`get_claim` 返回 `review_reason` |
+| `backend/app/models/claim.py` | models | `Claim` 新增 `review_reason: Mapped[str \| None]`（`Text`，可空） |
+| `backend/alembic/versions/7b8c9d0e1f2a_add_claim_review_reason.py` | 迁移 | 新增迁移：`op.add_column('claim', sa.Column('review_reason', sa.Text(), nullable=True))` |
+| `backend/tests/test_validation.py` | tests | 8 类校验与一致性用例 |
+| `frontend/src/components/Layout.tsx` | components | 导航「认领审核」对 `role === 'staff' \|\| 'admin'` 显示 |
+| `frontend/src/pages/StaffClaims.tsx` | pages | 拒绝时可填写理由（`textarea`），提交时携带 `reason` |
+
+**分层说明**：所有参数范围/长度校验下沉到 `schemas` 层（Pydantic），路由与服务层不做手写范围判断；引用存在性与去重更新属业务规则，落在 `services` 层；路由仅取参、鉴权、调用、返回。
+### 2.14.3 schema 结构设计
+
+**归一化坐标与长度约束**（`schemas/layer.py`、`schemas/item.py`、`schemas/auth.py`、`schemas/staff.py`、`schemas/claim.py`）：
+
+| Schema 字段 | 约束 | 越界行为 |
+|---|---|---|
+| `MapAnchorRequest.norm_x/norm_y` | `float = Field(ge=0, le=1)` | 400 / VALIDATION |
+| `SimulatedPointCreate.norm_x/norm_y` | `float = Field(ge=0, le=1)` | 400 / VALIDATION |
+| `SimulatedPointCreate.label` | `StringConstraints(strip_whitespace=True, min_length=1, max_length=64)` | 400 |
+| `SimulatedPointCreate.description` | `StringConstraints(max_length=500)`，可空 | 400 |
+| `ItemCreate.description` | `StringConstraints(max_length=2000)`，默认 `""` | 400 |
+| `ItemCreate.precise_location` | `StringConstraints(max_length=200)`，可空 | 400 |
+| `RegisterRequest.contact` / `StaffCreateRequest.contact` | `StringConstraints(max_length=100)`，可空 | 400 |
+| `ReviewRequest.reason` | `StringConstraints(max_length=500)`，可空 | 400 |
+| `CalibrateRequest.pixels_per_meter` | `float = Field(gt=0)` | 400 |
+| `FeatureExtractRequest.text` | `StringConstraints(strip_whitespace=True, max_length=2000)`，可空 | 400 |
+
+**路线几何判别联合**（`schemas/layer.py`）：
+
+| 模型 | 字段与约束 | 语义 |
+|---|---|---|
+| `RoutePoint` | `x: float = Field(ge=0, le=1)`、`y: float = Field(ge=0, le=1)` | 归一化坐标点 |
+| `PolylineGeometry` | `points: list[RoutePoint] = Field(min_length=2, max_length=200)` | 折线，2~200 个点 |
+| `CircleGeometry` | `center: RoutePoint`、`radius: float = Field(gt=0, le=1)` | 圆，圆心 + 半径（0<r≤1） |
+| `RouteCreate` | `kind: RouteKind`、`layer_id: uuid.UUID \| None`、`geometry: PolylineGeometry \| CircleGeometry \| None`、`floor_segments: list \| None` | 顶层创建模型 |
+
+`RouteCreate` 以 `@model_validator(mode="after")` 校验 `kind` 与 `geometry` 结构匹配：`polyline` 必须为 `PolylineGeometry`、`circle` 必须为 `CircleGeometry`，否则抛 `ValueError`，由校验处理器转 400。`geometry` 可空（允许先建路线后补几何），但一旦提供则必须与 `kind` 一致。
+
+**响应模型**：`ClaimDetail(ClaimOut)` 新增 `review_reason: str | None = None`，与 `Claim` 模型新增列对齐；`RouteDetail`/`TicketRouteOut` 的 `geometry: dict | None` 继续以字典回显（存储侧 `RouteCreate.geometry.model_dump()` 落库），对外契约不变。
+
+### 2.14.4 service 改动
+
+**引用存在性（第 5 条）**：
+
+| 函数 | 改动 |
+|---|---|
+| `set_map_anchor`（`services/item_service.py`） | 在 `_get_owned_item` 后、写入 `item.layer_id/norm_*` 前，`db.get(Layer, body.layer_id)` 为空则 `raise ApiError(404, "NOT_FOUND", "图层不存在")` |
+| `create_route`（`services/item_service.py`） | 在 `_get_owned_item` 后，`body.layer_id is not None` 且 `db.get(Layer, ...)` 为空则 404 |
+| `create_simulated_point`（`api/v1/layers.py`） | 在 `require_role` 后，`db.get(Layer, layer_id)` 为空则 `raise ApiError(404, ...)` |
+
+> 说明：`layer_id` 在三处均为可选/路径参数，须「写入前校验引用存在」而非依赖数据库外键报错，符合代码规范「不依赖数据库外键报错」。
+
+**特征提取去重（第 6 条）**：
+
+`extract_item_features`（`services/item_service.py`）改为「查找未确认记录 → 有则更新、无则新建」：
+
+```
+feature = db.query(ItemFeature).filter(item_id == id, confirmed == False).first()
+if feature is None: 新建 ItemFeature(item_id, confirmed=False) 并 db.add
+feature.labels / extracted_text / source / confidence = result[...]
+db.commit()
+```
+
+同一物品重复调用仅更新已有未确认记录，不再新增重复 `ItemFeature`。`extract` 路由（`api/v1/items.py`）改为接收 `body: FeatureExtractRequest`，`text` 从请求体取，不再从地址栏参数取。
+
+**拒绝理由（第 8 条）**：
+
+`review_claim`（`services/claim_service.py`）在状态流转与 `reviewer_user_id`、`reviewed_at` 赋值同处追加 `claim.review_reason = body.reason`；`get_claim` 在构造 `ClaimDetail` 时透传 `review_reason=claim.review_reason`。**不改变** `editable_claim`/`lock_items` 的加锁顺序、`flush`/`commit` 位置与条件更新语句。
+
+### 2.14.5 迁移内容
+
+新建 `backend/alembic/versions/7b8c9d0e1f2a_add_claim_review_reason.py`，`down_revision = '5a312e915b0f'`（挂在初始基线之上）：
+
+- `upgrade()`：`op.add_column('claim', sa.Column('review_reason', sa.Text(), nullable=True))`
+- `downgrade()`：`op.drop_column('claim', 'review_reason')`
+
+`review_reason` 用 `Text` 可空列，不设默认值、不加索引（仅审核写入，低频查询）；模型侧 `Mapped[str | None] = mapped_column(Text, nullable=True)` 与迁移一致，`alembic check` 无差异。测试链路 `conftest.py` 继续 `create_all`，`review_reason` 随模型建表，与迁移建库行为一致。
+
+### 2.14.6 角色一致与前端改动
+
+**后端**：以下操作已统一 `require_role(Role.staff, Role.admin)`，管理员与工作人员同权：
+
+| 操作 | 路由 |
+|---|---|
+| 查看/审核/确认归还认领 | `api/v1/claims.py` 的 `GET /claims`、`POST /claims/{id}/review`、`POST /claims/{id}/complete` |
+| 接单/反馈工单 | `api/v1/tickets.py` 的 `POST /tickets/{id}/assign`、`POST /tickets/{id}/feedback` |
+| 查看/创建模拟点位 | `api/v1/layers.py` 的 `GET/POST /layers/{id}/simulated-points` |
+
+**前端**：`components/Layout.tsx` 导航「认领审核」入口条件由仅 staff 改为 `role === 'staff' || role === 'admin'`；`pages/StaffClaims.tsx` 同步以 `role !== 'staff' && role !== 'admin'` 守卫，拒绝时新增「拒绝理由（可选）」`textarea`，`act('reject')` 提交 `{ approve: false, reason: reason.trim() || undefined }`。
+
+> 前端隐藏按钮仅作展示，权限仍在后端强制（`require_role`），管理员可执行操作不会因前端条件遗漏而受限。
+
+### 2.14.7 测试设计思路
+
+新增 `backend/tests/test_validation.py`（复用 `test_acceptance.py` 的 `create_user/login/register/auth` 与自建 `create_layer/item/staff_token/admin_token` 辅助函数），按 8 条逐类覆盖，每类含正常 + 非法输入/权限：
+
+| # | 用例 | 覆盖 |
+|---|---|---|
+| 1 | `test_map_anchor_coordinate_out_of_range_returns_400`、`test_simulated_point_coordinate_out_of_range_returns_400` | 归一化坐标越界（1.5 / -0.1）返回 400 |
+| 2 | `test_item_description_and_precise_location_length_limits`、`test_contact_length_limit_on_register_and_staff`、`test_simulated_point_label_and_description_length_limits`、`test_review_reason_length_limit` | 各字符串长度上限（2001/201/101/65/501/501）返回 400，临界值（2000/200）返回 200 |
+| 3 | `test_calibrate_non_positive_pixels_per_meter_returns_400` | `pixels_per_meter` 为 0 / 负 返回 400 |
+| 4 | `test_route_polyline_geometry_validation`、`test_route_circle_geometry_validation` | 折线少于 2 点 / 坐标越界 / 结构错配；圆半径 0 或 >1 / 结构错配 返回 400，合法结构 200 |
+| 5 | `test_simulated_point_missing_layer_returns_404`、`test_map_anchor_missing_layer_returns_404`、`test_route_missing_layer_returns_404` | `layer_id` 不存在返回 404 |
+| 6 | `test_extract_uses_request_body_and_length_limit`、`test_extract_repeat_updates_existing_unconfirmed_feature` | 请求体 `text` 生效、>2000 返回 400；重复调用仅一条 `ItemFeature` 且内容为最新 |
+| 7 | `test_admin_can_review_and_complete_claim`、`test_admin_can_assign_and_feedback_ticket`、`test_admin_can_list_simulated_points` | 管理员可查看/审核/完成认领、接单/反馈工单、查看模拟点位 |
+| 8 | `test_review_reason_saved_and_returned` | 拒绝理由保存且认领详情返回 |
+
+### 2.14.8 验收方案
+
+| # | 验收项 | 期望 |
+|---|---|---|
+| 1 | `cd backend && .venv/Scripts/python -m pytest tests/ -q` | 全部通过（含新增 `test_validation.py` 用例；PostgreSQL 并发用例按环境跳过） |
+| 2 | `cd backend && .venv/Scripts/python -m ruff check .` | 无报错 |
+| 3 | `cd backend && .venv/Scripts/alembic upgrade head` + `alembic check` | 迁移应用成功，模型与迁移一致无差异 |
+| 4 | `cd frontend && npm run lint` 与 `npm run build` | 通过 |

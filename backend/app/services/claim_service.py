@@ -79,7 +79,7 @@ def get_claim(db: Session, user: User, claim_id: uuid.UUID) -> ClaimDetail:
     claim = db.get(Claim, claim_id)
     if claim is None:
         raise ApiError(404, "NOT_FOUND", "认领不存在")
-    if user.role != Role.staff and claim.applicant_user_id != user.id:
+    if user.role not in (Role.staff, Role.admin) and claim.applicant_user_id != user.id:
         raise ApiError(403, "FORBIDDEN", "只能查看本人的认领证据")
     evidence = (
         db.query(ClaimEvidence).filter_by(claim_id=claim.id).order_by(ClaimEvidence.created_at, ClaimEvidence.id).all()
@@ -87,6 +87,7 @@ def get_claim(db: Session, user: User, claim_id: uuid.UUID) -> ClaimDetail:
     return ClaimDetail(
         **ClaimOut.model_validate(claim).model_dump(),
         evidence=[EvidenceIn(kind=e.kind, content=e.content) for e in evidence],
+        review_reason=claim.review_reason,
     )
 
 
@@ -167,6 +168,7 @@ def review_claim(db: Session, user: User, claim_id: uuid.UUID, body: ReviewReque
             raise ApiError(409, "STATE_CONFLICT", "该物品已有通过核验的申请")
     claim.status = ClaimStatus.approved if body.approve else ClaimStatus.rejected
     claim.reviewer_user_id = user.id
+    claim.review_reason = body.reason
     claim.reviewed_at = datetime.now(UTC)
     db.flush()
     if not body.approve:

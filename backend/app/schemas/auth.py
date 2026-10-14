@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.models.enums import Role
 from app.schemas.validation import DisplayName, Password, Username
@@ -11,7 +12,7 @@ class RegisterRequest(BaseModel):
     username: Username
     password: Password
     display_name: DisplayName
-    contact: str | None = None
+    contact: Annotated[str, StringConstraints(max_length=100)] | None = None
 
 
 class LoginRequest(BaseModel):

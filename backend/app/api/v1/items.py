@@ -7,7 +7,14 @@ from app.core.deps import get_current_user
 from app.database import get_db
 from app.models import Direction, ItemStatus, User
 from app.schemas.common import Page
-from app.schemas.item import CandidateOut, FeatureExtractionOut, ItemCreate, ItemDetail, ItemPublic
+from app.schemas.item import (
+    CandidateOut,
+    FeatureExtractionOut,
+    FeatureExtractRequest,
+    ItemCreate,
+    ItemDetail,
+    ItemPublic,
+)
 from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
 from app.services import item_service
 
@@ -61,9 +68,12 @@ def get_route(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = De
 
 @router.post("/{item_id}/extract", response_model=FeatureExtractionOut)
 def extract(
-    item_id: uuid.UUID, text: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    item_id: uuid.UUID,
+    body: FeatureExtractRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    return item_service.extract_item_features(db, user, item_id, text)
+    return item_service.extract_item_features(db, user, item_id, body.text)
 
 
 @router.get("/{item_id}/candidates", response_model=list[CandidateOut])

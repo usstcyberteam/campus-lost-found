@@ -4,7 +4,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.models import Direction, Item, ItemFeature, ItemStatus, Route, Source, User
+from app.models import Direction, Item, ItemFeature, ItemStatus, Layer, Route, Source, User
 from app.schemas.item import ItemCreate
 from app.schemas.layer import MapAnchorRequest, RouteCreate
 from app.services.matching_service import find_candidates
@@ -102,8 +102,8 @@ def get_item_detail(db: Session, user: User, item_id: uuid.UUID) -> dict:
 
 def set_map_anchor(db: Session, user: User, item_id: uuid.UUID, body: MapAnchorRequest) -> dict:
     item = _get_owned_item(db, user, item_id, "只能给自己的记录标点")
-    if not (0 <= body.norm_x <= 1 and 0 <= body.norm_y <= 1):
-        raise ApiError(400, "VALIDATION", "坐标须在 0 到 1 之间")
+    if db.get(Layer, body.layer_id) is None:
+        raise ApiError(404, "NOT_FOUND", "图层不存在")
     item.layer_id = body.layer_id
     item.norm_x = body.norm_x
     item.norm_y = body.norm_y
@@ -115,11 +115,13 @@ def set_map_anchor(db: Session, user: User, item_id: uuid.UUID, body: MapAnchorR
 
 def create_route(db: Session, user: User, item_id: uuid.UUID, body: RouteCreate) -> dict:
     _get_owned_item(db, user, item_id, "只能给自己的记录添加路线")
+    if body.layer_id is not None and db.get(Layer, body.layer_id) is None:
+        raise ApiError(404, "NOT_FOUND", "图层不存在")
     route = Route(
         item_id=item_id,
         layer_id=body.layer_id,
         kind=body.kind,
-        geometry=body.geometry,
+        geometry=body.geometry.model_dump() if body.geometry is not None else None,
         floor_segments=body.floor_segments,
         is_private=True,
         authorized=False,
@@ -149,15 +151,14 @@ def list_routes(db: Session, user: User, item_id: uuid.UUID) -> list[dict]:
 def extract_item_features(db: Session, user: User, item_id: uuid.UUID, text: str | None = None) -> dict:
     _get_owned_item(db, user, item_id, "只能提取自己记录的特征")
     result = extract_features(text)
-    feature = ItemFeature(
-        item_id=item_id,
-        labels=result["labels"],
-        extracted_text=result["extracted_text"],
-        source=Source.model if not result["degraded"] else Source.manual,
-        confirmed=False,
-        confidence=result["confidence"],
-    )
-    db.add(feature)
+    feature = db.query(ItemFeature).filter(ItemFeature.item_id == item_id, ItemFeature.confirmed.is_(False)).first()
+    if feature is None:
+        feature = ItemFeature(item_id=item_id, confirmed=False)
+        db.add(feature)
+    feature.labels = result["labels"]
+    feature.extracted_text = result["extracted_text"]
+    feature.source = Source.model if not result["degraded"] else Source.manual
+    feature.confidence = result["confidence"]
     db.commit()
     return result
 

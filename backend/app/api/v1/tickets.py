@@ -31,7 +31,9 @@ def create_ticket(body: TicketCreate, db: Session = Depends(get_db), user: User 
 
 
 @router.post("/{ticket_id}/assign", response_model=TicketOut)
-def assign(ticket_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff))):
+def assign(
+    ticket_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff, Role.admin))
+):
     return ticket_service.assign(db, user, ticket_id)
 
 
@@ -50,6 +52,6 @@ def feedback(
     ticket_id: uuid.UUID,
     body: FeedbackRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role(Role.staff)),
+    user: User = Depends(require_role(Role.staff, Role.admin)),
 ):
     return ticket_service.feedback(db, user, ticket_id, body)

@@ -65,6 +65,8 @@ def create_simulated_point(
     db: Session = Depends(get_db),
     user: User = Depends(require_role(Role.staff, Role.admin)),
 ):
+    if db.get(Layer, layer_id) is None:
+        raise ApiError(404, "NOT_FOUND", "图层不存在")
     point = SimulatedPoint(
         layer_id=layer_id,
         label=body.label,

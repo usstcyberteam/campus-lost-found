@@ -26,7 +26,7 @@ export default function Layout() {
         <Link to="/me">我的委托</Link>
         <Link to="/tickets">工单</Link>
         <Link to="/map">地图</Link>
-        {role === 'staff' && <Link to="/staff/claims">认领审核</Link>}
+        {(role === 'staff' || role === 'admin') && <Link to="/staff/claims">认领审核</Link>}
         <span style={{ marginLeft: 'auto' }}>角色：{role}</span>
         <button onClick={onLogout}>退出</button>
       </nav>

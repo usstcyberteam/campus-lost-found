@@ -11,9 +11,9 @@ class ItemCreate(BaseModel):
     direction: Direction
     category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
-    description: str = ""
+    description: Annotated[str, StringConstraints(max_length=2000)] = ""
     location_area: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] = ""
-    precise_location: str | None = None
+    precise_location: Annotated[str, StringConstraints(max_length=200)] | None = None
     time_occurred: datetime | None = None
     is_simulated: bool = False
 
@@ -51,6 +51,10 @@ class ItemDetail(BaseModel):
     norm_y: float | None
     layer_id: uuid.UUID | None
     precise_location: str | None
+
+
+class FeatureExtractRequest(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None = None
 
 
 class FeatureExtractionOut(BaseModel):

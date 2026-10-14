@@ -13,9 +13,10 @@ export default function StaffClaims() {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [reason, setReason] = useState('')
 
   useEffect(() => {
-    if (role !== 'staff') return
+    if (role !== 'staff' && role !== 'admin') return
     let active = true
     setLoading(true)
     setMessage('')
@@ -61,11 +62,15 @@ export default function StaffClaims() {
     setMessage('')
     try {
       const path = '/claims/' + detail.id
-      const r =
-        action === 'complete'
-          ? await client.post(path + '/complete')
-          : await client.post(path + '/review', { approve: action === 'approve' })
+      let r
+      if (action === 'complete') {
+        r = await client.post(path + '/complete')
+      } else {
+        const body = action === 'approve' ? { approve: true } : { approve: false, reason: reason.trim() || undefined }
+        r = await client.post(path + '/review', body)
+      }
       setDetail({ ...detail, ...r.data })
+      setReason('')
       const list = await client.get('/claims', { params: status ? { status } : {} })
       setClaims(list.data.items)
       setMessage(action === 'complete' ? '已确认归还' : '审核结果已保存')
@@ -76,7 +81,7 @@ export default function StaffClaims() {
     }
   }
 
-  if (role !== 'staff') return <Navigate to="/" replace />
+  if (role !== 'staff' && role !== 'admin') return <Navigate to="/" replace />
   return (
     <main className="page">
       <h1>认领审核</h1>
@@ -131,6 +136,15 @@ export default function StaffClaims() {
           <p>状态：{claimStatusLabels[detail.status]}</p>
           {detail.status === 'pending' && (
             <div className="actions">
+              <label>
+                拒绝理由（可选）
+                <textarea
+                  aria-label="拒绝理由"
+                  value={reason}
+                  disabled={busy}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </label>
               <button disabled={busy} onClick={() => act('approve')}>
                 通过核验
               </button>

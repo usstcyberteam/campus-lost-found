@@ -33,8 +33,9 @@ class ClaimOut(BaseModel):
 
 class ReviewRequest(BaseModel):
     approve: bool
-    reason: str | None = None
+    reason: Annotated[str, StringConstraints(max_length=500)] | None = None
 
 
 class ClaimDetail(ClaimOut):
     evidence: list[EvidenceIn]
+    review_reason: str | None = None
