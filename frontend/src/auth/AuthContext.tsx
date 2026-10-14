@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { setToken } from '../api/client'
+import { setToken } from '../api/token'
 import { login as apiLogin, me as fetchMe, register as apiRegister } from '../api/auth'
 import type { Role } from '../types'
 

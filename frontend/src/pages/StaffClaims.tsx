@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import { completeClaim, getClaim, listClaims, reviewClaim } from '../api/claims'
 import { getItem } from '../api/items'
 import { useAsync } from '../hooks/useAsync'

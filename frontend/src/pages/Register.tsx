@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
 import Field from '../components/Field'

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import { createItem } from '../api/items'
 import type { Direction } from '../types'
 import Button from '../components/Button'

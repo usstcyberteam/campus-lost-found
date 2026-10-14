@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import { getLayerImage, listLayers, listSimulatedPoints } from '../api/layers'
 import { useAsync } from '../hooks/useAsync'
 import { useAuth } from '../auth/AuthContext'

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import { createClaim } from '../api/claims'
 import { getCandidates, getItem } from '../api/items'
 import { listMyItems } from '../api/me'

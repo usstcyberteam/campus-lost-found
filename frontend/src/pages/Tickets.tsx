@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { errorMessage } from '../api/client'
+import { errorMessage } from '../utils/error'
 import { listMyItems } from '../api/me'
 import { assignTicket, authorizeRoute, createTicket, feedbackTicket, listTickets } from '../api/tickets'
 import { useAsync } from '../hooks/useAsync'
