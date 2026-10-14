@@ -1,0 +1,19 @@
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--font-base);
+  color: var(--color-text-1);
+}
+
+.required {
+  color: var(--color-danger);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--color-danger);
+}

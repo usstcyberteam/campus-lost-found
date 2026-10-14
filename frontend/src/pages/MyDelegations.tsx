@@ -1,65 +1,46 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import client, { errorMessage } from '../api/client'
-import {
-  claimStatusLabels,
-  directionLabels,
-  statusLabels,
-  ticketStatusLabels,
-  type Claim,
-  type Item,
-  type Ticket,
-} from '../types'
+import { listMyBadges, listMyClaims, listMyItems, listMyTickets } from '../api/me'
+import { useAsync } from '../hooks/useAsync'
+import { claimStatusLabels, directionLabels, statusLabels, ticketStatusLabels } from '../types'
+import Empty from '../components/Empty'
+import ErrorNotice from '../components/ErrorNotice'
+import PageContainer from '../components/PageContainer'
+import Spinner from '../components/Spinner'
 
 export default function MyDelegations() {
-  const [items, setItems] = useState<Item[]>([])
-  const [claims, setClaims] = useState<Claim[]>([])
-  const [tickets, setTickets] = useState<Ticket[]>([])
-  const [badges, setBadges] = useState<{ id: string; kind: string }[]>([])
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
+  const { data, error, loading } = useAsync(
+    () =>
+      Promise.all([listMyItems(), listMyClaims(), listMyTickets(), listMyBadges()]).then(
+        ([items, claims, tickets, badges]) => ({ items, claims, tickets, badges }),
+      ),
+    [],
+  )
 
-  useEffect(() => {
-    let active = true
-    Promise.all([
-      client.get('/me/items'),
-      client.get('/me/claims'),
-      client.get('/me/tickets'),
-      client.get('/me/badges'),
-    ])
-      .then(([i, c, t, b]) => {
-        if (active) {
-          setItems(i.data.items)
-          setClaims(c.data.items)
-          setTickets(t.data.items)
-          setBadges(b.data)
-        }
-      })
-      .catch((e) => {
-        if (active) setError(errorMessage(e))
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  if (loading) return <main className="page">加载中…</main>
-  if (error)
+  if (loading) {
     return (
-      <main className="page">
-        <p role="alert">{error}</p>
-      </main>
+      <PageContainer>
+        <Spinner />
+      </PageContainer>
     )
+  }
+  if (error) {
+    return (
+      <PageContainer>
+        <ErrorNotice message={error} />
+      </PageContainer>
+    )
+  }
+  const items = data?.items.items ?? []
+  const claims = data?.claims.items ?? []
+  const tickets = data?.tickets.items ?? []
+  const badges = data?.badges ?? []
   return (
-    <div style={{ padding: 24 }}>
+    <PageContainer>
       <h1>我的委托</h1>
       {badges.length > 0 && <p>徽章：{badges.map((b) => b.kind).join('、')}</p>}
 
       <h2>我的发布</h2>
-      {items.length === 0 && <p>暂无</p>}
+      {items.length === 0 && <Empty text="暂无" />}
       <ul>
         {items.map((i) => (
           <li key={i.id}>
@@ -72,7 +53,7 @@ export default function MyDelegations() {
       </ul>
 
       <h2>我的认领</h2>
-      {claims.length === 0 && <p>暂无</p>}
+      {claims.length === 0 && <Empty text="暂无" />}
       <ul>
         {claims.map((c) => (
           <li key={c.id}>
@@ -82,12 +63,12 @@ export default function MyDelegations() {
       </ul>
 
       <h2>我的工单</h2>
-      {tickets.length === 0 && <p>暂无</p>}
+      {tickets.length === 0 && <Empty text="暂无" />}
       <ul>
         {tickets.map((t) => (
           <li key={t.id}>{ticketStatusLabels[t.status]}</li>
         ))}
       </ul>
-    </div>
+    </PageContainer>
   )
 }

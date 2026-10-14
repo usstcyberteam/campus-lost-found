@@ -1,0 +1,10 @@
+.container {
+  max-width: 360px;
+  margin: 80px auto;
+  padding: var(--space-5);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-3);
+}

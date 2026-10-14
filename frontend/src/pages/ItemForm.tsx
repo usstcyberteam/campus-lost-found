@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import client, { errorMessage } from '../api/client'
+import { errorMessage } from '../api/client'
+import { createItem } from '../api/items'
 import type { Direction } from '../types'
+import Button from '../components/Button'
+import ErrorNotice from '../components/ErrorNotice'
+import Field from '../components/Field'
+import styles from './ItemForm.module.css'
 
 export default function ItemForm() {
   const navigate = useNavigate()
@@ -20,7 +25,7 @@ export default function ItemForm() {
     setBusy(true)
     setError('')
     try {
-      await client.post('/items', {
+      await createItem({
         direction,
         category,
         title,
@@ -29,41 +34,55 @@ export default function ItemForm() {
         precise_location: preciseLocation || null,
       })
       navigate('/')
-    } catch (error) {
-      setError(errorMessage(error))
+    } catch (err) {
+      setError(errorMessage(err))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '24px auto', padding: 24 }}>
+    <div className={styles.container}>
       <h1>发布</h1>
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-        <div>
-          <label>类型</label>
+      <form onSubmit={onSubmit} className={styles.form}>
+        <Field label="类型">
           <select value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
             <option value="lost">寻物</option>
             <option value="found">拾获</option>
           </select>
-        </div>
-        <input placeholder="类别（如 雨伞）" value={category} onChange={(e) => setCategory(e.target.value)} required />
-        <input placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} required />
-        <textarea placeholder="描述" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <input
-          placeholder="地点（楼层级，如 图书馆2F）"
-          value={locationArea}
-          onChange={(e) => setLocationArea(e.target.value)}
-        />
-        <input
-          placeholder="精确位置（仅自己可见）"
-          value={preciseLocation}
-          onChange={(e) => setPreciseLocation(e.target.value)}
-        />
-        {error && <p style={{ color: '#dc2626' }}>{error}</p>}
-        <button type="submit" disabled={busy}>
+        </Field>
+        <Field label="类别">
+          <input
+            placeholder="类别（如 雨伞）"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="标题">
+          <input placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </Field>
+        <Field label="描述">
+          <textarea placeholder="描述" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label="地点">
+          <input
+            placeholder="地点（楼层级，如 图书馆2F）"
+            value={locationArea}
+            onChange={(e) => setLocationArea(e.target.value)}
+          />
+        </Field>
+        <Field label="精确位置">
+          <input
+            placeholder="精确位置（仅自己可见）"
+            value={preciseLocation}
+            onChange={(e) => setPreciseLocation(e.target.value)}
+          />
+        </Field>
+        {error && <ErrorNotice message={error} />}
+        <Button type="submit" loading={busy}>
           {busy ? '发布中…' : '提交'}
-        </button>
+        </Button>
       </form>
     </div>
   )

@@ -768,4 +768,424 @@ db.commit()
 | 1 | `cd backend && .venv/Scripts/python -m pytest tests/ -q` | 全部通过（含新增 `test_validation.py` 用例；PostgreSQL 并发用例按环境跳过） |
 | 2 | `cd backend && .venv/Scripts/python -m ruff check .` | 无报错 |
 | 3 | `cd backend && .venv/Scripts/alembic upgrade head` + `alembic check` | 迁移应用成功，模型与迁移一致无差异 |
-| 4 | `cd frontend && npm run lint` 与 `npm run build` | 通过 |
+| 4 | `cd frontend && npm run lint` 与 `npm run build` | 通过 |---
+
+## 2.15 前端接口层、请求 Hook 与基础组件重构设计
+
+> 本小节为「为前端搭建接口层、请求 Hook、设计变量和基础组件，并把现有页面迁移过去」任务的增量设计。上游依据：`spec.md` 3.1 必做功能（大厅/发布/匹配/认领/工单/我的委托/地图）、`docs/代码规范.md`「前端」一节（`src/api/` 每类资源一个文件、页面不直接写接口地址、不写内联 `style`、统一 `useAsync`、颜色/间距/圆角/字号只引用 `tokens.css`）。目标为**纯前端重构**：页面功能与文案不变，视觉只做统一，不改路由结构、页面数量与业务流程；不新增任何第三方依赖；全程不使用 `any`。
+
+**用户已确认的三个关键点（必须纳入）**：
+1. 颜色取值：主色 `#2563eb`、成功 `#16a34a`、警告 `#d97706`、危险 `#dc2626`；所有颜色只定义在 `tokens.css`，组件与页面不得出现任何颜色数值。
+2. 搜索框 `q` 与类别输入框一样，均做 300 毫秒防抖。
+3. `AuthContext` 的 `login`、`register`、`me` 也改用 `api/auth.ts`、`api/me.ts`；最终整个 `frontend/src` 中只有 `src/api/` 目录下文件可导入并使用 `client`。
+
+**硬约束**：不引入 UI 组件库与 CSS 框架；不改路由结构、页面数量、业务流程；不使用 `any`。
+
+### 2.15.1 需求与存量功能对比
+
+#### 已实现功能（可直接复用）
+
+| 需求功能 | 存量功能 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| axios 封装与鉴权注入 | `client`（baseURL `/api/v1`、Bearer 注入、401 广播 `auth-expired`、`errorMessage`） | `frontend/src/api/client.ts:1-48` | 100% |
+| 前端基础类型 | `Direction/ItemStatus/Source/Page/Item/Ticket/Claim/ClaimDetail/Candidate` 及中文 label | `frontend/src/types.ts:1-92` | 75% |
+| 认证上下文 | `AuthProvider`（login/register/logout/token 持久化/auth-expired 监听） | `frontend/src/auth/AuthContext.tsx:17-87` | 75% |
+| 路由结构 | 8 个路由 + Layout + RequireAuth | `frontend/src/App.tsx:14-36` | 100% |
+
+#### 需扩展的功能
+
+| 需求功能 | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| `types.ts` 与后端响应对齐 | `Item` 缺 `norm_x/norm_y/layer_id`；缺 `Role/User/Layer/SimulatedPoint/Badge/Evidence/FeatureExtractionOut` | 后端 `ItemDetail` 已含 `norm_x/norm_y/layer_id/precise_location/is_owner`（`schemas/item.py:37-53`） | `Item` 增补三字段（可选），新增上述类型 |
+| AuthContext 改走接口层 | `login/register/me` 直接 `client.post/get`（`AuthContext.tsx:38-80`） | 需满足「只有 `src/api/` 可引用 client」 | 改用 `api/auth.ts` 的 `login/register/me` |
+| Layout 角色中文 + 去内联 style | 显示 `角色：{role}`，内联 style（`Layout.tsx:16-31`） | 需中文映射 + 组件化 | 用 `roleLabels` + 基础组件 + `Layout.module.css` |
+| 页面状态管理 | 各页面手写 `active/loading/error` 标记与 `client` 调用 | 需统一到 `useAsync` | 用 `useAsync` 替换 |
+| 大厅类别/搜索防抖 | 输入即时发请求（`Home.tsx:38-54`） | q 与 category 均需 300ms 防抖 | 用 `useDebounce` |
+| 幂等键生成 | `crypto.randomUUID()`（`ItemDetail.tsx:76`） | 非 HTTPS 且非 localhost 下不存在 | 新建 `utils/id.ts` 兜底 |
+
+#### 需新增的功能或接口
+
+**接口层（`src/api/`）**：`auth.ts`、`items.ts`、`claims.ts`、`tickets.ts`、`layers.ts`、`me.ts`（`client.ts` 保留为唯一 axios 入口）。
+
+**Hook（`src/hooks/`）**：`useAsync.ts`、`useDebounce.ts`。
+
+**设计变量（`src/styles/`）**：`tokens.css`。
+
+**基础组件（`src/components/`）**：`Button`、`Card`、`Tag`、`Field`、`Empty`、`ErrorNotice`、`Spinner`、`PageContainer`（各带同名 `.module.css`）。
+
+**工具（`src/utils/`）**：`id.ts`（幂等键生成，兼容非 HTTPS 环境的 `crypto.randomUUID`）。
+
+### 2.15.2 目标目录结构与依赖关系
+
+```
+frontend/src/
+├── api/
+│   ├── client.ts        # 唯一 axios 入口（仅 api/ 内部引用）
+│   ├── auth.ts          # 登录/注册/当前用户
+│   ├── items.ts         # 物品 CRUD/标点/路线/特征/候选
+│   ├── claims.ts        # 认领列表/详情/提交/审核/完成
+│   ├── tickets.ts       # 工单列表/创建/接单/授权/反馈/路线
+│   ├── layers.ts        # 图层列表/底图/标定/模拟点位
+│   └── me.ts            # 我的物品/认领/工单/徽章
+├── hooks/
+│   ├── useAsync.ts      # 异步请求状态（data/error/loading/reload）
+│   └── useDebounce.ts   # 输入防抖
+├── styles/
+│   └── tokens.css       # CSS 设计变量（唯一颜色来源）
+├── utils/
+│   └── id.ts            # 幂等键生成
+├── components/
+│   ├── Button.tsx / Button.module.css
+│   ├── Card.tsx / Card.module.css
+│   ├── Tag.tsx / Tag.module.css
+│   ├── Field.tsx / Field.module.css
+│   ├── Empty.tsx / Empty.module.css
+│   ├── ErrorNotice.tsx / ErrorNotice.module.css
+│   ├── Spinner.tsx / Spinner.module.css
+│   ├── PageContainer.tsx / PageContainer.module.css
+│   ├── Layout.tsx（改造）+ Layout.module.css（新增）
+│   └── RequireAuth.tsx（改造）
+├── pages/（9 页改造，删除内联 style 与 client 调用）
+├── auth/AuthContext.tsx（改造，改走接口层）
+├── types.ts（补全）
+├── App.tsx / main.tsx / index.css（index.css 精简为 tokens 引入 + reset）
+```
+
+```mermaid
+flowchart TB
+  subgraph P["页面层 src/pages + components/Layout"]
+    HOME["Home"]; FORM["ItemForm"]; DETAIL["ItemDetail"]; MAP["MapView"]
+    ME["MyDelegations"]; STAFF["StaffClaims"]; TK["Tickets"]; AUTH["Login/Register"]
+  end
+  subgraph C["基础组件 src/components"]
+    BTN["Button"]; CARD["Card"]; TAG["Tag"]; FIELD["Field"]
+    EMPTY["Empty"]; ERR["ErrorNotice"]; SPIN["Spinner"]; PC["PageContainer"]
+  end
+  subgraph H["src/hooks"]
+    UA["useAsync"]; UD["useDebounce"]
+  end
+  subgraph API["接口层 src/api"]
+    A["auth"]; I["items"]; CL["claims"]; T["tickets"]; L["layers"]; M["me"]
+  end
+  CLIENT["client.ts (axios)"]
+  TOKENS["styles/tokens.css"]
+  BE["后端 /api/v1"]
+
+  P --> C
+  P --> H
+  P --> API
+  AUTH --> API
+  C --> TOKENS
+  P --> TOKENS
+  API --> CLIENT --> BE
+```
+
+**依赖边界**：页面与 `AuthContext` 只依赖接口层函数与 Hook；只有 `src/api/*` 导入 `client.ts`；颜色/间距/圆角/字号只引用 `tokens.css` 变量。
+
+### 2.15.3 接口层设计
+
+#### 总体设计
+
+- 每个资源一个文件，导出「带完整类型的请求函数」，命名与后端业务语言一致（`listItems`、`getItem`、`createClaim` 等）。
+- 所有函数返回 `Promise<具体类型>`，入参使用精确接口类型（可选参数显式标注 `| null | undefined`），**不使用 `any`**。
+- `client.ts` 继续承担 baseURL、Bearer 注入、401 广播与 `errorMessage`；`setToken/getToken` 供 `AuthContext` 使用，但页面不再 import client。
+- 列表接口统一返回 `Page<T>`；`GET /layers` 返回数组；`GET /layers/{id}/image` 返回 `Blob`。
+
+#### 接口清单
+
+**`auth.ts`**（`Role`/`User` 定义于 `types.ts`）：
+
+```ts
+export interface LoginRequest { username: string; password: string }
+export interface RegisterRequest { username: string; password: string; display_name: string; contact?: string | null }
+export interface TokenResponse { token: string; role: Role }
+
+export function login(body: LoginRequest): Promise<TokenResponse>
+export function register(body: RegisterRequest): Promise<TokenResponse>
+export function me(): Promise<User>
+```
+
+**`items.ts`**：
+
+```ts
+export interface ListItemsParams {
+  direction?: Direction | null
+  category?: string | null
+  location_area?: string | null
+  status?: ItemStatus | null
+  q?: string | null
+  limit?: number
+  offset?: number
+}
+export interface ItemCreateInput {
+  direction: Direction
+  category: string
+  title: string
+  description: string
+  location_area: string
+  precise_location: string | null
+  time_occurred?: string | null
+  is_simulated?: boolean
+}
+export interface MapAnchorInput { layer_id: string; norm_x: number; norm_y: number; is_simulated?: boolean }
+export interface RoutePoint { x: number; y: number }
+export interface PolylineGeometry { points: RoutePoint[] }
+export interface CircleGeometry { center: RoutePoint; radius: number }
+export type RouteKind = 'polyline' | 'circle'
+export interface RouteCreateInput {
+  kind: RouteKind
+  layer_id?: string | null
+  geometry?: PolylineGeometry | CircleGeometry | null
+  floor_segments?: unknown[] | null
+}
+export interface RouteOut { id: string; kind: RouteKind; is_private: boolean }
+export interface RouteDetail {
+  id: string
+  kind: RouteKind
+  geometry: Record<string, unknown> | null
+  floor_segments: unknown[] | null
+  is_private: boolean
+  authorized: boolean
+}
+export interface FeatureExtractionOut {
+  labels: Record<string, unknown> | null
+  extracted_text: string | null
+  confidence: number | null
+  source: string
+  degraded: boolean
+}
+
+export function listItems(params?: ListItemsParams): Promise<Page<Item>>
+export function getItem(id: string): Promise<Item>
+export function createItem(body: ItemCreateInput): Promise<Item>
+export function setMapAnchor(id: string, body: MapAnchorInput): Promise<{ ok: boolean }>
+export function createRoute(id: string, body: RouteCreateInput): Promise<RouteOut>
+export function getRoutes(id: string): Promise<RouteDetail[]>
+export function extractFeatures(id: string, text: string | null): Promise<FeatureExtractionOut>
+export function getCandidates(id: string): Promise<Candidate[]>
+```
+
+> 说明：`route`/`feature` 等函数为对齐后端契约一并补齐，供后续地图/提取页使用，本阶段页面若未用到可先不调用；核心要求是 `listItems`、`getItem`、`createItem`、`getCandidates` 及 `Item` 增补 `norm_x/norm_y/layer_id`。
+
+**`claims.ts`**：
+
+```ts
+export interface EvidenceInput { kind: 'text' | 'image'; content: string }
+export interface ClaimCreateInput {
+  found_item_id: string
+  lost_item_id: string | null
+  evidence: EvidenceInput[]
+  idempotency_key: string
+}
+export interface ReviewInput { approve: boolean; reason?: string | null }
+export interface ListClaimsParams { status?: ClaimStatus | null; limit?: number; offset?: number }
+
+export function listClaims(params?: ListClaimsParams): Promise<Page<Claim>>
+export function getClaim(id: string): Promise<ClaimDetail>
+export function createClaim(body: ClaimCreateInput): Promise<Claim>
+export function reviewClaim(id: string, body: ReviewInput): Promise<Claim>
+export function completeClaim(id: string): Promise<Claim>
+```
+
+**`tickets.ts`**：
+
+```ts
+export interface TicketCreateInput { item_id: string }
+export interface FeedbackInput { result: string }
+export interface TicketRoute {
+  id: string
+  kind: RouteKind
+  geometry: Record<string, unknown> | null
+  floor_segments: unknown[] | null
+}
+export interface ListTicketsParams { status?: TicketStatus | null; limit?: number; offset?: number }
+
+export function listTickets(params?: ListTicketsParams): Promise<Page<Ticket>>
+export function createTicket(body: TicketCreateInput): Promise<Ticket>
+export function assignTicket(id: string): Promise<Ticket>
+export function authorizeRoute(id: string): Promise<Ticket>
+export function getTicketRoute(id: string): Promise<TicketRoute[]>
+export function feedbackTicket(id: string, body: FeedbackInput): Promise<Ticket>
+```
+
+**`layers.ts`**：
+
+```ts
+export interface CalibrateInput { pixels_per_meter: number }
+export interface SimulatedPointInput { label: string; norm_x: number; norm_y: number; description?: string | null }
+
+export function listLayers(): Promise<Layer[]>
+export function getLayerImage(id: string, signal?: AbortSignal): Promise<Blob>
+export function calibrateLayer(id: string, body: CalibrateInput): Promise<Layer>
+export function listSimulatedPoints(id: string): Promise<SimulatedPoint[]>
+export function createSimulatedPoint(id: string, body: SimulatedPointInput): Promise<SimulatedPoint>
+```
+
+**`me.ts`**：
+
+```ts
+export function listMyItems(params?: { limit?: number; offset?: number }): Promise<Page<Item>>
+export function listMyClaims(params?: { limit?: number; offset?: number }): Promise<Page<Claim>>
+export function listMyTickets(params?: { limit?: number; offset?: number }): Promise<Page<Ticket>>
+export function listMyBadges(): Promise<Badge[]>
+```
+
+### 2.15.4 类型补全（`types.ts`）
+
+**新增类型**（与后端 schema 对齐，`id` 均以字符串承接 UUID）：
+
+| 类型 | 字段 |
+|---|---|
+| `Role` | `'student' \| 'staff' \| 'admin'` |
+| `roleLabels: Record<Role, string>` | 学生 / 工作人员 / 管理员 |
+| `User` | `id; username; display_name; role: Role` |
+| `Layer` | `id; name; version; width; height; scale_calibrated; image_path: string \| null` |
+| `SimulatedPoint` | `id; label; norm_x; norm_y; is_simulated; description: string \| null` |
+| `Badge` | `id; kind; awarded_at` |
+| `EvidenceKind` | `'text' \| 'image'` |
+
+**`Item` 增补**：`norm_x: number | null`、`norm_y: number | null`、`layer_id: string | null`（列表响应中为 null，详情响应返回实际值；`precise_location`/`is_owner` 保持可选）。
+
+**`ClaimDetail` 增补**：`review_reason: string | null`（对齐后端 `ClaimDetail.review_reason`）。
+
+> 设计说明：`Item` 作为「列表项 + 详情」的超集接口沿用现状（详情字段可选）；如后续需区分可再定义 `ItemDetail extends Item` 将 `norm_x/norm_y/layer_id` 收敛为必填，本阶段为降低改动面暂用单一接口 + 可选字段。
+
+### 2.15.5 请求 Hook 设计
+
+**`useAsync.ts`**：
+
+```ts
+export interface AsyncState<T> {
+  data: T | null
+  error: string | null
+  loading: boolean
+  reload: () => void
+}
+export function useAsync<T>(fn: () => Promise<T>, deps: DependencyList): AsyncState<T>
+```
+
+- `fn` 返回 Promise；挂载及 `deps` 变化时自动执行，`loading` 置 true，成功后写入 `data`，失败后把 `errorMessage(e)` 写入 `error`。
+- **旧结果丢弃**：用「请求序号 + active 标志」实现——每次执行/卸载递增序号，回调前校验序号未变且未卸载，否则丢弃结果，避免竞态与卸载后 setState 告警。
+- `reload` 手动重新触发（不改变依赖数组）。
+
+**`useDebounce.ts`**：
+
+```ts
+export function useDebounce<T>(value: T, delayMs = 300): T
+```
+
+- 内部 `useEffect` + `setTimeout`，返回延迟后的值；value 变化 300ms 内重置计时器，清理时 `clearTimeout`。
+
+**页面用法**（以 `Home.tsx` 为例）：`q`、`category` 分别 `useDebounce` 得到 `debouncedQ/debouncedCategory`，连同 `direction/status` 作为 `useAsync(listItems, [debouncedQ, debouncedCategory, direction, status])` 的依赖，实现搜索框与类别输入均 300ms 防抖后发请求。
+### 2.15.6 设计变量（`styles/tokens.css`）
+
+唯一颜色来源；组件与页面只引用变量，不写具体数值。取值沿用现有页面颜色（`index.css` 与各页内联色），主/成功/警告/危险按用户确认值。
+
+```css
+:root {
+  /* 语义色 */
+  --color-primary: #2563eb;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+
+  /* 文字三级 */
+  --color-text-1: #1f2937;   /* 主要 */
+  --color-text-2: #6b7280;   /* 次要 */
+  --color-text-3: #9ca3af;   /* 辅助 */
+
+  /* 背景两级 */
+  --color-bg-1: #f5f7fa;     /* 页面背景 */
+  --color-bg-2: #ffffff;     /* 卡片/容器背景 */
+
+  /* 边框 */
+  --color-border: #e5e7eb;
+
+  /* 间距 6 级 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* 圆角 3 级 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* 字号 5 级 */
+  --font-xs: 12px;
+  --font-sm: 14px;
+  --font-md: 16px;
+  --font-lg: 20px;
+  --font-xl: 24px;
+
+  /* 阴影 2 级 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+```
+
+**取值依据**：主色 #2563eb、成功 #16a34a、警告 #d97706、危险 #dc2626 为用户确认值；文字 #1f2937/#6b7280、背景 #f5f7fa/#ffffff、边框 #e5e7eb 沿用 `index.css:9-10`、`Home.tsx:69`、`Layout.tsx:21`；圆角 8px 沿用 `index.css:29`；字号/间距从现有 14px、12px、8px、16px、24px、32px 归纳为 5/6/3/2 级。`index.css` 精简为 `@import './styles/tokens.css'` + reset（`*{box-sizing}`、`body{margin:0}`、`font-family`、控件 `font: inherit`）。
+
+### 2.15.7 基础组件设计
+
+每个组件一个文件 + 同名 `.module.css`，样式只引用 tokens 变量；组件与业务无关，可复用。
+
+| 组件 | Props | 变体/行为 |
+|---|---|---|
+| `Button` | `variant?: 'primary' \| 'secondary' \| 'danger'`（默认 primary）、`loading?: boolean`、`disabled?: boolean`、`type?: 'button' \| 'submit'`、`onClick?`、`children` | loading 时禁用并显示 `Spinner`；disabled/loading 均不可点击 |
+| `Card` | `children`、`className?` | 背景 bg-2、圆角 radius-md、内边距 space-4、阴影 shadow-sm |
+| `Tag` | `children`、`tone?: 'neutral' \| 'primary' \| 'success' \| 'warning' \| 'danger'` | 小型标签，用于状态/来源标识 |
+| `Field` | `label: string`、`error?: string \| null`、`required?: boolean`、`htmlFor?`、`children` | 表单项：label + 控件插槽 + 错误提示（danger 色，`role="alert"`） |
+| `Empty` | `text?: string`（默认「暂无数据」） | 空态占位 |
+| `ErrorNotice` | `message: string` | 错误提示（`role="alert"`，danger 色） |
+| `Spinner` | `size?: 'sm' \| 'md'` | 加载指示（CSS 动画，不引第三方图标） |
+| `PageContainer` | `children` | 页面容器：max-width、margin auto、内边距 space-5（替代原 `.page`） |
+
+**无障碍约定**：`Button` 支持 `loading` 时加 `aria-busy`；`Field` 通过 `htmlFor` 关联 label 与控件（或控件自带 `aria-label`）；`ErrorNotice`/`Empty` 带 `role="alert"`/`role="status"`，满足代码规范「表单控件必须有 label 或 aria-label」「提交类按钮请求期间禁用」。
+
+**`Layout` 改造**：内联 style 移入新增 `Layout.module.css`；角色显示改用 `roleLabels[role]`（学生/工作人员/管理员），`role` 为 null 时不渲染角色；导航「认领审核」条件保持 `role === 'staff' || role === 'admin'`；「退出」用 `Button variant="secondary"`。
+
+### 2.15.8 页面迁移映射
+
+| 页面 | 原 client 调用 | 迁移后调用 | 组件/Hook |
+|---|---|---|---|
+| `Home` | `GET /items` | `listItems(params)` | `useAsync` + `useDebounce`(q、category 各 300ms) + `Card`/`Tag`/`Empty`/`ErrorNotice`/`Spinner`/`PageContainer` |
+| `ItemDetail` | `GET /items/:id`、`GET /items/:id/candidates`、`GET /me/items`、`POST /claims` | `getItem`/`getCandidates`/`listMyItems`/`createClaim` | `useAsync` + `Card`/`Field`/`Button` + `id.ts` 幂等键 |
+| `ItemForm` | `POST /items` | `createItem` | `Field`/`Button`/`ErrorNotice`/`PageContainer` |
+| `Login` | `login`（context） | `login`（context 内部已改走 `api/auth.ts`） | `Field`/`Button`/`ErrorNotice` |
+| `Register` | `register`（context） | `register`（context） | `Field`/`Button`/`ErrorNotice` |
+| `MapView` | `GET /layers`、`GET /layers/:id/image`、`GET /layers/:id/simulated-points` | `listLayers`/`getLayerImage`/`listSimulatedPoints` | `useAsync`(图层)+ Leaflet 副作用保留 + `ErrorNotice`/`PageContainer` |
+| `MyDelegations` | `GET /me/items\|claims\|tickets\|badges` | `listMyItems`/`listMyClaims`/`listMyTickets`/`listMyBadges`（`Promise.all`） | `useAsync` + `Card`/`Tag`/`Empty`/`Spinner` |
+| `StaffClaims` | `GET /claims`、`GET /claims/:id`、`GET /items/:id`、`POST review/complete` | `listClaims`/`getClaim`/`getItem`/`reviewClaim`/`completeClaim` | `useAsync` + 提交 `busy` 保留（`Button loading`）+ `Card`/`Field`/`Tag` |
+| `Tickets` | `GET /tickets`、`GET /me/items`、`POST /tickets*` | `listTickets`/`listMyItems`/`createTicket`/`assignTicket`/`authorizeRoute`/`feedbackTicket` | `useAsync` + `Button loading` + `Card`/`Field`/`Empty` |
+| `AuthContext` | `client.post /auth/login`、`/auth/register`、`client.get /auth/me` | `login`/`register`/`me`（`api/auth.ts`） | 保持 token 持久化与 auth-expired 监听逻辑 |
+
+**迁移原则**：页面只做「数据获取 + 组件拼装」，不写接口地址、不写 `client.`、不写内联 `style`；提交类操作（认领、发布、审核、工单动作）保留 `busy` 防重复，改用 `Button loading/disabled` 呈现；列表空态用 `Empty`，错误用 `ErrorNotice`，加载用 `Spinner`。
+
+### 2.15.9 兼容性修复（`utils/id.ts`）
+
+`ItemDetail.tsx:76` 使用 `crypto.randomUUID()`，在非 HTTPS 且非 localhost 环境下不存在。新建 `utils/id.ts`：
+
+```ts
+export function createIdempotencyKey(): string
+```
+
+- 优先 `crypto.randomUUID()`（带 `typeof crypto !== 'undefined' && 'randomUUID' in crypto` 判空）；
+- 不可用时回退 `crypto.getRandomValues(new Uint8Array(16))` 生成 32 位十六进制串（与 UUID 长度一致），保障幂等键在 HTTP 环境可用。
+- 返回值为「等长随机十六进制串」，满足后端 `idempotency_key` 长度 ≤64 约束（`schemas/claim.py:19`）。
+
+`ItemDetail` 的 `key.current = crypto.randomUUID()` 改为 `key.current = createIdempotencyKey()`，其余逻辑不变。
+
+### 2.15.10 验收方案
+
+| # | 验收项 | 期望 |
+|---|---|---|
+| 1 | `frontend/src` 搜索 `style={{` | 结果 0 |
+| 2 | `frontend/src/pages` 搜索 `client.` | 结果 0（`client` 仅 `src/api/` 内引用） |
+| 3 | `frontend/src` 中颜色十六进制数值 | 仅出现在 `styles/tokens.css`，组件/页面零颜色数值 |
+| 4 | `cd frontend && npm run lint` | 通过（无 any、无未用导入） |
+| 5 | `cd frontend && npm run build` | 通过（`tsc -b` 类型检查 + vite 构建） |
+| 6 | 启动前后端手工走查 | 注册→发布寻物→发布拾获→查看候选→提交认领→我的委托→打开地图 全流程正常，文案与功能不变 |

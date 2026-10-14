@@ -1,54 +1,39 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import client, { errorMessage } from '../api/client'
+import { errorMessage } from '../api/client'
+import { completeClaim, getClaim, listClaims, reviewClaim } from '../api/claims'
+import { getItem } from '../api/items'
+import { useAsync } from '../hooks/useAsync'
 import { useAuth } from '../auth/AuthContext'
-import { claimStatusLabels, type Claim, type ClaimDetail, type Item } from '../types'
+import { claimStatusLabels, type Claim, type ClaimDetail, type ClaimStatus, type Item } from '../types'
+import Button from '../components/Button'
+import Card from '../components/Card'
+import Empty from '../components/Empty'
+import Field from '../components/Field'
+import PageContainer from '../components/PageContainer'
+import Spinner from '../components/Spinner'
+import styles from './StaffClaims.module.css'
 
 export default function StaffClaims() {
   const { role } = useAuth()
-  const [status, setStatus] = useState('pending')
-  const [claims, setClaims] = useState<Claim[]>([])
+  const [status, setStatus] = useState<ClaimStatus | ''>('pending')
   const [detail, setDetail] = useState<ClaimDetail | null>(null)
   const [found, setFound] = useState<Item | null>(null)
-  const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [reason, setReason] = useState('')
 
-  useEffect(() => {
-    if (role !== 'staff' && role !== 'admin') return
-    let active = true
-    setLoading(true)
-    setMessage('')
-    setDetail(null)
-    setFound(null)
-    client
-      .get('/claims', { params: status ? { status } : {} })
-      .then((r) => {
-        if (active) setClaims(r.data.items)
-      })
-      .catch((e) => {
-        if (active) setMessage(errorMessage(e))
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [status, role])
+  const { data, loading, reload } = useAsync(() => listClaims({ status: status || null }), [status])
+  const claims = data?.items ?? []
 
   async function open(claim: Claim) {
     setBusy(true)
     setMessage('')
     setDetail(null)
     try {
-      const [detailResponse, itemResponse] = await Promise.all([
-        client.get('/claims/' + claim.id),
-        client.get('/items/' + claim.found_item_id),
-      ])
-      setDetail(detailResponse.data)
-      setFound(itemResponse.data)
+      const [detailResponse, itemResponse] = await Promise.all([getClaim(claim.id), getItem(claim.found_item_id)])
+      setDetail(detailResponse)
+      setFound(itemResponse)
     } catch (e) {
       setMessage(errorMessage(e))
     } finally {
@@ -61,18 +46,18 @@ export default function StaffClaims() {
     setBusy(true)
     setMessage('')
     try {
-      const path = '/claims/' + detail.id
-      let r
+      let result: Claim
       if (action === 'complete') {
-        r = await client.post(path + '/complete')
+        result = await completeClaim(detail.id)
       } else {
-        const body = action === 'approve' ? { approve: true } : { approve: false, reason: reason.trim() || undefined }
-        r = await client.post(path + '/review', body)
+        result = await reviewClaim(
+          detail.id,
+          action === 'approve' ? { approve: true } : { approve: false, reason: reason.trim() || undefined },
+        )
       }
-      setDetail({ ...detail, ...r.data })
+      setDetail({ ...detail, ...result })
       setReason('')
-      const list = await client.get('/claims', { params: status ? { status } : {} })
-      setClaims(list.data.items)
+      reload()
       setMessage(action === 'complete' ? '已确认归还' : '审核结果已保存')
     } catch (e) {
       setMessage(errorMessage(e))
@@ -83,11 +68,15 @@ export default function StaffClaims() {
 
   if (role !== 'staff' && role !== 'admin') return <Navigate to="/" replace />
   return (
-    <main className="page">
+    <PageContainer>
       <h1>认领审核</h1>
-      <label>
-        申请状态{' '}
-        <select aria-label="申请状态" value={status} disabled={busy} onChange={(e) => setStatus(e.target.value)}>
+      <Field label="申请状态">
+        <select
+          aria-label="申请状态"
+          value={status}
+          disabled={busy}
+          onChange={(e) => setStatus(e.target.value as ClaimStatus | '')}
+        >
           <option value="">全部</option>
           {Object.entries(claimStatusLabels).map(([key, value]) => (
             <option key={key} value={key}>
@@ -95,26 +84,26 @@ export default function StaffClaims() {
             </option>
           ))}
         </select>
-      </label>
+      </Field>
       {message && <p role="status">{message}</p>}
       {loading ? (
-        <p>加载中…</p>
+        <Spinner />
       ) : claims.length === 0 ? (
-        <p>暂无该状态的申请</p>
+        <Empty text="暂无该状态的申请" />
       ) : (
         <ul>
           {claims.map((c) => (
             <li key={c.id}>
               申请 {c.id.slice(0, 8)} · {claimStatusLabels[c.status]}{' '}
-              <button disabled={busy} onClick={() => open(c)}>
+              <Button variant="secondary" disabled={busy} onClick={() => open(c)}>
                 查看证据
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
       {detail && (
-        <section className="card">
+        <Card className={styles.block}>
           <h2>{found?.title || '拾获物品'}</h2>
           <p>
             {found?.category} · {found?.location_area || '未知地点'}
@@ -135,31 +124,25 @@ export default function StaffClaims() {
           ))}
           <p>状态：{claimStatusLabels[detail.status]}</p>
           {detail.status === 'pending' && (
-            <div className="actions">
-              <label>
-                拒绝理由（可选）
-                <textarea
-                  aria-label="拒绝理由"
-                  value={reason}
-                  disabled={busy}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-              </label>
-              <button disabled={busy} onClick={() => act('approve')}>
+            <div className={styles.actions}>
+              <Field label="拒绝理由（可选）">
+                <textarea aria-label="拒绝理由" value={reason} disabled={busy} onChange={(e) => setReason(e.target.value)} />
+              </Field>
+              <Button disabled={busy} loading={busy} onClick={() => act('approve')}>
                 通过核验
-              </button>
-              <button disabled={busy} onClick={() => act('reject')}>
+              </Button>
+              <Button variant="danger" disabled={busy} loading={busy} onClick={() => act('reject')}>
                 拒绝申请
-              </button>
+              </Button>
             </div>
           )}
           {detail.status === 'approved' && (
-            <button disabled={busy} onClick={() => act('complete')}>
+            <Button disabled={busy} loading={busy} onClick={() => act('complete')}>
               确认已交接归还
-            </button>
+            </Button>
           )}
-        </section>
+        </Card>
       )}
-    </main>
+    </PageContainer>
   )
 }

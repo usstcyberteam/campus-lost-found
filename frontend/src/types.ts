@@ -1,6 +1,9 @@
 export type Direction = 'lost' | 'found'
 export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned'
 export type Source = 'manual' | 'rule' | 'cache' | 'model'
+export type Role = 'student' | 'staff' | 'admin'
+export type RouteKind = 'polyline' | 'circle'
+export type EvidenceKind = 'text' | 'image'
 
 export interface Page<T> {
   items: T[]
@@ -21,6 +24,9 @@ export interface Item {
   is_simulated: boolean
   source: Source
   created_at: string
+  norm_x: number | null
+  norm_y: number | null
+  layer_id: string | null
   precise_location?: string | null
   is_owner?: boolean
 }
@@ -37,6 +43,44 @@ export const statusLabels: Record<ItemStatus, string> = {
 export const directionLabels: Record<Direction, string> = {
   lost: '寻物',
   found: '拾获',
+}
+
+export const roleLabels: Record<Role, string> = {
+  student: '学生',
+  staff: '工作人员',
+  admin: '管理员',
+}
+
+export interface User {
+  id: string
+  username: string
+  display_name: string
+  role: Role
+}
+
+export interface Layer {
+  id: string
+  name: string
+  version: string
+  width: number
+  height: number
+  scale_calibrated: boolean
+  image_path: string | null
+}
+
+export interface SimulatedPoint {
+  id: string
+  label: string
+  norm_x: number
+  norm_y: number
+  is_simulated: boolean
+  description: string | null
+}
+
+export interface Badge {
+  id: string
+  kind: string
+  awarded_at: string
 }
 
 export type TicketStatus = 'pending' | 'processing' | 'feedback'
@@ -71,7 +115,8 @@ export interface Claim {
 }
 
 export interface ClaimDetail extends Claim {
-  evidence: { kind: 'text' | 'image'; content: string }[]
+  evidence: { kind: EvidenceKind; content: string }[]
+  review_reason: string | null
 }
 
 export const claimStatusLabels: Record<ClaimStatus, string> = {

@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import client, { setToken } from '../api/client'
+import { setToken } from '../api/client'
+import { login as apiLogin, me as fetchMe, register as apiRegister } from '../api/auth'
+import type { Role } from '../types'
 
-export type Role = 'student' | 'staff' | 'admin'
 interface AuthState {
   token: string | null
   role: Role | null
@@ -35,13 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       setToken(saved)
-      client
-        .get('/auth/me')
-        .then((r) => {
+      fetchMe()
+        .then((user) => {
           if (active) {
             setTokenState(saved)
-            setRole(r.data.role)
-            setUserId(r.data.id)
+            setRole(user.role)
+            setUserId(user.id)
           }
         })
         .catch(() => {
@@ -60,11 +60,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function accept(token: string) {
     setToken(token)
     try {
-      const r = await client.get('/auth/me')
+      const user = await fetchMe()
       sessionStorage.setItem(STORAGE_KEY, token)
       setTokenState(token)
-      setRole(r.data.role)
-      setUserId(r.data.id)
+      setRole(user.role)
+      setUserId(user.id)
       setReady(true)
     } catch (e) {
       logout()
@@ -72,12 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
   async function login(username: string, password: string) {
-    const res = await client.post('/auth/login', { username, password })
-    await accept(res.data.token)
+    const res = await apiLogin({ username, password })
+    await accept(res.token)
   }
   async function register(username: string, password: string, displayName: string) {
-    const res = await client.post('/auth/register', { username, password, display_name: displayName })
-    await accept(res.data.token)
+    const res = await apiRegister({ username, password, display_name: displayName })
+    await accept(res.token)
   }
   return (
     <AuthContext.Provider value={{ token: tokenState, role, userId, ready, login, register, logout }}>
