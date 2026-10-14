@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
@@ -45,17 +46,34 @@ def list_items(
     category: str | None = None,
     location_area: str | None = None,
     status: ItemStatus | None = None,
-) -> list[Item]:
+    q: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[Item], int]:
     query = db.query(Item)
     if direction is not None:
         query = query.filter(Item.direction == direction)
+    if q:
+        pattern = f"%{q}%"
+        query = query.filter(
+            or_(Item.title.ilike(pattern), Item.description.ilike(pattern), Item.category.ilike(pattern))
+        )
     if category:
-        query = query.filter(Item.category == category)
+        query = query.filter(Item.category.ilike(f"%{category}%"))
     if location_area:
         query = query.filter(Item.location_area.ilike(f"%{location_area}%"))
     if status is not None:
         query = query.filter(Item.status == status)
-    return query.order_by(Item.created_at.desc()).all()
+    total = query.count()
+    items = query.order_by(Item.created_at.desc()).offset(offset).limit(limit).all()
+    return items, total
+
+
+def list_my_items(db: Session, user: User, limit: int, offset: int) -> tuple[list[Item], int]:
+    query = db.query(Item).filter(Item.owner_user_id == user.id)
+    total = query.count()
+    items = query.order_by(Item.created_at.desc()).offset(offset).limit(limit).all()
+    return items, total
 
 
 def get_item_detail(db: Session, user: User, item_id: uuid.UUID) -> dict:

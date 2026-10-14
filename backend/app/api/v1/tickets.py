@@ -1,24 +1,28 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role
 from app.database import get_db
 from app.models import Role, TicketStatus, User
-from app.schemas.ticket import FeedbackRequest, TicketCreate, TicketOut
+from app.schemas.common import Page
+from app.schemas.ticket import FeedbackRequest, TicketCreate, TicketOut, TicketRouteOut
 from app.services import ticket_service
 
 router = APIRouter(tags=["tickets"])
 
 
-@router.get("", response_model=list[TicketOut])
+@router.get("", response_model=Page[TicketOut])
 def list_tickets(
     status: TicketStatus | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return ticket_service.list_tickets(db, user, status)
+    items, total = ticket_service.list_tickets(db, user, status, limit, offset)
+    return Page(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("", response_model=TicketOut)
@@ -36,7 +40,7 @@ def authorize_route(ticket_id: uuid.UUID, db: Session = Depends(get_db), user: U
     return ticket_service.authorize_route(db, user, ticket_id)
 
 
-@router.get("/{ticket_id}/route")
+@router.get("/{ticket_id}/route", response_model=list[TicketRouteOut])
 def get_ticket_route(ticket_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return ticket_service.get_ticket_route(db, user, ticket_id)
 

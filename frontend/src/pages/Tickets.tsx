@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import client, { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { ticketStatusLabels, type Ticket, type Item } from '../types'
+import { ticketStatusLabels, type Ticket, type Item, type Page } from '../types'
 
 export default function Tickets() {
   const { role, userId } = useAuth()
@@ -16,17 +16,17 @@ export default function Tickets() {
 
   async function load() {
     const r = await client.get('/tickets')
-    setTickets(r.data)
+    setTickets(r.data.items)
   }
   useEffect(() => {
     let active = true
     Promise.all([client.get('/tickets'), role === 'student' ? client.get('/me/items') : Promise.resolve(null)])
       .then(([t, owned]) => {
         if (!active) return
-        setTickets(t.data)
+        setTickets(t.data.items)
         if (owned)
           setMine(
-            (owned.data as Item[]).filter(
+            (owned.data as Page<Item>).items.filter(
               (i) => i.direction === 'lost' && ['searching', 'reviewing'].includes(i.status),
             ),
           )

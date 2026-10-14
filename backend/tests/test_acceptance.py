@@ -54,7 +54,7 @@ def test_private_fields_not_in_public_list(client):
     assert r.status_code == 200
     other = register(client, "viewer")
     r = client.get("/api/v1/items", headers=auth(other))
-    item = r.json()[0]
+    item = r.json()["items"][0]
     assert "precise_location" not in item
 
 

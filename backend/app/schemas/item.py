@@ -32,3 +32,40 @@ class ItemPublic(BaseModel):
     is_simulated: bool
     source: Source
     created_at: datetime
+
+
+class ItemDetail(BaseModel):
+    id: uuid.UUID
+    is_owner: bool
+    direction: Direction
+    category: str
+    title: str
+    description: str
+    location_area: str
+    time_occurred: datetime | None
+    status: ItemStatus
+    is_simulated: bool
+    source: Source
+    created_at: datetime
+    norm_x: float | None
+    norm_y: float | None
+    layer_id: uuid.UUID | None
+    precise_location: str | None
+
+
+class FeatureExtractionOut(BaseModel):
+    labels: dict | None = None
+    extracted_text: str | None = None
+    confidence: float | None = None
+    source: str = "manual"
+    degraded: bool = True
+
+
+class CandidateOut(BaseModel):
+    found_item_id: str
+    score: float
+    explanation: str
+    source: str
+    title: str
+    category: str
+    location_area: str

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import client, { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { directionLabels, statusLabels, type Candidate, type Item } from '../types'
+import { directionLabels, statusLabels, type Candidate, type Item, type Page } from '../types'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -42,7 +42,7 @@ export default function ItemDetail() {
         if (role === 'student' && r.data.direction === 'found') {
           const owned = await client.get('/me/items')
           if (active) {
-            const lost = (owned.data as Item[]).filter(
+            const lost = (owned.data as Page<Item>).items.filter(
               (i) => i.direction === 'lost' && ['searching', 'reviewing'].includes(i.status),
             )
             setMine(lost)

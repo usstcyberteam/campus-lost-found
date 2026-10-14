@@ -29,9 +29,9 @@ export default function MyDelegations() {
     ])
       .then(([i, c, t, b]) => {
         if (active) {
-          setItems(i.data)
-          setClaims(c.data)
-          setTickets(t.data)
+          setItems(i.data.items)
+          setClaims(c.data.items)
+          setTickets(t.data.items)
           setBadges(b.data)
         }
       })

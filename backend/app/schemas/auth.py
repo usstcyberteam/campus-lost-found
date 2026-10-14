@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -30,3 +31,9 @@ class UserOut(BaseModel):
     username: str
     display_name: str
     role: Role
+
+
+class BadgeOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    awarded_at: datetime

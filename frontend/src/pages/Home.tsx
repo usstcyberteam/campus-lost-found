@@ -8,6 +8,7 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction | ''>('')
   const [category, setCategory] = useState('')
   const [status, setStatus] = useState('')
+  const [q, setQ] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -19,10 +20,11 @@ export default function Home() {
     if (direction) params.direction = direction
     if (category) params.category = category
     if (status) params.status = status
+    if (q) params.q = q
     client
       .get('/items', { params })
       .then((res) => {
-        if (active) setItems(res.data)
+        if (active) setItems(res.data.items)
       })
       .catch((e) => {
         if (active) setError(errorMessage(e))
@@ -33,7 +35,7 @@ export default function Home() {
     return () => {
       active = false
     }
-  }, [direction, category, status])
+  }, [direction, category, status, q])
 
   return (
     <div style={{ padding: 24 }}>
@@ -42,6 +44,7 @@ export default function Home() {
       {loading && <p>加载中…</p>}
       {!loading && !error && items.length === 0 && <p>暂无符合条件的记录</p>}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input placeholder="搜索标题、描述、类别" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={direction} onChange={(e) => setDirection(e.target.value as Direction | '')}>
           <option value="">全部类型</option>
           <option value="lost">寻物</option>

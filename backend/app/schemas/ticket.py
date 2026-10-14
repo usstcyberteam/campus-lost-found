@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from app.models.enums import TicketStatus
+from app.models.enums import RouteKind, TicketStatus
 
 
 class TicketCreate(BaseModel):
@@ -26,3 +26,10 @@ class TicketOut(BaseModel):
 
 class FeedbackRequest(BaseModel):
     result: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
+
+
+class TicketRouteOut(BaseModel):
+    id: uuid.UUID
+    kind: RouteKind
+    geometry: dict | None
+    floor_segments: list | None

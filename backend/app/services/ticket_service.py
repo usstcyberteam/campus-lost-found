@@ -9,13 +9,24 @@ from app.models import Badge, Direction, Item, ItemStatus, Role, Route, Ticket, 
 from app.schemas.ticket import FeedbackRequest, TicketCreate
 
 
-def list_tickets(db: Session, user: User, status: TicketStatus | None = None) -> list[Ticket]:
+def list_tickets(
+    db: Session, user: User, status: TicketStatus | None = None, limit: int = 20, offset: int = 0
+) -> tuple[list[Ticket], int]:
     query = db.query(Ticket)
     if status is not None:
         query = query.filter(Ticket.status == status)
     if user.role not in (Role.staff, Role.admin):
         query = query.filter(Ticket.requester_user_id == user.id)
-    return query.order_by(Ticket.created_at.desc()).all()
+    total = query.count()
+    items = query.order_by(Ticket.created_at.desc()).offset(offset).limit(limit).all()
+    return items, total
+
+
+def list_my_tickets(db: Session, user: User, limit: int, offset: int) -> tuple[list[Ticket], int]:
+    query = db.query(Ticket).filter(Ticket.requester_user_id == user.id)
+    total = query.count()
+    items = query.order_by(Ticket.created_at.desc()).offset(offset).limit(limit).all()
+    return items, total
 
 
 def create_ticket(db: Session, user: User, body: TicketCreate) -> Ticket:

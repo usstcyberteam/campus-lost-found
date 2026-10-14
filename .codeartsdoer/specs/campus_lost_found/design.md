@@ -482,3 +482,140 @@ flowchart LR
 - `claim_service.py` 中 `serialize_claim_mutation`、`lock_items`、`replay`、`restore_unclaimed`、`editable_claim` 及创建/审核/完成逻辑原样搬移，加锁顺序、flush/commit 位置、条件更新语句不变。
 - 不改 `tests/`、`models/`、`schemas/`；不新增依赖；不顺手优化其他问题。
 - 验收：测试仍 18 通过 1 跳过；`ruff check` 无报错；五个路由文件不再出现 `db.query`/`db.add`/`db.commit`。
+---
+
+## 2.13 接口响应模型、列表分页与大厅搜索设计
+
+> 本小节为「给所有接口补响应模型、列表接口分页、大厅关键词搜索」任务的增量设计。上游依据：`docs/代码规范.md`「接口」一节（列表接口统一 `limit`/`offset`、返回 `items/total/limit/offset`、每个接口声明 `response_model`）、`spec.md` 3.1 大厅功能（按类别/地点/时间/状态筛选）。本任务会改变列表接口返回结构，前端调用与测试同步适配。硬约束：`precise_location` 仅对发布者本人返回；分页参数越界返回 400（而非 FastAPI 默认 422）。
+
+### 2.13.1 需求与存量功能对比
+
+| 需求功能 | 存量实现 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| 泛型分页模型 Page | `Page[T]`（items/total/limit/offset） | `backend/app/schemas/common.py:4` | 100% |
+| GET /items 分页 + limit/offset | `response_model=Page[ItemPublic]`，`Query(20, ge=1, le=100)`、`Query(0, ge=0)` | `backend/app/api/v1/items.py:22` | 100% |
+| GET /claims 分页 | `response_model=Page[ClaimOut]`，仅 staff | `backend/app/api/v1/claims.py:16` | 100% |
+| GET /tickets 分页 | `response_model=Page[TicketOut]` | `backend/app/api/v1/tickets.py:16` | 100% |
+| GET /me/items、/me/claims、/me/tickets 分页 | 三接口均 `Page[...]` | `backend/app/api/v1/me.py:17/28/39` | 100% |
+| GET /items 关键词 q | `ilike` 匹配 title/description/category | `backend/app/services/item_service.py:56` | 100% |
+| category 改模糊匹配 | `Item.category.ilike(f"%{category}%")` | `backend/app/services/item_service.py:61` | 100% |
+| 8 个接口补齐 response_model | 均已声明 | 见 2.13.5 清单 | 100% |
+| precise_location 仅发布者可见 | 详情按 owner 判断，非本人置 None | `backend/app/services/item_service.py:99` | 100% |
+| 前端读取 items、types Page | 页面读 `.data.items`；`Page<T>` 已定义 | `frontend/src/types.ts:5`、各页面 | 100% |
+| 测试适配与新增 | `test_pagination.py` 4 用例；`test_acceptance.py` 读 items | `backend/tests/` | 100% |
+
+**结论**：本任务所有改动点已在代码中落地，本节作为该实现方案的归档设计，记录关键决策与接口契约，便于后续回归与评审，不新增实现工作。
+
+### 2.13.2 分页模型设计
+
+**泛型模型** `Page[T]`（`backend/app/schemas/common.py`）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | `list[T]` | 当前页数据，T 由各列表接口指定（ItemPublic/ClaimOut/TicketOut） |
+| `total` | `int` | 满足筛选条件的总条数（供前端未来翻页） |
+| `limit` | `int` | 本次请求每页条数，回显 |
+| `offset` | `int` | 本次请求偏移量，回显 |
+
+**设计要点**：
+- 采用 Pydantic v2 泛型（`class Page[T](BaseModel)`，项目 pydantic 2.13 支持 PEP 695 语法），`items` 元素类型由 T 在声明处静态确定，杜绝 `Any` 与手写字典。
+- `total` 在应用 offset/limit **之前**用 `query.count()` 计算，是「过滤后全集条数」而非「当前页条数」；`limit/offset` 回显请求值，便于前端与日志定位分页状态。
+- 分页排序统一 `created_at` 倒序（claims 追加 `id` 作稳定二级排序），保证翻页稳定、不重不漏。
+
+### 2.13.3 列表接口分页改造
+
+| 接口 | 返回 | limit/offset | 排序 |
+|---|---|---|---|
+| GET /items | Page[ItemPublic] | Query(20, ge=1, le=100) / Query(0, ge=0) | created_at desc |
+| GET /claims | Page[ClaimOut] | 同上 | created_at desc, id |
+| GET /tickets | Page[TicketOut] | 同上 | created_at desc |
+| GET /me/items | Page[ItemPublic] | 同上 | created_at desc |
+| GET /me/claims | Page[ClaimOut] | 同上 | created_at desc |
+| GET /me/tickets | Page[TicketOut] | 同上 | created_at desc |
+
+```mermaid
+flowchart LR
+  A["用户请求<br/>带 limit/offset/q/category"] --> B["路由层<br/>Query 校验 + 鉴权"]
+  B --> C["service 拼查询<br/>filter + ilike + count"]
+  C --> D["排序 + offset + limit<br/>返回 (items, total)"]
+  D --> E["路由包装 Page<br/>回填 limit/offset"]
+  E --> F["响应 {items,total,limit,offset}"]
+```
+
+**校验与错误**：
+- `limit` 超出 1~100、`offset` 小于 0 由 FastAPI `Query(ge=..., le=...)` 触发 `RequestValidationError`；`app/errors.py:42` 的处理器统一转为 **400 / VALIDATION**，满足代码规范「参数错 400」，避免默认 422。
+- 列表接口均保留鉴权（`get_current_user`）；claims 列表仍仅 staff/admin（`require_role(Role.staff)`）；tickets 列表对非 staff 在服务层按 `requester_user_id` 自动过滤。
+
+**服务层签名**：`list_items/list_claims/list_tickets/list_my_*` 统一返回 `tuple[list[T], int]`（数据 + total），路由层负责包装为 `Page` 并回填 limit/offset，职责边界与「路由只取参/鉴权/调用/返回」分层约定一致。
+
+### 2.13.4 大厅关键词搜索
+
+GET /items 新增 `q` 参数，`category` 由精确匹配改为模糊匹配：
+
+| 参数 | 匹配方式 | 匹配字段 |
+|---|---|---|
+| `q` | `ilike`（不区分大小写） | title、description、category（OR 关系） |
+| `category` | `ilike`（模糊） | category |
+| `location_area` | `ilike`（模糊） | location_area |
+
+**设计要点**：
+- 用 SQLAlchemy `ilike(f"%{kw}%")` 实现不区分大小写包含匹配；多字段用 `or_` 组合。
+- `q` 与 `direction/status` 等筛选为 AND 关系，可叠加。
+- 关键词为空串时跳过该条件（`if q:`），不产生空匹配子句。
+- 搜索仅作用于公开概览字段（title/description/category），不触及 precise_location 等私密字段，符合隐私约束。
+
+### 2.13.5 响应模型补齐清单
+
+为原先直接返回字典的接口声明 `response_model`，字段与现有返回完全一致：
+
+| 接口 | 响应模型 | 关键字段 |
+|---|---|---|
+| GET /items/{id} 物品详情 | `ItemDetail` | 公开字段 + is_owner + norm/layer + precise_location（仅 owner 非空） |
+| POST /items/{id}/map-anchor 设置标点 | `MapAnchorOut` | ok |
+| POST /items/{id}/route 创建路线 | `RouteOut` | id、kind、is_private |
+| GET /items/{id}/route 查询路线 | `list[RouteDetail]` | id、kind、geometry、floor_segments、is_private、authorized |
+| POST /items/{id}/extract 特征提取 | `FeatureExtractionOut` | labels、extracted_text、confidence、source、degraded |
+| GET /items/{id}/candidates 候选列表 | `list[CandidateOut]` | found_item_id、score、explanation、source、title、category、location_area |
+| GET /me/badges 我的徽章 | `list[BadgeOut]` | id、kind、awarded_at |
+| GET /tickets/{id}/route 工单路线 | `list[TicketRouteOut]` | id、kind、geometry、floor_segments |
+
+**设计要点**：
+- 服务层返回 dict 中枚举字段以 `.value` 字符串传出，Pydantic 校验时还原为对应枚举，响应 JSON 仍是字符串值，对外契约不变。
+- `precise_location` 在 `get_item_detail` 按 `item.owner_user_id == user.id` 判断：非发布者恒为 `null`，发布者返回原文；`is_owner` 字段独立表达归属，二者解耦，便于前端展示。
+- 列表模型 `ItemPublic` **不含** `precise_location` 字段，公开列表永不泄露精确位置。
+
+### 2.13.6 前端适配
+
+| 改动 | 位置 |
+|---|---|
+| 新增泛型 `Page<T>` 类型 | `frontend/src/types.ts:5` |
+| 大厅读 `.data.items` + q 搜索输入 | `frontend/src/pages/Home.tsx` |
+| 我的委托读三接口 `.data.items` | `frontend/src/pages/MyDelegations.tsx` |
+| 认领审核读 `.data.items` | `frontend/src/pages/StaffClaims.tsx` |
+| 工单页读 `.data.items` + Page 断言 | `frontend/src/pages/Tickets.tsx` |
+
+**设计要点**：
+- 本任务不做翻页 UI，页面仍一次取默认 limit=20 的结果，仅将读取位置从数组改为 `.items`，保证现有功能不变。
+- 前端类型与后端 schema 对齐：`Item` 增加可选 `precise_location`、`is_owner`；`Page<T>` 字段与后端一致。
+
+### 2.13.7 测试设计
+
+**现有用例适配**：`test_acceptance.py` 中读取列表的断言由 `r.json()[0]` 改为 `r.json()["items"][0]`（如 `test_private_fields_not_in_public_list`），断言内容不变。
+
+**新增用例**（`backend/tests/test_pagination.py`）：
+
+| 用例 | 覆盖要求 |
+|---|---|
+| test_list_items_pagination_applies_limit_and_offset | limit/offset 生效，total 正确，越界页返回空 items |
+| test_list_items_limit_over_100_returns_400 | limit=101 返回 400 |
+| test_list_items_keyword_search_matches_title_description_category | q 命中标题/描述/类别，且不区分大小写 |
+| test_item_detail_precise_location_hidden_from_non_owner | 发布者可见 precise_location，他人为 null |
+
+### 2.13.8 验收方案
+
+| # | 验收项 | 期望 |
+|---|---|---|
+| 1 | 后端 `pytest tests/ -q` | 全部通过（含新增 4 用例）；PostgreSQL 并发用例按环境跳过 |
+| 2 | 后端 `ruff check .` | 无报错 |
+| 3 | 前端 `npm run lint` 与 `npm run build` | 通过 |
+| 4 | 打开 `/docs` | 上述接口均展示 Page 响应结构与 8 个补齐的响应模型 |

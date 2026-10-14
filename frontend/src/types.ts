@@ -2,6 +2,13 @@ export type Direction = 'lost' | 'found'
 export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned'
 export type Source = 'manual' | 'rule' | 'cache' | 'model'
 
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface Item {
   id: string
   direction: Direction

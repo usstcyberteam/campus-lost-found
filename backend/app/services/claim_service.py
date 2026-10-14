@@ -57,11 +57,22 @@ def restore_unclaimed(db: Session, item_id: uuid.UUID | None) -> None:
         item.status = ItemStatus.pending if item.direction == Direction.found else ItemStatus.searching
 
 
-def list_claims(db: Session, status: ClaimStatus | None = None) -> list[Claim]:
+def list_claims(
+    db: Session, status: ClaimStatus | None = None, limit: int = 20, offset: int = 0
+) -> tuple[list[Claim], int]:
     query = db.query(Claim)
     if status is not None:
         query = query.filter(Claim.status == status)
-    return query.order_by(Claim.created_at.desc(), Claim.id).all()
+    total = query.count()
+    items = query.order_by(Claim.created_at.desc(), Claim.id).offset(offset).limit(limit).all()
+    return items, total
+
+
+def list_my_claims(db: Session, user: User, limit: int, offset: int) -> tuple[list[Claim], int]:
+    query = db.query(Claim).filter(Claim.applicant_user_id == user.id)
+    total = query.count()
+    items = query.order_by(Claim.created_at.desc()).offset(offset).limit(limit).all()
+    return items, total
 
 
 def get_claim(db: Session, user: User, claim_id: uuid.UUID) -> ClaimDetail:

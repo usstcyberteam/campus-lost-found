@@ -1,22 +1,28 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role
 from app.database import get_db
 from app.models import ClaimStatus, Role, User
 from app.schemas.claim import ClaimCreate, ClaimDetail, ClaimOut, ReviewRequest
+from app.schemas.common import Page
 from app.services import claim_service
 
 router = APIRouter(tags=["claims"])
 
 
-@router.get("", response_model=list[ClaimOut])
+@router.get("", response_model=Page[ClaimOut])
 def list_claims(
-    status: ClaimStatus | None = None, db: Session = Depends(get_db), user: User = Depends(require_role(Role.staff))
+    status: ClaimStatus | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.staff)),
 ):
-    return claim_service.list_claims(db, status)
+    items, total = claim_service.list_claims(db, status, limit, offset)
+    return Page(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{claim_id}", response_model=ClaimDetail)

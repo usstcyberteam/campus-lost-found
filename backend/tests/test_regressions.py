@@ -92,7 +92,7 @@ def test_staff_evidence_access_is_restricted(client):
     assert client.get(f"/api/v1/claims/{claim_id}", headers=auth(owner)).status_code == 200
     detail = client.get(f"/api/v1/claims/{claim_id}", headers=auth(staff))
     assert detail.json()["evidence"][0]["content"] == "伞柄有划痕"
-    assert len(client.get("/api/v1/claims?status=pending", headers=auth(staff)).json()) == 1
+    assert len(client.get("/api/v1/claims?status=pending", headers=auth(staff)).json()["items"]) == 1
     assert "evidence" not in client.get(f"/api/v1/items/{found}", headers=auth(other)).json()
 
 

@@ -24,7 +24,7 @@ export default function StaffClaims() {
     client
       .get('/claims', { params: status ? { status } : {} })
       .then((r) => {
-        if (active) setClaims(r.data)
+        if (active) setClaims(r.data.items)
       })
       .catch((e) => {
         if (active) setMessage(errorMessage(e))
@@ -67,7 +67,7 @@ export default function StaffClaims() {
           : await client.post(path + '/review', { approve: action === 'approve' })
       setDetail({ ...detail, ...r.data })
       const list = await client.get('/claims', { params: status ? { status } : {} })
-      setClaims(list.data)
+      setClaims(list.data.items)
       setMessage(action === 'complete' ? '已确认归还' : '审核结果已保存')
     } catch (e) {
       setMessage(errorMessage(e))

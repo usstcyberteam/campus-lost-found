@@ -51,3 +51,22 @@ class RouteCreate(BaseModel):
     layer_id: uuid.UUID | None = None
     geometry: dict | None = None
     floor_segments: list | None = None
+
+
+class MapAnchorOut(BaseModel):
+    ok: bool
+
+
+class RouteOut(BaseModel):
+    id: uuid.UUID
+    kind: RouteKind
+    is_private: bool
+
+
+class RouteDetail(BaseModel):
+    id: uuid.UUID
+    kind: RouteKind
+    geometry: dict | None
+    floor_segments: list | None
+    is_private: bool
+    authorized: bool
