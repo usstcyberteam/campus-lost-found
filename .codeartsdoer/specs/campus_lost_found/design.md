@@ -1189,3 +1189,247 @@ export function createIdempotencyKey(): string
 | 4 | `cd frontend && npm run lint` | 通过（无 any、无未用导入） |
 | 5 | `cd frontend && npm run build` | 通过（`tsc -b` 类型检查 + vite 构建） |
 | 6 | 启动前后端手工走查 | 注册→发布寻物→发布拾获→查看候选→提交认领→我的委托→打开地图 全流程正常，文案与功能不变 |
+---
+
+## 2.16 地图逻辑抽取为可复用组件设计（阶段3 · CampusMap 组件化重构）
+
+> 本小节为「把地图页里的地图逻辑抽成可复用组件，为后续发帖标点/圈范围/画路径做准备」任务的增量设计。上游依据：`spec.md` 3.1 地图模块（缩放/标点/室外画圈/分层路线）、本 `design.md` 2.6 地图技术约定（归一化坐标、比例尺门控）、`docs/代码规范.md`「前端」一节（`src/components/` 可复用组件、Hook 以 `use` 开头、不使用 `any`、样式只引用 tokens 变量）。目标为**纯前端重构**：本任务**不新增任何地图功能**，不新增依赖，不改后端。允许改动范围见下表。
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `frontend/src/components/CampusMap/coords.ts` | 新建 | 归一化↔地图坐标换算纯函数 + `LayerDims` 类型 |
+| `frontend/src/components/CampusMap/MapContext.tsx` | 新建 | `CampusMapContext` + `useCampusMap()`（外部调用抛错） |
+| `frontend/src/components/CampusMap/CampusMap.tsx` | 新建 | 主组件：Leaflet 生命周期、底图、占位矩形、markers、Context Provider |
+| `frontend/src/components/CampusMap/CampusMap.module.css` | 新建 | 地图容器样式（引用 tokens 变量） |
+| `frontend/src/hooks/useLayers.ts` | 新建 | 图层列表获取 Hook |
+| `frontend/src/pages/ClickCoordsPopup.tsx` | 新建 | 图层组件：监听点击弹归一化坐标 popup（`useCampusMap` 验证用例） |
+| `frontend/src/pages/MapView.tsx` | 改造 | 只做：选图层、取模拟点位、组装 markers、传数据 |
+
+### 2.16.1 需求与存量功能对比
+
+#### 已实现功能（可直接复用）
+
+| 需求功能 | 存量功能 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| 图层列表获取 `listLayers()` | `listLayers(): Promise<Layer[]>` | `frontend/src/api/layers.ts:15` | 100% |
+| 底图加载 `getLayerImage()` | `getLayerImage(id, signal): Promise<Blob>`（支持 AbortSignal） | `frontend/src/api/layers.ts:20` | 100% |
+| 模拟点位获取 `listSimulatedPoints()` | `listSimulatedPoints(id): Promise<SimulatedPoint[]>` | `frontend/src/api/layers.ts:30` | 100% |
+| 图层/点位类型 | `Layer`、`SimulatedPoint` | `frontend/src/types.ts:61-78` | 100% |
+| 异步请求 Hook | `useAsync<T>(fn, deps): AsyncState<T>` | `frontend/src/hooks/useAsync.ts:11` | 100% |
+| Context 写法参照 | `AuthContext`（createContext + Provider + `useAuth` 外部抛错） | `frontend/src/auth/AuthContext.tsx:15-92` | 75% |
+| 错误信息归一化 | `errorMessage(e, fallback)` | `frontend/src/utils/error.ts:3` | 100% |
+| CSS 设计变量 | `--color-border-strong`、`--color-map-bg`、`--color-warning` | `frontend/src/styles/tokens.css:14-16` | 100% |
+
+#### 需扩展的功能
+
+| 需求功能 | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| Leaflet 实例生命周期管理 | `MapView.tsx:39-94` 的 useEffect（创建/销毁、底图、占位矩形、点击弹坐标） | 逻辑与页面耦合，坐标换算两处重复（点击 76-78、点位 106），无法复用 | 下沉为 `CampusMap` 组件 + 坐标换算抽成 `coords.ts` 纯函数 |
+| 归一化坐标↔地图坐标换算 | 点击 `nx=e.latlng.lng/width`、点位 `L.latLng(norm_y*height, norm_x*width)` 两处各写一遍 | 逻辑重复、易错 | 抽成 `normToLatLng`/`latLngToNorm` 两个纯函数 |
+| 图层列表获取 | `MapView.tsx:26` 直接 `useAsync(() => listLayers(), [])` | 与页面耦合 | 抽成 `useLayers()` Hook |
+| 点击弹坐标 popup | `MapView.tsx:76-83` 在 map click 事件里 `L.popup().openOn(map)` | 与 Leaflet 实例创建耦合，无法独立复用 | 抽成独立图层组件 `ClickCoordsPopup`（通过 `useCampusMap` 获取实例） |
+
+#### 需新增的功能或接口
+
+**组件（`src/components/CampusMap/`）**：`coords.ts`、`MapContext.tsx`、`CampusMap.tsx`、`CampusMap.module.css`。
+
+**页面图层组件（`src/pages/`）**：`ClickCoordsPopup.tsx`。
+
+**Hook（`src/hooks/`）**：`useLayers.ts`。
+
+### 2.16.2 目标目录结构与组件职责
+
+```
+frontend/src/
+├── components/CampusMap/
+│   ├── coords.ts          # 归一化↔地图坐标换算纯函数 + LayerDims 类型
+│   ├── MapContext.tsx     # CampusMapContext + useCampusMap()（外部调用抛错）
+│   ├── CampusMap.tsx      # 主组件：Leaflet 生命周期、底图、占位矩形、markers、Context Provider
+│   └── CampusMap.module.css
+├── hooks/
+│   └── useLayers.ts       # 图层列表获取 Hook
+└── pages/
+    ├── MapView.tsx        # 改造：选图层、取点位、组装 markers、传数据
+    └── ClickCoordsPopup.tsx # 图层组件：监听点击弹归一化坐标 popup（useCampusMap 验证用例）
+```
+
+**职责边界**：
+
+| 组件/模块 | 职责 | 不负责 |
+|---|---|---|
+| `coords.ts` | 坐标换算纯函数 | 不依赖 React、不依赖 Leaflet 实例 |
+| `MapContext.tsx` | 提供 Context 与 `useCampusMap` | 不创建/销毁 Leaflet 实例 |
+| `CampusMap.tsx` | 创建/销毁 Leaflet 实例、加载底图、占位矩形、渲染 markers、点击回调分发、提供 Context | 不弹 popup、不关心业务后缀 |
+| `ClickCoordsPopup.tsx` | 监听地图点击并弹归一化坐标 popup | 不渲染任何 DOM（返回 null） |
+| `useLayers.ts` | 获取图层列表 | 不处理底图/点位 |
+| `MapView.tsx` | 选图层、取模拟点位、组装 markers、拼装子组件 | 不直接操作 Leaflet |
+
+```mermaid
+flowchart LR
+  MV["MapView.tsx<br/>选图层/取点位/组装 markers"] --> CM["CampusMap.tsx<br/>Leaflet 生命周期 + Provider"]
+  CM --> CTX["CampusMapContext<br/>map / layer / toMap / toNorm"]
+  CC["ClickCoordsPopup.tsx<br/>children 插槽"] --> CTX
+  CTX --> COORDS["coords.ts<br/>normToLatLng / latLngToNorm"]
+  MV --> UL["useLayers.ts<br/>listLayers"]
+  UL --> API["api/layers.ts"]
+```
+### 2.16.3 坐标换算纯函数设计（coords.ts）
+
+**设计原则**：换算逻辑与 Leaflet 实例、React 生命周期解耦，入参只依赖图层尺寸（`width/height`），供后续图层组件（帖子点位、求助点、绘制工具）复用。
+
+**类型与签名**：
+
+```ts
+import L from 'leaflet'
+import type { LatLng } from 'leaflet'
+
+// 仅依赖图层尺寸的窄接口，避免函数与完整 Layer 类型耦合
+export interface LayerDims {
+  width: number
+  height: number
+}
+
+// 归一化坐标 → Leaflet 地图坐标（CRS.Simple 下 lat=y、lng=x，原点为图片左上角）
+export function normToLatLng(nx: number, ny: number, dims: LayerDims): LatLng
+
+// Leaflet 地图坐标 → 归一化坐标 { x, y }
+export function latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: number }
+```
+
+**换算关系**（与本 `design.md` 2.6 约定一致）：
+- 地图坐标：`lng = nx * width`、`lat = ny * height`（即 `L.latLng(ny * height, nx * width)`）。
+- 归一化坐标：`x = lng / width`、`y = lat / height`。
+
+**归一化坐标对象约定**：统一用 `{ x, y }` 表达（`x` 对应水平/lng 方向，`y` 对应垂直/lat 方向），避免现有代码中 `norm_x`/`norm_y` 与 `lat`/`lng` 混用造成的顺序错误。`MapMarker` 与 `onMapClick` 回调均采用 `{ x, y }`。
+
+### 2.16.4 MapContext 与 useCampusMap 设计（MapContext.tsx）
+
+**Context 值契约**：
+
+```ts
+import type { Map as LeafletMap, LatLng } from 'leaflet'
+import type { Layer } from '../../types'
+
+export interface CampusMapContextValue {
+  map: LeafletMap | null                       // 实例就绪前为 null；切换图层时随实例重建更新
+  layer: Layer                                 // 当前图层信息
+  toMap: (nx: number, ny: number) => LatLng    // 绑定当前图层的归一化→地图换算
+  toNorm: (latlng: LatLng) => { x: number; y: number } // 绑定当前图层的地图→归一化换算
+}
+
+export const CampusMapContext = createContext<CampusMapContextValue | null>(null)
+export function useCampusMap(): CampusMapContextValue // 外部调用 throw new Error('useCampusMap 必须在 CampusMap 组件内使用')
+```
+
+**设计要点**：
+- `CampusMapContext` 由 `CampusMap` 内部创建 Provider，`value` 通过 `useMemo` 依赖 `[map, layer]` 生成；`toMap`/`toNorm` 为 `normToLatLng`/`latLngToNorm` 绑定当前 `layer` 后的闭包，子组件无需再传图层。
+- `useCampusMap` 参考 `AuthContext.useAuth`（`AuthContext.tsx:88-91`）的抛错约定：`context === null` 时抛中文错误，保证在 `CampusMap` 外部调用时立刻暴露。
+- `map` 为 `null` 的语义：组件首次渲染、以及图层切换中「旧实例已销毁、新实例尚未创建」的窗口期。子组件拿到 `null` 即代表「当前不可叠加图层」，从机制上杜绝持有已销毁实例的引用。
+
+### 2.16.5 CampusMap 组件设计（CampusMap.tsx）
+
+**Props 契约**：
+
+```ts
+import type { ReactNode } from 'react'
+import type { Layer } from '../../types'
+
+// 点位：归一化坐标 + 展示文案 + 颜色（label 的「（模拟点位）」后缀由 MapView 组装）
+export interface MapMarker {
+  x: number
+  y: number
+  label: string
+  color: string
+}
+
+export interface CampusMapProps {
+  layer: Layer
+  markers: MapMarker[]
+  onMapClick?: (norm: { x: number; y: number }) => void  // 可选，点击时回调归一化坐标
+  onImageError?: (message: string) => void                 // 可选，底图加载失败通知外部
+  children?: ReactNode                                     // 可选，叠加额外控件（在 Context 范围内）
+}
+```
+
+**内部状态与引用**：
+- `map` 用 **`useState<LeafletMap | null>`** 管理（原 `MapView` 用 `useRef`），保证 Context 值随实例重建同步更新。
+- `containerRef`（Leaflet 挂载 DOM）、`markerGroupRef`（点位图层组）、`onClickRef`/`onErrorRef`（保存最新回调，避免 useEffect 依赖内联回调导致地图被反复重建）。
+
+**Leaflet 生命周期（完整保留原清理逻辑）**：
+
+要点（迁移自 `MapView.tsx:39-94`，逻辑不变）：
+1. `useEffect` 依赖 `[layer]`；`layer` 变化（切换图层）触发重建。
+2. 切换/卸载时 cleanup 顺序：`active=false` → `controller.abort()` → `revokeObjectURL(objectUrl)` → `map.remove()` → `setMap(null)` → `markerGroupRef.current = null`。**「先 setMap(null) 再建新实例」是保证子组件不拿到已销毁实例的关键**。
+3. 创建实例：`L.map(container, { crs: L.CRS.Simple, minZoom: -3, maxZoom: 3 })`；`bounds = L.latLngBounds([0,0],[layer.height, layer.width])`；`fitBounds` + `setMaxBounds(bounds.pad(0.2))`。
+4. 无底图（`image_path` 为空）：`L.rectangle(bounds, { color: cssVar('--color-border-strong'), weight: 1, fillOpacity: 0.03 })` 占位矩形。
+5. 有底图：`getLayerImage(layer.id, controller.signal)` → `URL.createObjectURL(blob)` → `L.imageOverlay(url, bounds)`；失败时 `onErrorRef.current?.(errorMessage(e, '底图加载失败'))`。
+6. 点击：`map.on('click', (e) => onClickRef.current?.(latLngToNorm(e.latlng, layer)))`。**组件只分发 `onMapClick`，不弹任何 popup**。
+
+**markers 渲染（独立 useEffect）**：
+
+要点（迁移自 `MapView.tsx:96-110`）：
+1. `useEffect` 依赖 `[markers, map, layer]`；`map` 为 `null` 时直接返回。
+2. `markerGroupRef.current` 为 `null` 时 `L.layerGroup().addTo(map)`；重建地图后（cleanup 已置 null）会重新创建。
+3. `clearLayers()` 后逐点 `L.circleMarker(normToLatLng(m.x, m.y, layer), { color: m.color }).bindTooltip(m.label)`。
+
+**渲染结构**：
+
+```tsx
+<CampusMapContext.Provider value={value}>
+  <div ref={containerRef} className={styles.map} />
+  {children}
+</CampusMapContext.Provider>
+```
+
+- `children` 渲染在 Provider 范围内，`value` 由 `useMemo` 依 `[map, layer]` 生成。
+- `CampusMap.module.css` 迁移自 `MapView.module.css` 的 `.map`（height/border/background 引用 tokens 变量）。
+### 2.16.6 ClickCoordsPopup 图层组件设计（ClickCoordsPopup.tsx）
+
+**职责**：作为 `<CampusMap>` 的子组件，通过 `useCampusMap()` 获取地图实例与换算函数，自行监听点击事件并弹出与现状完全相同的归一化坐标 popup；同时作为 `useCampusMap()` 的验证用例（替代原计划「临时子组件验证后删除」）。
+
+**设计要点**：
+- 组件**不渲染任何 DOM**（返回 `null`），仅用副作用监听事件。
+- `const { map, toNorm } = useCampusMap()`；`useEffect` 依赖 `[map, toNorm]`：
+  - `map` 为 `null` 时直接返回（窗口期不注册监听）。
+  - 注册处理器：`const handler = (e: LeafletMouseEvent) => { const { x, y } = toNorm(e.latlng); L.popup().setLatLng(e.latlng).setContent(\`归一化坐标 (${x.toFixed(3)}, ${y.toFixed(3)})\`).openOn(map) }`。
+  - `map.on('click', handler)`；cleanup 中 `map.off('click', handler)`，保证**地图实例变化或组件卸载时移除自身监听**。
+- 事件监听随 `map` 变化自动重绑：切换图层时 `map` 经历「旧实例 → null → 新实例」，cleanup 先移除旧实例监听，新实例就绪后重新注册，故切换 5 次后点击只弹出一个 popup（旧实例监听已移除、新实例仅一个监听）。
+
+**popup 内容与现状完全一致**：`归一化坐标 (${x.toFixed(3)}, ${y.toFixed(3)})`，坐标值由 `toNorm`（绑定当前图层）计算。
+
+### 2.16.7 useLayers Hook 设计（useLayers.ts）
+
+```ts
+export function useLayers(): AsyncState<Layer[]>
+```
+
+- 复用 `useAsync(() => listLayers(), [])`，返回 `AsyncState<Layer[]>`（`data/error/loading/reload`）。
+- 不额外封装业务逻辑，仅把 `listLayers()` 的调用从页面抽离，供 `MapView` 及后续页面复用。
+
+### 2.16.8 MapView 改造设计（MapView.tsx）
+
+**改造后职责**：只做「选图层 → 取模拟点位 → 组装 markers → 传给 CampusMap + 挂载 ClickCoordsPopup」。
+
+**改造要点**：
+1. 移除 Leaflet 相关 import（`L`、`leaflet/dist/leaflet.css`、`getLayerImage`）与全部实例生命周期/点击/markers 逻辑（原 `useRef`、`mapRef`、`markerGroupRef`、两个 map 相关 useEffect）。
+2. 图层获取改为 `const { data: layers, error: layersError } = useLayers()`。
+3. 组装 markers：`points`（staff/admin 时 `listSimulatedPoints`）映射为 `MapMarker`，`label = \`${p.label}（模拟点位）\``，`color = cssVar('--color-warning')`（保留约束 5「模拟点位标识来源」）。
+4. 渲染：`{layer && <CampusMap layer={layer} markers={markers} onImageError={setImageError}><ClickCoordsPopup /></CampusMap>}`。`onMapClick` 当前不传（暂无标点需求，为后续标点/圈范围/画路径预留）。
+5. `calibrated`、`imageError`、图层选择 `<select>`、`hint` 文案、`ErrorNotice`、空态提示保留不变。
+6. `leaflet.css` 引入位置随地图逻辑迁至 `CampusMap.tsx`（`MapView` 不再 import）。
+
+> 说明：`MapMarker`、`CampusMapProps` 类型由 `CampusMap.tsx` 导出，`MapView` 从组件文件导入，不写入 `types.ts`（`types.ts` 不在本次允许修改清单内）。
+
+### 2.16.9 验收方案
+
+| # | 验收项 | 期望 |
+|---|---|---|
+| 1 | `cd frontend && npm run lint` | 通过（无 `any`、无未用导入、无内联 `style`） |
+| 2 | `cd frontend && npm run build` | 通过（`tsc -b` 类型检查 + vite 构建） |
+| 3 | 打开地图页，室外图 | 正常显示底图 |
+| 4 | 切换到无底图的楼层 | 显示占位矩形 |
+| 5 | 来回切换图层 5 次 | 页面始终只有一个地图实例（无残留 DOM 节点） |
+| 6 | 切换图层 5 次后点击地图 | 坐标 popup 正常弹出且**只弹出一个**（证明旧实例监听已移除、新实例监听已注册） |
+| 7 | 点击地图 | 弹出 `归一化坐标 (x, y)`，内容与改造前一致 |
+| 8 | 离开地图页再返回 | 无报错（实例与事件监听正确销毁） |
+| 9 | `ClickCoordsPopup` 作为 `useCampusMap` 验证用例 | 组件内成功获取 `map` 实例与换算函数；切换图层后拿到新实例（原「临时子组件验证后删除」步骤取消，由该组件常驻验证） |

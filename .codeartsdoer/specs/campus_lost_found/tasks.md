@@ -6,8 +6,8 @@
 | 阶段 | 阶段3：编码任务规划 |
 | 特性名 | `campus_lost_found` |
 | 写入路径 | `.codeartsdoer/specs/campus_lost_found/tasks.md` |
-| 上游输入 | `spec.md` v1.0 + `design.md` v1.0（含 2.11 T02、2.12 T20、2.13 T21、2.14 T22、2.15 T23 细化） |
-| 状态 | v1.5（2026-10-13，新增 T23 前端接口层/请求 Hook/基础组件重构） |
+| 上游输入 | `spec.md` v1.0 + `design.md` v1.0（含 2.11 T02、2.12 T20、2.13 T21、2.14 T22、2.15 T23、2.16 T24 细化） |
+| 状态 | v1.6（2026-10-14，新增 T24 地图逻辑抽取为可复用组件） |
 
 ## 0. 约定与负责人
 
@@ -94,6 +94,7 @@ flowchart LR
 | T17 | 匹配评估 + 证据卡 + 演示 | C | T12 | `candidate/claim_evidence` | 6.5, 7 |
 | T18 | Docker Compose + 密钥后端化 | B | T02 | 3 套 compose | — |
 | T19 | Rules/Skill 配置 + 阶段验收 | C | T01–T18 | 全部 | 6.1–6.8 |
+| T24 | 地图逻辑抽取为可复用组件 | A | T09, T23 | C 组接口（前端复用） | 6.7 |
 
 ## 4. 逐任务详细说明
 
@@ -467,3 +468,61 @@ flowchart LR
 - [ ] 执行 `cd frontend && npm run lint`，通过（无 `any`、无未用导入）
 - [ ] 执行 `cd frontend && npm run build`，通过（`tsc -b` 类型检查 + vite 构建）
 - [ ] 启动前后端后手工走查：注册→发布寻物→发布拾获→查看候选→提交认领→查看我的委托→打开地图 全流程正常，文案与功能不变
+## 12. T24 地图逻辑抽取为可复用组件（A）
+
+> 对应 `design.md` 2.16 节。目标：把地图页 `MapView.tsx` 里的地图逻辑抽成可复用组件 `CampusMap`，为后续「发帖标点、圈范围、画路径」做准备。本任务**不新增任何地图功能**、不新增依赖、不改后端，现有地图行为（选图层、显示底图/占位矩形、模拟点位、点击弹归一化坐标）保持不变。
+>
+> **允许修改**：`frontend/src/pages/MapView.tsx`；新建 `frontend/src/components/CampusMap/`（`coords.ts`、`MapContext.tsx`、`CampusMap.tsx`、`CampusMap.module.css`）；新建 `frontend/src/hooks/useLayers.ts`；新建 `frontend/src/pages/ClickCoordsPopup.tsx`。
+>
+> **硬约束**：不新增绘制/编辑/聚合等任何新地图功能；不新增依赖；不使用 `any`；不写内联 `style`；颜色/间距/圆角/字号只引用 `tokens.css` 变量。`MapView.module.css` 不在允许修改清单内，保持不动（容器迁走后其 `.map` 类不再被引用，残留不影响 lint/build，勿顺手删除）。
+
+### 12.1 坐标换算纯函数（`components/CampusMap/coords.ts`）
+- [ ] 在 `frontend/src/components/CampusMap/coords.ts` 定义并导出 `LayerDims` 接口（`width: number`、`height: number`）
+- [ ] 导出纯函数 `normToLatLng(nx: number, ny: number, dims: LayerDims): LatLng`，换算 `L.latLng(ny * dims.height, nx * dims.width)`（原点为图片左上角，lat=y、lng=x）
+- [ ] 导出纯函数 `latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: number }`，换算 `x = latlng.lng / width`、`y = latlng.lat / height`
+- [ ] 确认两个函数只依赖 `LayerDims`（不依赖 React、不依赖 Leaflet 实例、不依赖完整 `Layer` 类型），归一化坐标统一用 `{ x, y }` 表达
+
+### 12.2 MapContext 与 useCampusMap（`components/CampusMap/MapContext.tsx`）
+- [ ] 在 `frontend/src/components/CampusMap/MapContext.tsx` 定义并导出 `CampusMapContextValue` 接口：`map: LeafletMap | null`、`layer: Layer`、`toMap: (nx, ny) => LatLng`、`toNorm: (latlng) => { x, y }`
+- [ ] 用 `createContext<CampusMapContextValue | null>(null)` 创建 `CampusMapContext`
+- [ ] 导出 `useCampusMap(): CampusMapContextValue`，`context === null` 时 `throw new Error('useCampusMap 必须在 CampusMap 组件内使用')`（参照 `AuthContext.useAuth` 的抛错约定）
+- [ ] 确认 `MapContext.tsx` 只提供 Context 与 Hook，不创建/销毁 Leaflet 实例
+
+### 12.3 useLayers Hook（`hooks/useLayers.ts`）
+- [ ] 新建 `frontend/src/hooks/useLayers.ts`，导出 `useLayers(): AsyncState<Layer>`，内部复用 `useAsync(() => listLayers(), [])`
+- [ ] 确认不额外封装业务逻辑，仅把 `listLayers()` 调用从页面抽离，供 `MapView` 及后续页面复用
+
+### 12.4 CampusMap 主组件（`components/CampusMap/CampusMap.tsx` + `CampusMap.module.css`）
+- [ ] 在 `frontend/src/components/CampusMap/CampusMap.tsx` 定义并导出 `MapMarker` 接口（`x/y/label/color`）与 `CampusMapProps` 接口（`layer: Layer`、`markers: MapMarker[]`、`onMapClick?`、`onImageError?`、`children?`）
+- [ ] 用 `useState<LeafletMap | null>` 管理 `map`（替代原 `useRef`），保证 Context 值随实例重建同步更新；用 `containerRef`、`markerGroupRef`、`onClickRef`、`onErrorRef` 保存挂载 DOM 与最新回调
+- [ ] 在依赖 `[layer]` 的 `useEffect` 中完整保留原 `MapView.tsx:39-94` 的 Leaflet 生命周期：`L.map(container, { crs: L.CRS.Simple, minZoom: -3, maxZoom: 3 })` → `bounds = L.latLngBounds([0,0],[layer.height, layer.width])` → `fitBounds` + `setMaxBounds(bounds.pad(0.2))`
+- [ ] cleanup 顺序完整保留：`active=false` → `controller.abort()` → `revokeObjectURL(objectUrl)` → `map.remove()` → `setMap(null)` → `markerGroupRef.current = null`（先 `setMap(null)` 再建新实例，保证子组件不拿到已销毁实例）
+- [ ] 无底图（`layer.image_path` 为空）时 `L.rectangle(bounds, { color: cssVar('--color-border-strong'), weight: 1, fillOpacity: 0.03 })` 显示占位矩形；有底图时 `getLayerImage(layer.id, controller.signal)` → `URL.createObjectURL(blob)` → `L.imageOverlay(url, bounds)`，失败时 `onErrorRef.current?.(errorMessage(e, '底图加载失败'))`
+- [ ] 点击分发：`map.on('click', (e) => onClickRef.current?.(latLngToNorm(e.latlng, layer)))`，组件只分发 `onMapClick`，不弹任何 popup
+- [ ] 在独立依赖 `[markers, map, layer]` 的 `useEffect` 中渲染 markers：`map` 为 null 时返回；`markerGroupRef` 为 null 时 `L.layerGroup().addTo(map)`；`clearLayers()` 后逐点 `L.circleMarker(normToLatLng(m.x, m.y, layer), { color: m.color }).bindTooltip(m.label)`
+- [ ] 用 `useMemo`（依赖 `[map, layer]`）生成 Context value：`toMap`/`toNorm` 为 `normToLatLng`/`latLngToNorm` 绑定当前 `layer` 的闭包；渲染 `<CampusMapContext.Provider value={value}><div ref={containerRef} className={styles.map} />{children}</CampusMapContext.Provider>`（`children` 在 Provider 范围内）
+- [ ] 新建 `frontend/src/components/CampusMap/CampusMap.module.css`，`.map` 迁移自 `MapView.module.css` 的 `.map`（`height: 560px`、`margin-top: var(--space-3)`、`border: 1px solid var(--color-border-strong)`、`background: var(--color-map-bg)`）
+- [ ] 将 `import 'leaflet/dist/leaflet.css'` 从 `MapView.tsx` 迁至本组件
+
+### 12.5 ClickCoordsPopup 图层组件（`pages/ClickCoordsPopup.tsx`）
+- [ ] 新建 `frontend/src/pages/ClickCoordsPopup.tsx`，作为 `<CampusMap>` 子组件，`const { map, toNorm } = useCampusMap()`，返回 `null`（不渲染任何 DOM）
+- [ ] 在依赖 `[map, toNorm]` 的 `useEffect` 中：`map` 为 null 时直接返回；注册 `click` 处理器，`const { x, y } = toNorm(e.latlng)`，`L.popup().setLatLng(e.latlng).setContent(\`归一化坐标 (${x.toFixed(3)}, ${y.toFixed(3)})\`).openOn(map)`；cleanup 中 `map.off('click', handler)`
+- [ ] 确认 popup 内容与现状完全一致（`归一化坐标 (x, y)`，保留三位小数）；切换图层时旧实例监听先移除、新实例就绪后重绑，切换 5 次后点击只弹出一个 popup
+
+### 12.6 MapView 改造（`pages/MapView.tsx`）
+- [ ] 在 `frontend/src/pages/MapView.tsx` 移除 Leaflet 相关 import（`L`、`leaflet/dist/leaflet.css`、`getLayerImage`）与全部实例生命周期/点击/markers 逻辑（`containerRef`、`mapRef`、`markerGroupRef`、两个地图相关 `useEffect`）
+- [ ] 图层获取改为 `const { data: layers, error: layersError } = useLayers()`，`selected`/`calibrated`/`imageError` 状态保留
+- [ ] 组装 markers：staff/admin 时 `listSimulatedPoints(selected)` 映射为 `MapMarker`（`x = p.norm_x`、`y = p.norm_y`、`label = \`${p.label}（模拟点位）\``、`color = cssVar('--color-warning')`）
+- [ ] 渲染：`{layer && <CampusMap layer={layer} markers={markers} onImageError={setImageError}><ClickCoordsPopup /></CampusMap>}`；`onMapClick` 当前不传（为后续标点/圈范围/画路径预留）
+- [ ] 保留图层选择 `<select>`、`hint` 文案、`ErrorNotice`、空态提示与 `calibrated` 展示不变；`MapView.module.css` 的 `.hint` 继续使用
+
+### 12.7 验收
+- [ ] 执行 `cd frontend && npm run lint`，通过（无 `any`、无未用导入、无内联 `style`）
+- [ ] 执行 `cd frontend && npm run build`，通过（`tsc -b` 类型检查 + vite 构建）
+- [ ] 手工检查（需在可访问前后端的终端执行）：室外图正常显示底图
+- [ ] 切换到无底图楼层显示占位矩形
+- [ ] 来回切换图层 5 次，页面始终只有一个地图实例（无残留 DOM 节点）
+- [ ] 点击地图弹出 `归一化坐标 (x, y)`，内容与改造前一致
+- [ ] 切换图层 5 次后点击地图，坐标 popup 正常弹出且只弹出一个
+- [ ] 离开地图页再返回无报错（实例与事件监听正确销毁）
+- [ ] `ClickCoordsPopup` 作为 `useCampusMap` 验证用例：组件内成功获取 `map` 与换算函数，切换图层后拿到新实例
