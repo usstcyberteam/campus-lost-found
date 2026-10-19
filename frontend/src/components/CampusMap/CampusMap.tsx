@@ -51,9 +51,9 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, ch
     setMap(instance)
 
     const bounds = L.latLngBounds([0, 0], [layer.height, layer.width])
-    if (!layer.image_path) {
-      L.rectangle(bounds, { color: cssVar('--color-border-strong'), weight: 1, fillOpacity: 0.03 }).addTo(instance)
-    } else {
+    // 先铺占位矩形，底图缺失或加载失败时地图仍可操作，不会白屏
+    L.rectangle(bounds, { color: cssVar('--color-border-strong'), weight: 1, fillOpacity: 0.03 }).addTo(instance)
+    if (layer.image_path) {
       getLayerImage(layer.id, controller.signal)
         .then((blob) => {
           if (!active) return

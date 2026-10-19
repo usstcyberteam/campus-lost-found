@@ -19,7 +19,7 @@ export default function Login() {
     setError('')
     try {
       await login(username, password)
-      navigate('/')
+      navigate('/hall')
     } catch (err) {
       setError(errorMessage(err, '登录失败，请检查用户名或密码'))
     }

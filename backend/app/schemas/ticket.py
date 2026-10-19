@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from app.models.enums import RouteKind, TicketStatus
+from app.models.enums import RouteKind, TicketStatus, Visibility
 
 
 class TicketCreate(BaseModel):
@@ -33,3 +33,4 @@ class TicketRouteOut(BaseModel):
     kind: RouteKind
     geometry: dict | None
     floor_segments: list | None
+    visibility: Visibility

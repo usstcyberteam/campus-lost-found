@@ -11,6 +11,9 @@ export interface RegisterRequest {
   password: string
   display_name: string
   contact?: string | null
+  role?: 'student' | 'staff'
+  staff_no?: string | null
+  department?: string | null
 }
 
 export interface TokenResponse {

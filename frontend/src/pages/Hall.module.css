@@ -1,0 +1,22 @@
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  margin-bottom: var(--space-2);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-3) 0;
+}

@@ -1,0 +1,72 @@
+.chat {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.messages {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--color-bg-2);
+  border-radius: var(--radius-md);
+}
+
+.message {
+  max-width: 85%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-base);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user {
+  justify-self: end;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.assistant {
+  justify-self: start;
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-1);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.label {
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}
+
+.input {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+  resize: vertical;
+}
+
+.input:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.helper {
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}

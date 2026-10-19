@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.core.security import create_access_token
 from app.database import get_db
-from app.models import Role, User
+from app.models import Role, StaffStatus, User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
 from app.services import user_service
 
@@ -13,7 +13,18 @@ router = APIRouter(tags=["auth"])
 
 @router.post("/register", response_model=TokenResponse)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
-    user = user_service.create_user(db, body.username, body.password, body.display_name, body.contact, Role.student)
+    applying_staff = body.role == Role.staff
+    user = user_service.create_user(
+        db,
+        body.username,
+        body.password,
+        body.display_name,
+        body.contact,
+        Role.student,
+        staff_status=StaffStatus.pending if applying_staff else StaffStatus.none,
+        staff_no=body.staff_no if applying_staff else None,
+        department=body.department if applying_staff else None,
+    )
     return TokenResponse(token=create_access_token(user.id, user.role.value), role=user.role)
 
 

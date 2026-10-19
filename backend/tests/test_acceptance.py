@@ -35,13 +35,21 @@ def test_register_defaults_to_student(client):
     assert r.json()["role"] == "student"
 
 
-def test_self_register_cannot_become_staff(client):
+def test_self_register_staff_stays_student_until_approved(client):
     r = client.post(
         "/api/v1/auth/register",
-        json={"username": "selfreg", "password": "secret123", "display_name": "X", "role": "staff"},
+        json={
+            "username": "selfreg",
+            "password": "secret123",
+            "display_name": "X",
+            "role": "staff",
+            "staff_no": "T0001",
+        },
     )
     assert r.status_code == 200
     assert r.json()["role"] == "student"
+    me = client.get("/api/v1/auth/me", headers=auth(r.json()["token"])).json()
+    assert me["staff_status"] == "pending"
 
 
 def test_private_fields_not_in_public_list(client):

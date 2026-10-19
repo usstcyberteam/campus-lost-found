@@ -1,4 +1,4 @@
-# 校园寻物局 · 阶段2架构设计说明书（v1.0）
+# 校园寻物局 · 阶段2架构设计说明书（v2.0）
 
 ## 0. 文档信息
 
@@ -8,11 +8,32 @@
 | 阶段 | 阶段2：架构与开发准备（仅设计，不实现） |
 | 特性名 | `campus_lost_found` |
 | 写入路径 | `.codeartsdoer/specs/campus_lost_found/design.md` |
-| 上游输入 | 已确认需求规格 `spec.md` v1.0（2026-10-03） |
-| 状态 | v1.0（2026-10-03） |
+| 上游输入 | 已确认需求规格 `spec.md` v2.0（2026-10-14） |
+| 状态 | v2.0（2026-10-14） |
 | 图表约定 | mermaid |
 
-**边界声明**：本项目为参赛作品，当前仓库为空目录（0 源文件），从零搭建。本文不实现产品功能，不产生业务代码、开发记录与测试结果。所有需求依据来自已确认的 `spec.md`，未证实判断沿用其 `[假设]` 标记。
+**版本说明**：本文档在 v1.0（2026-10-03）架构设计基础上升级，v1.0 描述的四套状态机、权限边界与发布→匹配→认领→核验→归还→协助工单闭环仍然有效；v2.0 在其上叠加教职工自助申请、评论/点赞/收藏/接取委托、积分称号、建筑与多层地图、上传与存储抽象、AI 对话式辅助等增量能力，不删除、不改变既有行为。第一章为 v2.0 增量需求与存量代码的关系分析，第二章 2.1~2.16 为 v1.0 与阶段3 已落地的归档设计（继续有效），2.17 起为 v2.0 增量设计方案。
+
+**边界声明**：本文不实现产品功能，不产生业务代码、开发记录与测试结果。所有需求依据来自已确认的 `spec.md`，未证实判断沿用其 `[假设]` 标记。
+
+---
+
+## v1.0 → v2.0 架构决定摘要
+
+> 本表为 v2.0 技术设计阶段须强制采用的架构决定（与 `spec.md` 2 章变更记录一一对应），后续 2.17 起各节按此展开。与这些决定冲突的历史描述（如 2.6 地图坐标原点、2.2.1 服务划分）以本文 2.17 起的改写为准。
+
+| # | 架构决定 |
+|---|---|
+| D1 | 教职工申请：`user` 表新增 `staff_status`（none/pending/approved/rejected）、`staff_no`、`department`、`staff_reject_reason`；审核通过前 `role` 保持 `student`，审核通过时 `role` 改为 `staff`；现有所有基于 `role` 的权限判断保持不变 |
+| D2 | 新建表：`building`、`comment`、`item_like`、`item_favorite`、`item_helper`、`point_record`；`point_record` 对 `(user_id, reason, ref_id)` 建唯一约束 |
+| D3 | 修改表：`layer` 增 `building_id`、`floor`；`item` 增 `building_id`、`floor`；`route` 增 `visibility`；`attachment` 增 `owner_user_id`、`comment_id`、`purpose`、`mime`、`size`；`simulated_point` 增 `kind`、`is_public` |
+| D4 | 点赞数、评论数、收藏数、协助者人数不建冗余计数字段，查询时用子查询统计 |
+| D5 | 新增服务模块：`staff_application_service`、`upload_service`（含存储抽象）、`comment_service`、`reaction_service`、`helper_service`、`points_service`、`building_service`、`ai_service`；积分只能经 `points_service` 写入 |
+| D6 | 新增接口按下表设计（路径可微调，须在 design.md 列出完整请求、响应、权限和错误码），详见 2.21 |
+| D7 | 前端路由：`/hall`、`/hall/:id`、`/publish`、`/map`、`/ai`、`/me`、`/me/*`、`/staff/claims`、`/staff/tickets`、`/admin/staff-applications`；旧路径重定向到新路径 |
+| D8 | 地图功能全部以 `CampusMap` 子组件的形式实现为独立图层，通过 `useCampusMap()` 获取地图实例；坐标统一使用归一化坐标，**原点在图片左下角** |
+| D9 | 依赖：后端只新增 `httpx` 和 `Pillow`；前端不新增依赖，点位聚合、绘制工具、热力层自行实现 |
+| D10 | 模型配置项：`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_API_KEY`、`MODEL_TIMEOUT_SECONDS`（默认 10），未配置时视为不可用并走降级 |
 
 ---
 
@@ -20,14 +41,83 @@
 
 ## 1.1 存量资产盘点
 
+v1.0 架构已在代码中落地（不再是空目录），且阶段3 已完成后端骨架、迁移基线、服务层下沉、分页/搜索、校验补强、前端接口层/组件化、地图组件化等改造。v2.0 在此存量之上做增量。
+
 | 资产 | 说明 | 约束 |
 |---|---|---|
-| 源码仓库 | 空目录，无既有业务代码 | 全部功能为新增 |
-| 需求规格 `spec.md` | 阶段1已确认 v1.0 | 四套状态机、权限边界、10 条假设、EARS 验收为设计唯一依据 |
-| 规划文档 `competition-plan/` | README、阶段提示词、评分验收清单、记录模板、Rules/Skill 设计稿 | Rules/Skill 原文依据 |
-| 码道配置 | `rule/metadata.properties` 仅 `projectExpert=[]` | Rules/Skill 由团队按官方文档配置 |
+| 后端模型（12 张表） | `backend/app/models/`：`user`/`badge`/`item`/`attachment`/`item_feature`/`route`/`candidate`/`layer`/`simulated_point`/`claim`/`claim_evidence`/`ticket` | 表结构为 v1.0 契约，v2.0 只能增列/增表，不改既有列名与类型 |
+| 后端服务层 | `backend/app/services/`：`user_service`、`item_service`、`claim_service`、`ticket_service`、`matching_service`、`model` | `claim_service` 的加锁/事务顺序、`model.extract_features` 的降级桩不得破坏 |
+| 后端路由 | `backend/app/api/v1/`：`auth`、`admin`、`items`、`claims`、`layers`、`tickets`、`me` | 既有接口路径/响应/状态码保持不变；`require_role` 基于 `Role` 枚举，v2.0 不改变 |
+| 鉴权与安全 | `backend/app/core/`：`deps.get_current_user`、`require_role`、`security` | `get_current_user` 按 `user.role` 判断；教职工申请新增 `staff_status` 不影响现有 `role` 逻辑 |
+| 配置 | `backend/app/config.py`：`database_url`、`jwt_secret`、`model_api_key`、`model_disabled`、`model_timeout_seconds`、`file_storage_dir` | v2.0 扩为 `MODEL_BASE_URL`/`MODEL_NAME`/`MODEL_TIMEOUT_SECONDS` 默认 10，并保留 `model_disabled` 降级开关 |
+| 迁移 | `backend/alembic/versions/`：`5a312e915b0f_initial_schema.py`、`7b8c9d0e1f2a_add_claim_review_reason.py` | v2.0 新增一张迁移，挂最新 head 之上 |
+| 前端 | `frontend/src/`：`api/`（6 资源文件 + `client`）、`components/`（含 `CampusMap/`）、`hooks/`（`useAsync`/`useDebounce`/`useLayers`）、`pages/`（9 页）、`types.ts`、`styles/tokens.css` | 路由结构、`useAsync`、`tokens.css` 可复用；v2.0 改路由与新增页面/图层组件 |
+| 依赖 | 后端 `requirements.txt`（无 `httpx`/`Pillow`）；前端 `package.json`（axios/leaflet/react/react-router-dom） | 后端仅新增 `httpx`、`Pillow`；前端不新增 |
+| 需求规格 | `spec.md` v2.0（2026-10-14） | 六套状态机（含教职工申请、接取委托）、16 条假设、EARS 验收、18 项变更记录为设计依据 |
 
-**结论**：本次为纯增量设计，不涉及存量和存量改造。
+**结论**：v2.0 为「存量叠加增量」，保留 v1.0 闭环与全部既有测试；新增能力（互动、教职工、建筑地图、积分、AI 对话）以新增表/服务/接口方式落地，对既有表仅做加列，对既有接口仅做补充分支。
+
+## 1.2 需求功能与存量功能对比
+
+### 1.2.1 已实现功能（可直接复用）
+
+| 需求功能（v2.0） | 存量功能 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| 注册/登录/JWT/角色 | `auth.py` 注册登录、`security.create_access_token`、`deps.get_current_user` | `api/v1/auth.py`、`core/security.py`、`core/deps.py` | 100% |
+| 学生自助注册即生效 | `POST /auth/register` 强制 `Role.student` | `api/v1/auth.py:16`、`services/user_service.py:8` | 100% |
+| 管理员创建工作人员 | `POST /admin/staff`（`require_role(admin)`） | `api/v1/admin.py:14` | 100% |
+| 寻物/拾获发布、列表、详情、标点、路线、候选 | `items.py` 全套 + `item_service` + `matching_service` | `api/v1/items.py`、`services/item_service.py`、`services/matching_service.py` | 100% |
+| 认领提交/核验/归还事务（同一物品仅一次归还） | `claim_service` 行锁 + CAS + 幂等键 | `services/claim_service.py` | 100% |
+| 协助工单（接单/授权路线/反馈） | `ticket_service` + `tickets.py` | `services/ticket_service.py`、`api/v1/tickets.py` | 100% |
+| 列表分页/搜索/响应模型 | `Page[T]`、`limit/offset`、`ilike` 搜索 | `schemas/common.py`、`services/item_service.py:43` | 100% |
+| 归一化坐标/比例尺门控 | `Field(ge=0,le=1)`、`scale_calibrated`、`pixels_per_meter` | `schemas/layer.py`、`api/v1/layers.py` | 75%（见 2.6、2.22.3 坐标原点） |
+| 前端接口层/Hook/组件 | `api/*`、`useAsync/useDebounce/useLayers`、`CampusMap`、`tokens.css` | `frontend/src/` | 100% |
+| 地图组件化（Leaflet 实例生命周期） | `CampusMap.tsx`、`MapContext.tsx`、`coords.ts` | `components/CampusMap/` | 75%（见 2.6、2.22.3 坐标原点） |
+
+### 1.2.2 需要扩展的功能
+
+| 需求功能（v2.0） | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| 教职工自助申请与审核 | 仅管理员创建 staff，无申请流程 | 缺 `staff_status` 等字段与申请/审核接口；审核通过前需按学生权限 | `user` 加列 + 新增 `staff_application_service` + 三/四接口（见 2.21.1） |
+| 照片多图/去位置/可见性 | `attachment` 仅 `item_id/file_path/is_evidence`；无上传接口 | 需最多 6 图、EXIF 去除、拾获帖照片仅发布者与 staff 可见 | `attachment` 加列 + `upload_service` + `POST /uploads` 与 `POST /items/{id}/photos` |
+| 路线可见性（圈选公开/路径私密） | `route.is_private` 固定 true | 圈选范围默认公开、路径默认私密 | `route` 用 `visibility` 替换 `is_private`（见 2.18.3 迁移映射） |
+| 地图图层与建筑 | 固定 3 图层、无建筑表、原点左上角 | 需 2.5D 底图 + 建筑表 + 多可开关图层 + 左下角原点 | `layer/item` 加列 + 新建 `building` 表 + `building_service` + 图层组件（见 2.22） |
+| AI 能力 | `model.extract_features` 为降级桩（仅返回 `degraded=True`） | 需真实模型客户端 + 智能整理发帖 + 地点推荐 + 超时 10s 降级 | 新增 `ai_service` + `httpx` 客户端 + `POST /ai/*`（见 2.23） |
+| 积分/称号 | `badge` 表 + `feedback` 发 `assist` 徽章 | 需积分事件（+20/+15/+10）、唯一约束、称号阈值集中配置 | 新建 `point_record` 表 + `points_service`（见 2.18.2、2.24） |
+| 前端路由与页面 | `/`、`/items/:id`、`/tickets` 等 8 路由 | 需底部四标签、大厅详情、AI 页、我的子页、staff/admin 入口 | 改路由 + 新增页面 + 旧路径重定向（见 2.22） |
+
+### 1.2.3 需要新增的功能或接口
+
+按业务模块分组（详细契约见 2.21）：
+
+- **教职工**：`POST /me/staff-application`（本人提交申请）、`GET /admin/staff-applications`、`POST /admin/staff-applications/{user_id}/approve`、`POST /admin/staff-applications/{user_id}/reject`。
+- **上传与照片**：`POST /uploads`、`GET /uploads/{id}`、`POST /items/{id}/photos`（照片关联到帖子）。
+- **帖子补充操作**：`POST /items/{id}/withdraw`（撤销）、`POST /items/{id}/mark-found`（我已找回）。
+- **评论**：`GET /items/{id}/comments`、`POST /items/{id}/comments`、`DELETE /comments/{id}`。
+- **点赞收藏**：`POST/DELETE /items/{id}/like`、`POST/DELETE /items/{id}/favorite`。
+- **接取委托与致谢**：`POST/DELETE /items/{id}/helpers`、`POST /items/{id}/thank`。
+- **积分**：`GET /me/points`。
+- **我的**：`GET /me/favorites`、`/me/likes`、`/me/comments`、`/me/helping`。
+- **建筑**：`GET /buildings`、`GET /buildings/{id}`。
+- **点位**：`GET /layers/{id}/points`（按身份过滤监控点位，替代/扩充现有 `simulated-points`）。
+- **AI**：`POST /ai/draft-post`、`POST /ai/search-advice`。
+
+**新增表**：`building`、`comment`、`item_like`、`item_favorite`、`item_helper`、`point_record`（字段见 2.18.2）。
+**新增服务**：`staff_application_service`、`upload_service`、`comment_service`、`reaction_service`、`helper_service`、`points_service`、`building_service`、`ai_service`（职责见 2.19）。
+
+## 1.3 存量功能详细分析
+
+对 v2.0 直接复用或扩展的存量实现，其契约与约束如下（避免新设计与之冲突）：
+
+| 存量实现 | 接口契约 | 关键约束 | 对 v2.0 的影响 |
+|---|---|---|---|
+| `deps.require_role(*roles)` | 返回 `User`，`user.role not in roles` 则 403 | 仅按 `Role` 枚举判断 | 教职工审核通过前 `role=student`，天然无法通过 staff 守卫，满足「审核前按学生权限」 |
+| `claim_service.create_claim` | 幂等键 + `lock_items` 行锁 + `serialize_claim_mutation` | 加锁顺序、flush/commit 位置、CAS 条件更新不可变 | v2.0「致谢 +20 分」「归还 +15 分」须在 `complete_claim` 成功提交后经 `points_service` 追加，不得侵入既有事务 |
+| `ticket_service.feedback` | 置 `feedback` 后发 `assist` 徽章（`IntegrityError` 回滚） | 徽章去重靠 `UNIQUE(user_id,kind)` | v2.0 工单反馈 +10 分改为经 `points_service`，与徽章并存；积分唯一约束 `(user_id,reason,ref_id)` |
+| `item_service.get_item_detail` | 返回 dict，`precise_location` 仅 owner 非空 | 私密字段不进入公开响应 | v2.0 详情需追加 `building_id/floor`、点赞/评论/收藏/协助人数、`is_liked/is_favorited/is_helper`（子查询统计） |
+| `model.extract_features` | 纯降级桩，返回 `degraded=True` | 无远程调用 | 由 `ai_service` 接管真实调用，`model.py` 保留为兜底或直接改造为降级路径 |
+| `Layer/SimulatedPoint` | `image_path`、`scale_calibrated`、`pixels_per_meter`；`SimulatedPoint.is_simulated` 恒 true | 未标定不输出米数；模拟点位标注来源 | v2.0 `simulated_point` 增 `kind/is_public` 区分求助点与监控点；监控点仅 staff 可见 |
+| `Route.is_private` | `create_route` 固定 `is_private=True` | 路线默认私密 | v2.0 以 `visibility` 替换，`circle` 默认 `public`、`polyline` 默认 `private`（见 2.18.3 迁移映射） |
 
 ---
 
@@ -267,13 +357,13 @@ status：lost=`寻找中/核验中/已找回/已撤销`；found=`待认领/核�
 关键路径：`T1 → T2 → (T3 → T4) → T5/T6 → T7 → T8 → T9 → T10 → T14 → T11 → T12 → T13 → T15 → T16`。
 
 ## 2.6 地图技术约定
-1. 3 个固定图层：室外示意图、楼1F、楼2F。
+1. 图层体系：v1.0 为固定 3 图层（室外示意图、楼1F、楼2F）；v2.0 改为「建筑层 + 帖子点位层（聚合）+ 求助点位层 + 监控点位层 + AI 推荐层 + 热力层 + 绘制工具层」独立开关，楼层图经 `layer.building_id + floor` 关联建筑（详见 2.22）。
 2. `layer.version` 统一，变更递增，前端做缓存失效。
-3. 以图片左上角为原点 (0,0)，norm = 像素/尺寸，归一化 [0,1]。
-4. 圆形范围：中心 (cx,cy) + 半径 r（归一化）。
+3. **归一化坐标原点（v2.0 变更）**：坐标统一为归一化 `[0,1]`，**原点在图片左下角**（x 向右增大，y 向上增大）。与 v1.0「左上角原点」不同，前端 `coords.ts` 的换算函数须改为：`lng = nx * width`、`lat = (1 - ny) * height`；逆变换 `nx = lng / width`、`ny = 1 - lat / height`。存量已落库的 `norm_x/norm_y`（左上角语义）在迁移时须转换为左下角语义（`ny' = 1 - ny`），见 2.18.3 迁移映射。
+4. 圆形范围：中心 (cx,cy) + 半径 r（归一化，y 向上）。
 5. 分层路线：`floor_segments` 跨层多段线。
 6. 比例尺门控：未标定 ⇒ 不返回/不渲染米数，后端返回 422。
-7. 模拟点位恒标记"模拟点位"，不宣称真实坐标/覆盖。
+7. 模拟点位恒标记"模拟点位"，不宣称真实坐标/覆盖；监控点位为模拟数据且仅工作人员可见（`simulated_point.kind`/`is_public`）。
 8. 版本一致性：地图状态持久化回后端。
 
 ## 2.7 归还事务、重复请求与状态冲突
@@ -1433,3 +1523,735 @@ export function useLayers(): AsyncState<Layer[]>
 | 7 | 点击地图 | 弹出 `归一化坐标 (x, y)`，内容与改造前一致 |
 | 8 | 离开地图页再返回 | 无报错（实例与事件监听正确销毁） |
 | 9 | `ClickCoordsPopup` 作为 `useCampusMap` 验证用例 | 组件内成功获取 `map` 实例与换算函数；切换图层后拿到新实例（原「临时子组件验证后删除」步骤取消，由该组件常驻验证） |
+---
+
+# 三、v2.0 增量设计方案
+
+> 本章为 v2.0 需求（`spec.md` v2.0）相对 v1.0 存量的增量架构设计，对应文档头部 D1~D10 架构决定。前文 2.1~2.16 中与此冲突的描述（2.6 地图坐标原点、2.2.1 服务划分）以本章为准。
+
+## 2.17 增量设计总览与上下文视图
+
+### 2.17.1 增量范围
+
+v2.0 在「发布→匹配→认领→核验→归还→协助工单」闭环之上叠加六条新链路，均不改动既有行为：
+
+1. **教职工链路**：学生自助提交申请（工号+选填部门）→ 管理员审核 → 通过则 `role` 由 `student` 转 `staff`。
+2. **互动链路**：评论 / 点赞 / 收藏 / 接取委托 / 致谢，围绕 `item` 展开，计数全部子查询统计。
+3. **发布增强链路**：照片多图上传（去 EXIF）→ 发布；撤销 / 我已找回；圈选默认公开、路径默认私密。
+4. **地图增强链路**：建筑数据导入 → 多层图层可开关 → 楼层图 → 绘制工具 → 从地图发帖。
+5. **积分称号链路**：致谢 +20 / 归还 +15 / 工单反馈 +10，唯一约束防重复，阈值集中配置。
+6. **AI 辅助链路**：智能整理发帖草稿、寻物地点推荐，均经用户确认才落库，模型不可用降级。
+
+### 2.17.2 上下文视图
+
+```mermaid
+flowchart LR
+  subgraph Client["前端 React + TS（Leaflet 图片地图）"]
+    UI["大厅 / 地图 / AI / 我的 / 发布"]
+    MAP["CampusMap + 图层子组件"]
+  end
+  subgraph Server["后端 FastAPI（单体）"]
+    API["REST API 层<br/>鉴权 / 校验 / 脱敏 / 可见性"]
+    SVC["业务服务层（新增 8 服务 + 既有 5 服务）"]
+    UPLOAD["upload_service<br/>存储抽象（本地 → 预留 OBS）"]
+    AIHW["ai_service<br/>模型客户端 + 降级"]
+  end
+  DB[("PostgreSQL<br/>业务数据 + 明细计数")]
+  FS[("文件存储<br/>storage 目录 / 预留 OBS")]
+  MOD["外部模型接口<br/>OpenAI 兼容（可配置）"]
+
+  UI -- "HTTPS/JSON (Axios, Bearer)" --> API
+  MAP -- "归一化坐标（左下角原点）" --> API
+  API --> SVC
+  SVC --> UPLOAD
+  SVC --> AIHW
+  SVC -- "SQLAlchemy" --> DB
+  UPLOAD -- "读写文件" --> FS
+  AIHW -- "httpx 超时 10s" --> MOD
+```
+
+| 组件 | 职责 | 关键约束 |
+|---|---|---|
+| 前端 | 四标签导航、大厅卡片、地图图层开关、AI 对话、我的 | 不放密钥；权限不靠前端隐藏；375px 可用、点击区 ≥44px |
+| 后端 API | 鉴权、校验、脱敏、可见性过滤、调用 service | 私密字段与监控点位不进入公共响应 |
+| 新增服务层 | 教职工/评论/点赞收藏/接取委托/积分/建筑/上传/AI | 积分只经 `points_service`；service 首参 `db`、用户显式传入 |
+| 存储抽象 | `upload_service` + `StorageBackend` 接口 | 本地目录实现，预留 OBS 实现；受控发放不暴露目录 |
+| 模型适配 | `ai_service` + httpx | 仅提取/推荐/生成草稿；超时 10s 降级；结果经用户确认才落库 |
+
+## 2.18 数据模型增量设计
+
+### 2.18.1 新增枚举
+
+新增于 `backend/app/models/enums.py`（沿用 `SAEnum(native_enum=False, length=N)` 约定，跨库一致）：
+
+| 枚举 | 值 | length | 用途 |
+|---|---|---|---|
+| `StaffStatus` | `none` / `pending` / `approved` / `rejected` | 16 | 教职工申请状态（`user.staff_status`） |
+| `Visibility` | `public` / `private` | 16 | 路线/圈选可见性（`route.visibility`） |
+| `AttachmentPurpose` | `item_photo` / `comment_image` / `evidence` | 16 | 附件用途（`attachment.purpose`） |
+| `SimulatedPointKind` | `help_point` / `monitor_point` | 16 | 求助点位 vs 监控点位（`simulated_point.kind`） |
+| `PointReason` | `thank` / `return` / `ticket_feedback` | 16 | 积分事件（`point_record.reason`） |
+| `HelperStatus` | `active` / `abandoned` | 16 | 接取委托状态（`item_helper.status`） |
+
+> 说明：`item.status` 复用现有 `ItemStatus`（lost/found 方向共用同一枚举，`found` 值表示「已找回」）；`comment` 软删除用布尔 `is_deleted`，不引入删除状态枚举。
+
+### 2.18.2 新表定义
+
+主键统一 `UUID`，时间戳 `created_at`（`server_default=func.now()`）。字段约束遵循「字符串设长度上限、外键列加索引、唯一约束防重复」。
+
+**① `building`（建筑）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `code` | varchar(32) | NOT NULL, UNIQUE | 建筑编号（配置导入唯一键） |
+| `name` | varchar(64) | NOT NULL | 建筑名称 |
+| `category` | varchar(32) | NOT NULL | 类别（教学楼/食堂/图书馆/宿舍/其他） |
+| `floors` | int | NOT NULL, default 1 | 层数 |
+| `click_region` | jsonb | NULLABLE | 地图点击区域（归一化多边形点序列，左下角原点） |
+| `label_position` | jsonb | NULLABLE | 标签位置 `{x, y}`（归一化） |
+| `created_at` | timestamptz | NOT NULL | |
+
+索引：`code` UNIQUE；`category` 加普通索引（建筑卡片按类别筛选）。
+
+**② `comment`（评论，一层回复 + 软删除）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `item_id` | UUID FK→item | NOT NULL, index | 所属帖子 |
+| `author_user_id` | UUID FK→user | NOT NULL, index | 评论者 |
+| `parent_id` | UUID FK→comment | NULLABLE, index | 回复的父评论（仅一层） |
+| `content` | text | NOT NULL | 1~500 字 |
+| `is_deleted` | boolean | NOT NULL, default false | 软删除标记 |
+| `created_at` | timestamptz | NOT NULL | |
+
+**③ `item_like`（点赞，一人一次可取消）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `item_id` | UUID FK→item | NOT NULL | |
+| `user_id` | UUID FK→user | NOT NULL | |
+| `created_at` | timestamptz | NOT NULL | |
+
+唯一约束 `UNIQUE(item_id, user_id)`（`uq_item_like_item_user`）；索引 `item_id`、`user_id`。
+
+**④ `item_favorite`（收藏，结构同点赞）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `item_id` | UUID FK→item | NOT NULL | |
+| `user_id` | UUID FK→user | NOT NULL | |
+| `created_at` | timestamptz | NOT NULL | |
+
+唯一约束 `UNIQUE(item_id, user_id)`（`uq_item_favorite_item_user`）；索引 `item_id`、`user_id`。
+
+**⑤ `item_helper`（接取委托/协助者）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `item_id` | UUID FK→item | NOT NULL, index | 被接取的寻物帖 |
+| `user_id` | UUID FK→user | NOT NULL, index | 协助者 |
+| `status` | HelperStatus | NOT NULL, default active | 进行中 / 已放弃 |
+| `thanked` | boolean | NOT NULL, default false | 是否已被致谢（积分去重依据） |
+| `created_at` | timestamptz | NOT NULL | |
+
+无 UNIQUE（允许同一用户历史多次接取）；「同一帖子同一用户仅一条 active」由 `helper_service` 应用层校验（接取前查 `status=active` 是否存在）。放弃后再次接取新建记录。
+
+**⑥ `point_record`（积分记录，只增不减）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `user_id` | UUID FK→user | NOT NULL, index | 积分归属 |
+| `reason` | PointReason | NOT NULL | 事件类型 |
+| `amount` | int | NOT NULL（>0） | 积分值（+20/+15/+10） |
+| `ref_id` | UUID | NOT NULL | 事件对象 id（claim / helper / ticket） |
+| `created_at` | timestamptz | NOT NULL | |
+
+唯一约束 `UNIQUE(user_id, reason, ref_id)`（`uq_point_record_user_reason_ref`）——同一事件对同一人只计一次；索引 `user_id`（按人查积分明细）。
+
+### 2.18.3 修改表定义（仅加列，不改既有列）
+
+**`user` 新增 4 列（教职工申请）**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `staff_status` | StaffStatus | NOT NULL, default `none` | 审核前保持 `none/pending`，`role` 仍为 `student` |
+| `staff_no` | varchar(20) | NULLABLE | 工号（4~20 位字母/数字） |
+| `department` | varchar(64) | NULLABLE | 部门（选填） |
+| `staff_reject_reason` | text | NULLABLE | 拒绝理由（申请人可见） |
+
+**`layer` 新增 2 列（楼层图关联建筑）**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `building_id` | UUID FK→building | NULLABLE, index | 楼层图所属建筑 |
+| `floor` | int | NULLABLE | 楼层（1F/2F…；室外示意图为 NULL） |
+
+**`item` 新增 2 列（点选建筑与楼层）**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `building_id` | UUID FK→building | NULLABLE, index | 物品所在建筑 |
+| `floor` | int | NULLABLE | 物品所在楼层 |
+
+**`route` 新增 `visibility` 并替换 `is_private`**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `visibility` | Visibility | NOT NULL, default `private` | `circle` 默认 `public`、`polyline` 默认 `private` |
+
+迁移映射（数据迁移）：`is_private=true → visibility='private'`；`is_private=false → visibility='public'`；迁移完成后删除 `is_private` 列。`RouteOut/RouteDetail/TicketRouteOut` 的 `is_private` 字段同步改为 `visibility`（对外契约变化，前端 `types.ts` 同步）。
+
+**`attachment` 新增 5 列（上传者、评论图、用途、媒体类型、大小）**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `owner_user_id` | UUID FK→user | NULLABLE, index | 上传者（拾获帖照片可见性鉴权） |
+| `comment_id` | UUID FK→comment | NULLABLE, index | 评论图片关联（最多 3 图） |
+| `purpose` | AttachmentPurpose | NOT NULL, default `item_photo` | 用途：帖子图/评论图/证据 |
+| `mime` | varchar(64) | NULLABLE | `image/jpeg` 等 |
+| `size` | int | NULLABLE | 字节数 |
+
+**`simulated_point` 新增 2 列（求助 vs 监控、公开性）**
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `kind` | SimulatedPointKind | NOT NULL, default `help_point` | `help_point`（保卫处/服务台/失物招领处，公开）；`monitor_point`（模拟监控，仅 staff） |
+| `is_public` | boolean | NOT NULL, default true | 公开性；监控点位置 `false` |
+
+**坐标语义迁移**：`item.norm_x/norm_y`、`simulated_point.norm_x/norm_y`、`route.geometry`、`building.click_region/label_position` 的 `y` 轴由 v1.0「左上角原点」改为 v2.0「左下角原点」，迁移时对既有 `norm_y`/`y` 做 `y' = 1 - y` 转换（见 2.6 第 3 条）。
+
+### 2.18.4 计数查询策略（不建冗余字段）
+
+点赞数、评论数、收藏数、协助者人数**不落冗余计数字段**，统一用明细表子查询统计（架构决定 D4）：
+
+| 计数 | 统计口径 | SQL 逻辑 |
+|---|---|---|
+| 点赞数 | `item_like` 行数 | `SELECT COUNT(*) FROM item_like WHERE item_id = :id` |
+| 评论数 | 未软删除评论 | `SELECT COUNT(*) FROM comment WHERE item_id = :id AND is_deleted = false` |
+| 收藏数 | `item_favorite` 行数 | `SELECT COUNT(*) FROM item_favorite WHERE item_id = :id` |
+| 协助者人数 | 进行中委托 | `SELECT COUNT(*) FROM item_helper WHERE item_id = :id AND status = 'active'` |
+
+实现约束：
+- 列表接口（`GET /items`、`/me/*`）用 `subquery` + `group_by` 一次性聚合，避免 N+1；详情接口用相关子查询或 `selectinload` 批量加载。
+- 同时返回「我是否已点赞/已收藏/已接取」布尔：列表用 `EXISTS` 子查询（携带当前 `user.id`），详情用单条查询。
+- 计数与点赞/收藏状态以明细表为唯一事实源，删除/取消后计数自然回落，不维护一致性回写。
+
+### 2.18.5 实体关系图（v2.0 增量）
+
+```mermaid
+erDiagram
+  USER ||--o{ COMMENT : "评论"
+  USER ||--o{ ITEM_LIKE : "点赞"
+  USER ||--o{ ITEM_FAVORITE : "收藏"
+  USER ||--o{ ITEM_HELPER : "接取委托"
+  USER ||--o{ POINT_RECORD : "获得积分"
+  USER ||--o{ ATTACHMENT : "上传(owner)"
+  BUILDING ||--o{ LAYER : "楼层图"
+  BUILDING ||--o{ ITEM : "物品所在"
+  ITEM ||--o{ COMMENT : "被评论"
+  COMMENT ||--o{ COMMENT : "一层回复(parent)"
+  COMMENT ||--o{ ATTACHMENT : "评论图"
+  ITEM ||--o{ ITEM_LIKE : "被点赞"
+  ITEM ||--o{ ITEM_FAVORITE : "被收藏"
+  ITEM ||--o{ ITEM_HELPER : "被接取"
+  ITEM ||--o{ ATTACHMENT : "帖子图"
+```
+
+### 2.18.6 Alembic 迁移设计
+
+新建单张迁移 `backend/alembic/versions/xxxx_v2_incremental.py`，`down_revision = '7b8c9d0e1f2a'`（挂最新 head）：
+
+- **建表**：`building`、`comment`、`item_like`、`item_favorite`、`item_helper`、`point_record`（含唯一约束与索引）。
+- **加列**：`user` 加 `staff_status/staff_no/department/staff_reject_reason`；`layer` 加 `building_id/floor`；`item` 加 `building_id/floor`；`attachment` 加 `owner_user_id/comment_id/purpose/mime/size`；`simulated_point` 加 `kind/is_public`。
+- **数据迁移**：`route` 加 `visibility` → 按 `is_private` 回填 → 删 `is_private`；`item`/`simulated_point` 的 `norm_y`、`route.geometry`、`building` 无存量数据，`y' = 1 - y` 转换仅针对存量 `norm_y` 列（若初始库已有演示数据则执行，否则跳过）。
+- **枚举兼容**：新枚举均 `SAEnum(..., native_enum=False, length=16)`，SQLite/PostgreSQL 落为 `VARCHAR(16)`，与既有 2.11.3 约定一致，`alembic check` 一致。
+- 测试链路 `conftest.py` 继续 `create_all`，新表/新列随模型建表；迁移与 `create_all` 产出同构 schema。
+## 2.19 新服务模块职责划分
+
+新增 8 个服务文件（`backend/app/services/`），均遵循「首参 `db: Session`、当前用户显式传入、一次业务只 commit 一次、不依赖 FastAPI 的 Request/Depends」分层约定。
+
+| 服务文件 | 职责 | 关键业务规则 |
+|---|---|---|
+| `staff_application_service.py` | 教职工申请提交、申请列表（管理员）、审核通过/拒绝 | 提交校验工号 4~20 位字母/数字；通过时 `role` student→staff；拒绝须填理由；终态不可再改；`role` 保持 student 直到通过 |
+| `upload_service.py` | 文件上传、图片处理、存储抽象、按可见性下载 | Pillow 去 EXIF；格式 jpg/png/webp、单张 ≤5MB；写入前校验引用存在；返回受控 `GET /uploads/{id}` |
+| `comment_service.py` | 评论创建/列表/软删除 | 1~500 字、最多 3 图、仅一层回复；软删除显示「该评论已删除」；删除限本人或 staff/admin |
+| `reaction_service.py` | 点赞/收藏的创建与取消、计数子查询、我的点赞/收藏列表 | 一人一次可取消；`UNIQUE(item_id,user_id)` 兜底 + 应用层幂等；计数子查询统计 |
+| `helper_service.py` | 接取/放弃委托、协助者名单与人数、致谢 | 非发布者、帖子在「寻找中/核验中」方可接取；致谢 ≤3 人并触发积分 |
+| `points_service.py` | 积分写入（**唯一入口**）、积分查询、称号计算 | 唯一约束 `(user_id,reason,ref_id)` 防重复；只增不减；称号阈值集中配置 |
+| `building_service.py` | 建筑列表/详情、配置导入 | `code` 唯一；导入幂等 upsert；层数/点击区域/标签位置落库 |
+| `ai_service.py` | 模型客户端（httpx）、智能整理发帖、地点推荐 | 超时 10s 降级；输出经用户确认才落库；请求不含精确位置/联系方式/认领证据 |
+
+**积分写入调用点（积分只能经 `points_service` 写入，架构决定 D5）**：
+
+| 事件 | reason | amount | ref_id | 触发位置（在既有事务提交成功后追加） |
+|---|---|---|---|---|
+| 失主致谢协助者 | `thank` | +20 | `item_helper.id` | `helper_service.thank` → `points_service.add` |
+| 拾获帖归还完成 | `return` | +15 | `claim.id` | `claim_service.complete_claim` 成功后 → `points_service.add` |
+| 工作人员工单反馈 | `ticket_feedback` | +10 | `ticket.id` | `ticket_service.feedback` 成功后 → `points_service.add` |
+
+> 约束：`points_service.add` 依赖 `UNIQUE(user_id,reason,ref_id)`，重复触发捕获 `IntegrityError` 后静默幂等（只计一次）；发帖/评论/点赞**不产生积分**。既有 `ticket_service.feedback` 的 `assist` 徽章逻辑保留，与积分并存不冲突。
+
+## 2.20 数据流与存储抽象（上传）
+
+### 2.20.1 上传数据流
+
+```mermaid
+sequenceDiagram
+  participant F as 前端
+  participant U as upload_service
+  participant S as StorageBackend
+  participant A as Attachment 表
+
+  F->>U: POST /uploads（multipart file）
+  U->>U: 校验格式(jpg/png/webp)/大小(≤5MB)/Pillow 去 EXIF/重编码
+  U->>S: save(key, bytes, mime) → 相对路径
+  U->>A: 建 attachment 记录(purpose=item_photo, owner_user_id, mime, size)
+  U-->>F: 返回 upload {id, url}
+  F->>F: 发布/评论时携带 attachment_id 列表关联
+```
+
+- 前端上传阶段：压缩长边 ≤1600px；后端上传阶段：Pillow 重新打开并保存，剥离 EXIF（GPS/相机信息），仅保留像素。
+- 上传返回 `attachment_id`，不立即绑定业务对象；发布（`POST /items` 扩展 `photo_ids`）或评论（`POST /items/{id}/comments` 扩展 `photo_ids`）时关联，未关联的孤儿附件可被定期清理（可选，不阻塞主流程）。
+- 底图（`layer.image_path`）与认领证据仍走既有受控路径，不经过 `POST /uploads` 的帖子图流程。
+
+### 2.20.2 存储抽象接口
+
+```python
+# backend/app/services/storage.py（Protocol 接口，本地实现 + 预留 OBS 实现）
+class StorageBackend(Protocol):
+    def save(self, key: str, data: bytes, mime: str) -> str: ...  # 返回存储相对路径
+    def load(self, key: str) -> bytes: ...
+    def delete(self, key: str) -> None: ...
+```
+
+| 实现 | 说明 | 引入时机 |
+|---|---|---|
+| `LocalStorageBackend` | 写入 `settings.file_storage_dir`（默认 `./storage`），返回相对路径 | v2.0 默认实现（沿用现有 `get_layer_image` 的路径读取方式） |
+| `OBSStorageBackend` | 对接华为云 OBS（`obs://bucket/key`），密钥仅存后端 `.env` | 预留，v2.0 不引入 OBS SDK，仅定义接口与配置占位 |
+
+约束：文件不暴露真实目录（所有下载经受控接口 `GET /uploads/{id}` / `GET /layers/{id}/image`）；存储抽象使「本地 → OBS」切换不改上层业务与接口契约。
+
+### 2.20.3 照片可见性鉴权
+
+| 照片用途 | 可见范围 | 鉴权逻辑 |
+|---|---|---|
+| `item_photo`（寻物帖） | 任一已登录用户 | `item.direction == lost` → 公开 |
+| `item_photo`（拾获帖） | 发布者本人 + staff/admin | 他人访问返回「为防冒领，照片已隐藏」（403） |
+| `comment_image` | 随评论公开（评论未软删除） | 评论可见即图可见 |
+| `evidence` | 发布者本人 + 该单处理 staff | 沿用 `claim_evidence` 规则，不走公开接口 |
+
+实现约束：`GET /uploads/{id}` 根据 `attachment.purpose` + 关联对象的 `owner/direction/status` 决定是否放行；未登录 401、越权 403、不存在 404。
+## 2.21 新增接口设计（完整契约）
+
+> 约定：基路径 `/api/v1`；鉴权 `Authorization: Bearer <JWT>`；错误结构 `{code, message, details?}`；`code` 取值 `VALIDATION/UNAUTH/FORBIDDEN/NOT_FOUND/STATE_CONFLICT`；列表接口统一 `limit`（默认 20，最大 100）/`offset`，返回 `{items,total,limit,offset}`。所有新增接口均声明 `response_model`，路径沿用复数名词与短横线。
+
+### 2.21.1 教职工申请与审核
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /me/staff-application` | 登录（`role=student` 且非待审核） | `StaffApplicationCreate` | `UserOut`（`staff_status=pending`） | 401；403（已 staff/admin）；409（已有 pending/approved）；400（工号格式不合法） |
+| `GET /admin/staff-applications` | `admin` | `status`（默认 pending）、`limit/offset` | `Page[StaffApplicationOut]` | 401；403 |
+| `POST /admin/staff-applications/{user_id}/approve` | `admin` | 无 body | `UserOut`（`role=staff`、`staff_status=approved`） | 401；403；404（用户不存在）；409（状态非 pending） |
+| `POST /admin/staff-applications/{user_id}/reject` | `admin` | `StaffRejectRequest` | `UserOut`（`staff_status=rejected`、`staff_reject_reason=reason`） | 401；403；404；409（状态非 pending）；400（理由为空） |
+
+```python
+# schemas/staff_application.py
+class StaffApplicationCreate(BaseModel):
+    staff_no: Annotated[str, StringConstraints(strip_whitespace=True, min_length=4, max_length=20, pattern=r'^[A-Za-z0-9]+$')]
+    department: Annotated[str, StringConstraints(max_length=64)] | None = None
+
+class StaffRejectRequest(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+class StaffApplicationOut(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    display_name: str
+    staff_no: str | None
+    department: str | None
+    staff_status: StaffStatus
+    created_at: datetime
+```
+
+**业务说明**：学生提交申请后 `staff_status=pending`、`role` 保持 `student`（审核前按学生权限，天然无法通过 `require_role(staff/admin)` 守卫）。管理员通过时 `user.role = staff`、`staff_status=approved`；拒绝时 `staff_status=rejected`、记录理由。已通过/已拒绝为终态，不可再改。管理员直接创建工作人员（`POST /admin/staff`）不受影响。
+
+### 2.21.2 上传与照片
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /uploads` | 登录 | multipart `file`（jpg/png/webp，≤5MB） | `UploadOut` | 401；400（格式/大小不合法） |
+| `GET /uploads/{id}` | 按可见性（见 2.20.3） | 无 | 图片二进制 | 401；404；403（拾获帖照片非本人非 staff） |
+| `POST /items/{id}/photos` | 发布者本人 | `PhotoBindRequest`（`photo_ids` 最多 6） | `ItemDetail`（含照片） | 401；403；404；400（超 6 张/附件不存在或非本人上传） |
+
+```python
+# schemas/upload.py
+class UploadOut(BaseModel):
+    id: uuid.UUID
+    url: str          # 受控下载地址 /api/v1/uploads/{id}
+    mime: str
+    size: int
+
+class PhotoBindRequest(BaseModel):
+    photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=6)
+```
+
+**业务说明**：`POST /uploads` 经 `upload_service` 校验格式与大小、Pillow 去 EXIF、写入存储、建 `attachment`（`purpose=item_photo`、`owner_user_id=user.id`）。发布时 `POST /items` 扩展可选 `photo_ids`（≤6）关联帖子图；`POST /items/{id}/photos` 用于发布后补传/替换照片。拾获帖照片 `GET /uploads/{id}` 仅发布者 + staff/admin 可见，他人 403。
+
+### 2.21.3 帖子补充操作（撤销 / 我已找回）
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /items/{id}/withdraw` | 发布者本人 | 无 body | `ItemPublic`（`status=withdrawn`） | 401；403；404；409（状态不允许，见下） |
+| `POST /items/{id}/mark-found` | 发布者本人 | 无 body | `ItemPublic`（`status=found`） | 401；403；404；409（非寻物帖/状态非寻找中/存在已通过认领） |
+
+**业务规则**：
+- `withdraw`：仅 `lost` 且 `searching`，或 `found` 且 `pending` 可直接撤销；`reviewing` 且无已通过认领可撤销（沿用既有状态机）。已找回/已归还/已撤销为终态不可撤销。
+- `mark-found`：仅 `lost` 且 `searching`，且不存在 `status=approved` 的认领；置 `found`（已找回）。存在有效认领时 409（须走归还闭环）。
+
+### 2.21.4 评论
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `GET /items/{id}/comments` | 登录 | `limit/offset` | `Page[CommentOut]`（顶层评论 + 一层子回复） | 401；404（item 不存在） |
+| `POST /items/{id}/comments` | 登录 | `CommentCreate` | `CommentOut` | 401；400（内容空/超长、图片>3）；404（item/parent 不存在）；409（parent 已删除或层级非法） |
+| `DELETE /comments/{id}` | 本人 或 staff/admin | 无 body | `CommentDeletedOut`（软删除） | 401；403；404；409（已删除） |
+
+```python
+# schemas/comment.py
+class CommentCreate(BaseModel):
+    content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    parent_id: uuid.UUID | None = None
+    photo_ids: list[uuid.UUID] = Field(default_factory=list, max_length=3)
+
+class CommentOut(BaseModel):
+    id: uuid.UUID
+    item_id: uuid.UUID
+    author: CommentAuthorOut           # {id, display_name, role_label, title}
+    content: str
+    parent_id: uuid.UUID | None
+    is_deleted: bool
+    images: list[UploadOut]            # 最多 3 张（attachment.purpose=comment_image）
+    created_at: datetime
+```
+
+**业务规则**：仅一层回复（`parent_id` 指向的父评论不得再有 `parent_id`）；软删除显示「该评论已删除」但保留骨架（计数不含已删除）；评论图片最多 3 张（`attachment.purpose=comment_image`、`comment_id` 关联）。删除权限：本人删除自己的，staff/admin 删除任意。
+### 2.21.5 点赞与收藏
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /items/{id}/like` | 登录 | 无 body | `ReactionOut`（`liked=true`、`like_count`） | 401；404（item 不存在） |
+| `DELETE /items/{id}/like` | 登录 | 无 body | `ReactionOut`（`liked=false`、`like_count`） | 401；404 |
+| `POST /items/{id}/favorite` | 登录 | 无 body | `ReactionOut`（`favorited=true`、`favorite_count`） | 401；404 |
+| `DELETE /items/{id}/favorite` | 登录 | 无 body | `ReactionOut`（`favorited=false`、`favorite_count`） | 401；404 |
+
+```python
+# schemas/reaction.py
+class ReactionOut(BaseModel):
+    liked: bool = False
+    favorited: bool = False
+    like_count: int = 0
+    favorite_count: int = 0
+```
+
+**业务规则**：一人一次、再次调用即取消（幂等 toggle 语义）；`POST` 无记录则插入、有记录则返回当前态；`DELETE` 有记录则删除、无记录则幂等返回。计数由 `reaction_service` 子查询统计，返回「我是否已操作」+ 计数。
+
+### 2.21.6 接取委托与致谢
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /items/{id}/helpers` | 登录（非发布者） | 无 body | `HelperOut`（`helper_count`、`is_helper=true`） | 401；403（发布者本人）；404；409（帖子非寻找中/核验中、或已接取） |
+| `DELETE /items/{id}/helpers` | 登录（协助者本人） | 无 body | `HelperOut`（`is_helper=false`） | 401；403；404；409（未接取） |
+| `POST /items/{id}/thank` | 发布者本人 | `ThankRequest`（`helper_ids` ≤3） | `ThankOut`（`thanked_count`） | 401；403；404；409（帖子非已找回、helper 不存在或非本帖、超 3 人） |
+
+```python
+# schemas/helper.py
+class ThankRequest(BaseModel):
+    helper_ids: list[uuid.UUID] = Field(min_length=1, max_length=3)
+
+class HelperOut(BaseModel):
+    helper_count: int
+    is_helper: bool
+
+class ThankOut(BaseModel):
+    thanked_count: int
+```
+
+**业务规则**：接取须为「寻找中/核验中」的寻物帖且非发布者；放弃后再次接取新建记录；致谢仅在寻物帖「已找回」后、从 active 协助者中选最多 3 人，致谢成功触发 `points_service.add(thank, +20, helper.id)`，并将 `item_helper.thanked` 置 true（防止重复致谢计分）。
+
+### 2.21.7 积分与称号
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `GET /me/points` | 登录（本人） | `limit/offset` | `MyPointsOut` | 401 |
+
+```python
+# schemas/points.py
+class PointRecordOut(BaseModel):
+    id: uuid.UUID
+    reason: PointReason
+    amount: int
+    ref_id: uuid.UUID
+    created_at: datetime
+
+class MyPointsOut(BaseModel):
+    total: int                     # 累计积分
+    title: str                     # 当前称号
+    next_title: str | None         # 下一称号
+    next_threshold: int | None     # 距下一称号所需总分
+    records: Page[PointRecordOut]  # 积分明细（分页）
+```
+
+**业务规则**：称号阈值与名称集中配置（见 2.24）；积分明细按 `created_at` 倒序；`total` 由 `point_record` 求和计算，不建冗余总分列。
+
+### 2.21.8 我的列表（收藏/点赞/评论/接取委托）
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `GET /me/favorites` | 登录（本人） | `limit/offset` | `Page[ItemPublic]`（含 `favorited=true`） | 401 |
+| `GET /me/likes` | 登录（本人） | `limit/offset` | `Page[ItemPublic]`（含 `liked=true`） | 401 |
+| `GET /me/comments` | 登录（本人） | `limit/offset` | `Page[MyCommentOut]`（含 item 概览） | 401 |
+| `GET /me/helping` | 登录（本人） | `limit/offset` | `Page[ItemPublic]`（含 `is_helper=true`） | 401 |
+
+**业务规则**：均以明细表（`item_favorite/item_like/comment/item_helper`）按 `user_id` 反查后 join `item`，返回 `ItemPublic` + 计数与「我是否已操作」；`/me/comments` 返回评论内容 + 所属帖子概览。列表 `ItemPublic` 扩展字段（计数、`is_liked/is_favorited/is_helper`）为可选，详情必返回。
+
+### 2.21.9 建筑
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `GET /buildings` | 登录 | `category?`、`limit/offset` | `Page[BuildingOut]` | 401 |
+| `GET /buildings/{id}` | 登录 | 无 | `BuildingOut` | 401；404 |
+
+```python
+# schemas/building.py
+class BuildingOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    category: str
+    floors: int
+    click_region: list[dict] | None      # 归一化多边形点序列（左下角原点）
+    label_position: dict | None          # {x, y}
+    active_item_count: int               # 该建筑进行中帖子数（子查询）
+    has_floor_map: bool                  # 是否有楼层图（layer.building_id 存在）
+```
+
+**业务规则**：`building_service` 提供配置导入（幂等 upsert，`code` 唯一）；`active_item_count` 为该建筑进行中帖子数子查询；`has_floor_map` 依据 `layer.building_id == id` 判定（首批 1~2 栋有平面图）。
+
+### 2.21.10 点位过滤（按身份）
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `GET /layers/{id}/points` | 登录 | 无 | `LayerPointsOut` | 401；404（layer 不存在） |
+
+```python
+# schemas/layer.py 扩展
+class LayerPointOut(BaseModel):
+    id: uuid.UUID
+    kind: SimulatedPointKind     # help_point / monitor_point
+    label: str
+    norm_x: float                # 左下角原点归一化
+    norm_y: float
+    is_simulated: bool
+    is_public: bool
+    description: str | None
+
+class LayerPointsOut(BaseModel):
+    points: list[LayerPointOut]
+    has_monitor: bool            # 当前用户是否可见监控点（staff/admin）
+```
+
+**业务规则**：求助点（`kind=help_point`、`is_public=true`）对所有登录用户可见；监控点（`kind=monitor_point`、`is_public=false`）仅 staff/admin 可见，且标注「模拟」。学生请求时过滤掉 `monitor_point`，`has_monitor=false`。该接口取代/扩展现有 `GET /layers/{id}/simulated-points`（旧接口保留或改为薄封装）。
+
+### 2.21.11 AI 接口
+
+| 方法 路径 | 权限 | 请求 | 响应 | 错误码 |
+|---|---|---|---|---|
+| `POST /ai/draft-post` | 登录 | `DraftPostRequest` | `DraftPostOut`（草稿，未落库） | 401；400（描述为空）；503（模型不可用，走降级返回空草稿提示） |
+| `POST /ai/search-advice` | 登录 | `SearchAdviceRequest` | `SearchAdviceOut` | 401；400；503（降级返回规则结果） |
+
+```python
+# schemas/ai.py
+class DraftPostRequest(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+class DraftPostOut(BaseModel):
+    category: str | None
+    title: str | None
+    description: str | None
+    location_area: str | None     # 楼层级脱敏，不含精确位置
+    building_code: str | None
+    floor: int | None
+    time_occurred: datetime | None
+    source: Source                # model / rule
+    degraded: bool
+
+class SearchAdviceRequest(BaseModel):
+    item_id: uuid.UUID | None = None   # 引用某寻物帖的圈选/路径
+    geometry: dict | None = None       # 或现场绘制几何（circle/polyline，归一化）
+    category: str | None = None
+
+class SearchAdviceLocation(BaseModel):
+    building_code: str
+    building_name: str
+    reason: str                  # 推荐理由
+    order: int                   # 建议寻找顺序 1~5
+
+class SearchAdviceOut(BaseModel):
+    locations: list[SearchAdviceLocation]   # 最多 5 个
+    source: Source                          # model / rule
+    degraded: bool
+```
+
+**业务规则**：
+- `draft-post`：自然语言 → 提取类型/类别/标题/描述/地点/时间/建筑，生成草稿；**草稿不落库**，前端展示由用户确认或修改后经 `POST /items` 发布，发布时 `source` 标注「AI 生成」。模型不可用降级为「提示手动填写」+ `degraded=true`。
+- `search-advice`：先规则打分（距离、历史记录数、同类别历史数、建筑类型-类别对应），再模型生成解释；最多 5 个地点 + 理由 + 顺序；模型不可用降级为规则结果 + 模板解释。
+- **发送给模型的内容不含**精确位置、联系方式、认领证据、他人私密路径（脱敏到楼层级/建筑级）。
+
+### 2.21.12 错误码与权限矩阵汇总
+
+| 状态码 | code | 语义 | 触发场景（新增） |
+|---|---|---|---|
+| 400 | VALIDATION | 参数缺失/非法 | 工号格式、评论超长、图片>3、照片>6、致谢>3 |
+| 401 | UNAUTH | 未登录 | 所有新增接口未登录 |
+| 403 | FORBIDDEN | 越权 | 非 admin 审核、非本人撤销/致谢、拾获帖照片越权 |
+| 404 | NOT_FOUND | 不存在 | item/comment/building/layer/attachment 不存在 |
+| 409 | STATE_CONFLICT | 状态冲突 | 重复申请、重复归还、重复接取、终态操作、重复致谢 |
+| 503 | MODEL_UNAVAILABLE | 模型降级 | AI 接口模型不可用（不阻断，走降级） |
+
+## 2.22 前端路由与地图图层组件
+
+### 2.22.1 前端路由清单与重定向
+
+| 新路由 | 页面/组件 | 说明 |
+|---|---|---|
+| `/hall` | `Hall.tsx`（原 `Home.tsx`） | 大厅卡片列表（首图/建筑楼层/点赞/评论/接取人数，加载更多） |
+| `/hall/:id` | `ItemDetail.tsx` | 帖子详情（互动、接取委托、撤销/找回、照片可见性） |
+| `/publish` | `ItemForm.tsx` | 发布（照片≤6、标点/圈范围/画路径、AI 整理草稿确认） |
+| `/map` | `MapView.tsx` | 地图（多图层开关、绘制工具、建筑点选） |
+| `/ai` | `AiPage.tsx`（新增） | AI 对话式界面（智能整理发帖 + 地点推荐） |
+| `/me` | `Me.tsx`（新增） | 我的（昵称/身份/称号/积分进度） |
+| `/me/*` | 子路由 | `/me/favorites`、`/me/likes`、`/me/comments`、`/me/helping`、`/me/points`、`/me/items`、`/me/claims`、`/me/tickets` |
+| `/staff/claims` | `StaffClaims.tsx` | 认领审核 |
+| `/staff/tickets` | `Tickets.tsx` | 工单处理 |
+| `/admin/staff-applications` | `StaffApplications.tsx`（新增） | 教职工审核 |
+
+**旧路径重定向（`<Navigate>` / `redirect`）**：`/` → `/hall`；`/items/:id` → `/hall/:id`；`/tickets` → `/staff/tickets`。其余旧路径（`/me` 原有语义）由 `/me/*` 承接。
+
+**布局**：移动端底部四标签「大厅/地图/AI/我的」，≥768px 改左侧导航；工作人员/管理员专属入口从「我的」进入；前端隐藏按钮仅作展示，权限仍后端强制。
+
+### 2.22.2 地图图层组件清单（CampusMap 子组件）
+
+地图功能全部以 `CampusMap` 子组件实现为独立图层（架构决定 D8），通过 `useCampusMap()` 获取 `map` 实例，各自注册/清理事件与图层：
+
+| 图层组件 | 文件（`src/components/CampusMap/`） | 职责 | 可见条件 |
+|---|---|---|---|
+| `BuildingLayer` | `BuildingLayer.tsx` | 渲染建筑点击区域 + 标签，点击弹建筑卡片（名称/类别/进行中帖子数/进入楼层） | 建筑层开关 |
+| `ItemPointsLayer` | `ItemPointsLayer.tsx` | 帖子点位（寻物/拾获不同图标）+ 聚合为数字气泡，点开列表 | 帖子点位层开关 |
+| `HelpPointsLayer` | `HelpPointsLayer.tsx` | 求助点位（保卫处/服务台/失物招领处） | 求助点位层开关，所有人 |
+| `MonitorPointsLayer` | `MonitorPointsLayer.tsx` | 监控点位（标注「模拟」） | 仅 staff/admin |
+| `AIRecommendLayer` | `AIRecommendLayer.tsx` | AI 推荐地点高亮，标注「AI 生成，仅供参考」+ 来源 | AI 推荐层开关 |
+| `HeatmapLayer` | `HeatmapLayer.tsx` | 热力层（自行实现，不引第三方） | 热力层开关 |
+| `DrawToolLayer` | `DrawToolLayer.tsx` | 绘制工具（标点/圈范围/画路径，完成/撤销/清空），「发布到大厅」入口 | 绘制模式 |
+| `FloorSwitcher` | `FloorSwitcher.tsx` | 楼层图切换（有平面图的建筑） | 进入楼层模式 |
+
+**实现约束**：
+- 每个图层组件为 `null` 渲染（仅副作用），通过 `useCampusMap()` 拿 `map/layer/toMap/toNorm`，`map` 为 `null` 时跳过注册。
+- 图层开关由 `MapView.tsx`（或 `useLayers` 扩展）维护，`CampusMap` 本身不关心业务图层。
+- 点位聚合、绘制工具、热力层均自行实现，不新增第三方依赖。
+- `useCampusMap` 的 `MapContext` 需在 `layer` 变化时按「旧实例销毁 → null → 新实例」顺序重建，保证子组件不持有已销毁实例（沿用 2.16 生命周期）。
+
+### 2.22.3 坐标换算契约（左下角原点）
+
+沿用 `coords.ts` 纯函数，但语义改为左下角原点：
+
+```ts
+// 归一化 (nx, ny) 左下角原点 → Leaflet CRS.Simple 地图坐标
+export function normToLatLng(nx: number, ny: number, dims: LayerDims): LatLng
+//   lng = nx * dims.width
+//   lat = (1 - ny) * dims.height
+export function latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: number }
+//   x = latlng.lng / dims.width
+//   y = 1 - latlng.lat / dims.height
+```
+
+- 归一化对象统一 `{x, y}`，`x` 向右、`y` 向上。
+- 后端 `norm_x/norm_y`、`simulated_point`、`building.click_region/label_position`、`route.geometry` 均遵循左下角原点；存量数据迁移时 `y' = 1 - y`。
+
+## 2.23 模型客户端与降级策略
+
+### 2.23.1 配置项（架构决定 D10）
+
+扩展 `backend/app/config.py`（`Settings`）：
+
+| 配置 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `model_base_url` | str | `""` | OpenAI 兼容接口 Base URL |
+| `model_name` | str | `""` | 模型名 |
+| `model_api_key` | str | `""` | 密钥（仅后端 `.env`） |
+| `model_timeout_seconds` | int | `10` | 超时秒数（v2.0 由 5 改为 10） |
+| `model_disabled` | bool | `true` | 显式关闭开关（未配置/演示环境置 true） |
+
+**可用性判定**：`model_disabled == true` 或 `model_base_url/model_name/model_api_key` 任一为空 ⇒ 视为不可用，走降级。
+
+### 2.23.2 客户端封装（`ai_service` + httpx）
+
+- 用 `httpx.AsyncClient(timeout=model_timeout_seconds)` 调用 `/chat/completions`（OpenAI 兼容）。
+- 两个能力入口：`draft_post(text)`、`search_advice(payload)`；返回结构化结果 + `degraded` 标志。
+- 对模型输出做字段校验与私密过滤：剥离精确位置、联系方式、认领证据、他人私密路径。
+- 超时/网络错误/解析失败/额度耗尽 ⇒ 返回降级结果，记录告警日志（不抛 500，不阻断主流程）。
+
+### 2.23.3 降级矩阵
+
+| 场景 | 行为 | 阻断主流程 |
+|---|---|---|
+| 未配置 / `model_disabled=true` | `draft-post` 提示手动填写；`search-advice` 返回规则结果 + 模板解释；`degraded=true` | 否 |
+| 超时（>10s） | 同上，`source=rule` | 否 |
+| 解析失败/额度耗尽 | 同上 + 记录告警 | 否 |
+| 结果含私密信息 | 后端过滤后再返回 | 否 |
+| 模型尝试批准认领/归还/替发布 | 接口层拒绝（模型无写路由，AI 输出须经用户确认才落库） | — |
+
+## 2.24 积分与称号体系
+
+### 2.24.1 积分事件与唯一约束
+
+| 事件 | reason | 分值 | ref_id | 唯一约束 |
+|---|---|---|---|---|
+| 失主致谢协助者 | `thank` | +20 | `item_helper.id` | `(user_id, reason, ref_id)` |
+| 拾获帖归还完成 | `return` | +15 | `claim.id` | 同上 |
+| 工作人员工单反馈 | `ticket_feedback` | +10 | `ticket.id` | 同上 |
+
+约束：积分只增不减、同一事件对同一人只计一次（`UNIQUE` 兜底 + `IntegrityError` 幂等）；发帖/评论/点赞不产生积分；积分只能经 `points_service` 写入（其他服务调用其 `add`）。
+
+### 2.24.2 称号阈值（集中配置）
+
+阈值与名称集中在 `points_service`（或配置模块）常量中：
+
+| 阈值（累计积分） | 称号 |
+|---|---|
+| 0 | 见习寻物人 |
+| 20 | 热心同学 |
+| 60 | 寻物能手 |
+| 150 | 校园守护者 |
+| 300 | 寻物传说 |
+
+`GET /me/points` 依据 `total` 计算当前称号与「距下一称号所需总分」；昵称旁展示身份 + 称号；既有 `badge` 协助徽章保留，与积分称号并存。
+
+## 2.25 v2.0 权限矩阵更新
+
+| 操作 | student | 教职工（审核中） | staff | admin |
+|---|---|---|---|---|
+| 发布/认领申请/转工单/评论/点赞/收藏/接取委托 | ✓（本人规则） | ✓（按学生权限） | ✓ | ✓ |
+| 撤销/我已找回/致谢/照片补传 | ✓（本人） | ✓（本人） | ✓（本人） | ✓ |
+| 提交教职工申请 | ✓ | ✓（不可重复） | ✗ | ✗ |
+| 审核教职工申请 | ✗ | ✗ | ✗ | ✓ |
+| 核验/归还/接单/反馈/删任意评论/看监控点 | ✗ | ✗ | ✓ | ✓ |
+| 创建 staff / 标定比例尺 / 导入建筑 | ✗ | ✗ | ✗ | ✓ |
+| 查看他人私密（路线/证据/拾获帖照片） | ✗ | ✗ | 仅授权+分配/拾获帖照片 staff 可见 | ✓ |
+
+**关键不变**：教职工审核通过前 `role=student`，后端 `require_role` 按 `role` 判断，故审核中教职工天然无 staff 权限；审核通过时 `role` 转 `staff`，既有基于 `role` 的权限判断全部保持不变（架构决定 D1）。

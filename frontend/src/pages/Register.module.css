@@ -8,3 +8,8 @@
   display: grid;
   gap: var(--space-3);
 }
+.notice {
+  margin-bottom: var(--space-4);
+  color: var(--color-text-2);
+  line-height: 1.6;
+}

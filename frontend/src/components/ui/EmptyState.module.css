@@ -1,0 +1,20 @@
+.empty {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-7) var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  color: var(--color-text-2);
+  text-align: center;
+}
+
+.text {
+  margin: 0;
+}
+
+.action {
+  display: flex;
+  gap: var(--space-2);
+}

@@ -8,3 +8,45 @@
 .hint {
   color: var(--color-text-2);
 }
+
+
+.mapArea {
+  position: relative;
+}
+.drawBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.visibility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.visibilityLabel {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+}
+
+.visibilityLabel select {
+  min-height: 44px;
+}
+
+.note {
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}
+
+.publish {
+  margin-top: var(--space-3);
+}

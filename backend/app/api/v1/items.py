@@ -16,6 +16,7 @@ from app.schemas.item import (
     ItemPublic,
 )
 from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
+from app.schemas.upload import PhotoBindRequest
 from app.services import item_service
 
 router = APIRouter(tags=["items"])
@@ -33,17 +34,38 @@ def list_items(
     location_area: str | None = None,
     status: ItemStatus | None = None,
     q: str | None = None,
+    building_id: uuid.UUID | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    items, total = item_service.list_items(db, direction, category, location_area, status, q, limit, offset)
+    items, total = item_service.list_items(
+        db, user, direction, category, location_area, status, q, building_id, limit, offset
+    )
     return Page(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{item_id}", response_model=ItemDetail)
 def get_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.get_item_detail(db, user, item_id)
+
+
+@router.post("/{item_id}/withdraw", response_model=ItemPublic)
+def withdraw_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.withdraw_item(db, user, item_id)
+
+
+@router.post("/{item_id}/mark-found", response_model=ItemPublic)
+def mark_found(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.mark_found(db, user, item_id)
+
+
+@router.post("/{item_id}/photos", response_model=ItemDetail)
+def bind_photos(
+    item_id: uuid.UUID, body: PhotoBindRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    item_service.bind_photos(db, user, item_id, body.photo_ids)
     return item_service.get_item_detail(db, user, item_id)
 
 

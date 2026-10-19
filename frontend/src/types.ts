@@ -2,14 +2,48 @@ export type Direction = 'lost' | 'found'
 export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned'
 export type Source = 'manual' | 'rule' | 'cache' | 'model'
 export type Role = 'student' | 'staff' | 'admin'
+export type StaffStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type RouteKind = 'polyline' | 'circle'
+export type Visibility = 'public' | 'private'
 export type EvidenceKind = 'text' | 'image'
+
+export interface DraftPost {
+  category: string | null
+  title: string | null
+  description: string | null
+  location_area: string | null
+  building_code: string | null
+  floor: number | null
+  time_occurred: string | null
+  source: Source
+  degraded: boolean
+}
+
+export interface SearchAdviceLocation {
+  building_code: string
+  building_name: string
+  reason: string
+  order: number
+}
+
+export interface SearchAdvice {
+  locations: SearchAdviceLocation[]
+  source: Source
+  degraded: boolean
+}
 
 export interface Page<T> {
   items: T[]
   total: number
   limit: number
   offset: number
+}
+
+export interface Photo {
+  id: string
+  url: string
+  mime: string
+  size: number
 }
 
 export interface Item {
@@ -22,6 +56,7 @@ export interface Item {
   time_occurred: string | null
   status: ItemStatus
   is_simulated: boolean
+  is_demo: boolean
   source: Source
   created_at: string
   norm_x: number | null
@@ -29,6 +64,37 @@ export interface Item {
   layer_id: string | null
   precise_location?: string | null
   is_owner?: boolean
+  building_id: string | null
+  building_name: string | null
+  floor: number | null
+  first_photo: Photo | null
+  like_count: number
+  comment_count: number
+  helper_count: number
+  favorite_count: number
+  is_liked: boolean
+  is_favorited: boolean
+  is_helper: boolean
+  photos?: Photo[]
+  photos_hidden?: boolean
+  helpers?: HelperUser[]
+}
+
+export function placeLabel(item: { building_name: string | null; floor: number | null }): string {
+  if (!item.building_name) return '未指定地点'
+  return item.floor == null ? item.building_name : `${item.building_name} ${item.floor}F`
+}
+
+export interface Building {
+  id: string
+  code: string
+  name: string
+  category: string
+  floors: number
+  click_region: Record<string, number>[] | null
+  label_position: Record<string, number> | null
+  active_item_count: number
+  has_floor_map: boolean
 }
 
 export const statusLabels: Record<ItemStatus, string> = {
@@ -56,6 +122,27 @@ export interface User {
   username: string
   display_name: string
   role: Role
+  staff_status: StaffStatus
+  staff_no: string | null
+  department: string | null
+  staff_reject_reason: string | null
+}
+
+export const staffStatusLabels: Record<StaffStatus, string> = {
+  none: '未申请',
+  pending: '待审核',
+  approved: '已通过',
+  rejected: '已拒绝',
+}
+
+export interface StaffApplication {
+  user_id: string
+  username: string
+  display_name: string
+  staff_no: string | null
+  department: string | null
+  staff_status: StaffStatus
+  created_at: string
 }
 
 export interface Layer {
@@ -66,6 +153,8 @@ export interface Layer {
   height: number
   scale_calibrated: boolean
   image_path: string | null
+  building_id: string | null
+  floor: number | null
 }
 
 export interface SimulatedPoint {
@@ -75,6 +164,24 @@ export interface SimulatedPoint {
   norm_y: number
   is_simulated: boolean
   description: string | null
+}
+
+export type SimulatedPointKind = 'help_point' | 'monitor_point'
+
+export interface LayerPoint {
+  id: string
+  kind: SimulatedPointKind
+  label: string
+  norm_x: number
+  norm_y: number
+  is_simulated: boolean
+  is_public: boolean
+  description: string | null
+}
+
+export interface LayerPoints {
+  points: LayerPoint[]
+  has_monitor: boolean
 }
 
 export interface Badge {
@@ -134,4 +241,40 @@ export interface Candidate {
   title: string
   category: string
   location_area: string
+}
+export interface CommentAuthor {
+  id: string
+  display_name: string
+  role_label: string
+  title: string
+}
+
+export interface Comment {
+  id: string
+  item_id: string
+  author: CommentAuthor
+  content: string
+  parent_id: string | null
+  is_deleted: boolean
+  images: Photo[]
+  created_at: string
+  replies: Comment[]
+}
+
+export interface Reaction {
+  liked: boolean
+  favorited: boolean
+  like_count: number
+  favorite_count: number
+}
+export interface HelperUser {
+  id: string
+  display_name: string
+  title: string
+  thanked: boolean
+}
+
+export interface HelperState {
+  helper_count: number
+  is_helper: boolean
 }

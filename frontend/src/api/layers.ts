@@ -1,5 +1,5 @@
 import client from './client'
-import type { Layer, SimulatedPoint } from '../types'
+import type { Layer, LayerPoints, SimulatedPoint } from '../types'
 
 export interface CalibrateInput {
   pixels_per_meter: number
@@ -24,6 +24,11 @@ export async function getLayerImage(id: string, signal?: AbortSignal): Promise<B
 
 export async function calibrateLayer(id: string, body: CalibrateInput): Promise<Layer> {
   const res = await client.post<Layer>(`/layers/${id}/calibrate`, body)
+  return res.data
+}
+
+export async function listLayerPoints(id: string): Promise<LayerPoints> {
+  const res = await client.get<LayerPoints>(`/layers/${id}/points`)
   return res.data
 }
 

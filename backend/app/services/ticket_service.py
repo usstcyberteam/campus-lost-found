@@ -5,8 +5,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.models import Badge, Direction, Item, ItemStatus, Role, Route, Ticket, TicketStatus, User
+from app.models import Badge, Direction, Item, ItemStatus, PointReason, Role, Route, Ticket, TicketStatus, User
 from app.schemas.ticket import FeedbackRequest, TicketCreate
+from app.services import points_service
 
 
 def list_tickets(
@@ -88,6 +89,7 @@ def get_ticket_route(db: Session, user: User, ticket_id: uuid.UUID) -> list[dict
             "kind": r.kind.value,
             "geometry": r.geometry,
             "floor_segments": r.floor_segments,
+            "visibility": r.visibility.value,
         }
         for r in routes
     ]
@@ -112,4 +114,6 @@ def feedback(db: Session, user: User, ticket_id: uuid.UUID, body: FeedbackReques
     except IntegrityError:
         db.rollback()
 
+    points_service.add(db, user.id, PointReason.ticket_feedback, points_service.TICKET_FEEDBACK_POINTS, ticket.id)
+    db.commit()
     return ticket

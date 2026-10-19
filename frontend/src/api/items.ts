@@ -1,5 +1,5 @@
 import client from './client'
-import type { Candidate, Direction, Item, ItemStatus, Page, RouteKind } from '../types'
+import type { Candidate, Direction, Item, ItemStatus, Page, RouteKind, Visibility } from '../types'
 
 export interface ListItemsParams {
   direction?: Direction | null
@@ -7,6 +7,7 @@ export interface ListItemsParams {
   location_area?: string | null
   status?: ItemStatus | null
   q?: string | null
+  building_id?: string | null
   limit?: number
   offset?: number
 }
@@ -20,6 +21,9 @@ export interface ItemCreateInput {
   precise_location?: string | null
   time_occurred?: string | null
   is_simulated?: boolean
+  building_id?: string | null
+  floor?: number | null
+  photo_ids?: string[]
 }
 
 export interface MapAnchorInput {
@@ -48,12 +52,13 @@ export interface RouteCreateInput {
   layer_id?: string | null
   geometry?: PolylineGeometry | CircleGeometry | null
   floor_segments?: unknown[] | null
+  visibility?: Visibility | null
 }
 
 export interface RouteOut {
   id: string
   kind: RouteKind
-  is_private: boolean
+  visibility: Visibility
 }
 
 export interface RouteDetail {
@@ -61,7 +66,7 @@ export interface RouteDetail {
   kind: RouteKind
   geometry: Record<string, unknown> | null
   floor_segments: unknown[] | null
-  is_private: boolean
+  visibility: Visibility
   authorized: boolean
 }
 
@@ -85,6 +90,16 @@ export async function getItem(id: string): Promise<Item> {
 
 export async function createItem(body: ItemCreateInput): Promise<Item> {
   const res = await client.post<Item>('/items', body)
+  return res.data
+}
+
+export async function withdrawItem(id: string): Promise<Item> {
+  const res = await client.post<Item>(`/items/${id}/withdraw`)
+  return res.data
+}
+
+export async function markItemFound(id: string): Promise<Item> {
+  const res = await client.post<Item>(`/items/${id}/mark-found`)
   return res.data
 }
 

@@ -1,0 +1,14 @@
+.shell {
+  min-height: 100vh;
+}
+
+.main {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .main {
+    margin-left: 232px;
+    padding-bottom: 0;
+  }
+}

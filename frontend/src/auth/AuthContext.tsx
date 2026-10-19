@@ -1,15 +1,28 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { setToken } from '../api/token'
 import { login as apiLogin, me as fetchMe, register as apiRegister } from '../api/auth'
-import type { Role } from '../types'
+import type { Role, StaffStatus, User } from '../types'
+
+export interface RegisterInput {
+  username: string
+  password: string
+  displayName: string
+  role: 'student' | 'staff'
+  staffNo?: string
+  department?: string
+}
 
 interface AuthState {
   token: string | null
   role: Role | null
   userId: string | null
+  displayName: string | null
+  staffStatus: StaffStatus | null
+  staffRejectReason: string | null
   ready: boolean
   login: (username: string, password: string) => Promise<void>
-  register: (username: string, password: string, displayName: string) => Promise<void>
+  register: (input: RegisterInput) => Promise<void>
+  refresh: () => Promise<void>
   logout: () => void
 }
 const AuthContext = createContext<AuthState | null>(null)
@@ -17,16 +30,14 @@ const STORAGE_KEY = 'campus-session'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [tokenState, setTokenState] = useState<string | null>(null)
-  const [role, setRole] = useState<Role | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
 
   function logout() {
     setToken(null)
     sessionStorage.removeItem(STORAGE_KEY)
     setTokenState(null)
-    setRole(null)
-    setUserId(null)
+    setUser(null)
     setReady(true)
   }
 
@@ -37,11 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (saved) {
       setToken(saved)
       fetchMe()
-        .then((user) => {
+        .then((me) => {
           if (active) {
             setTokenState(saved)
-            setRole(user.role)
-            setUserId(user.id)
+            setUser(me)
           }
         })
         .catch(() => {
@@ -60,11 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function accept(token: string) {
     setToken(token)
     try {
-      const user = await fetchMe()
+      const me = await fetchMe()
       sessionStorage.setItem(STORAGE_KEY, token)
       setTokenState(token)
-      setRole(user.role)
-      setUserId(user.id)
+      setUser(me)
       setReady(true)
     } catch (e) {
       logout()
@@ -75,12 +84,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await apiLogin({ username, password })
     await accept(res.token)
   }
-  async function register(username: string, password: string, displayName: string) {
-    const res = await apiRegister({ username, password, display_name: displayName })
+  async function register(input: RegisterInput) {
+    const res = await apiRegister({
+      username: input.username,
+      password: input.password,
+      display_name: input.displayName,
+      role: input.role,
+      staff_no: input.staffNo || null,
+      department: input.department || null,
+    })
     await accept(res.token)
   }
+  async function refresh() {
+    const me = await fetchMe()
+    setUser(me)
+  }
   return (
-    <AuthContext.Provider value={{ token: tokenState, role, userId, ready, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        token: tokenState,
+        role: user?.role ?? null,
+        userId: user?.id ?? null,
+        displayName: user?.display_name ?? null,
+        staffStatus: user?.staff_status ?? null,
+        staffRejectReason: user?.staff_reject_reason ?? null,
+        ready,
+        login,
+        register,
+        refresh,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

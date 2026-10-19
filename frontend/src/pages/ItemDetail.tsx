@@ -2,17 +2,33 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { errorMessage } from '../utils/error'
 import { createClaim } from '../api/claims'
-import { getCandidates, getItem } from '../api/items'
+import { abandonHelper, takeHelper } from '../api/helpers'
+import { getCandidates, getItem, markItemFound, withdrawItem } from '../api/items'
 import { listMyItems } from '../api/me'
 import { useAsync } from '../hooks/useAsync'
 import { useAuth } from '../auth/AuthContext'
 import { createIdempotencyKey } from '../utils/id'
-import { directionLabels, statusLabels, type Candidate, type Item, type ItemStatus } from '../types'
+import {
+  directionLabels,
+  placeLabel,
+  statusLabels,
+  type Candidate,
+  type HelperState,
+  type HelperUser,
+  type Item,
+  type ItemStatus,
+} from '../types'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import Field from '../components/Field'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import PageHeader from '../components/AppShell/PageHeader'
+import PhotoGallery from '../components/PhotoGallery/PhotoGallery'
+import FavoriteButton from '../components/Reactions/FavoriteButton'
+import LikeButton from '../components/Reactions/LikeButton'
+import CommentList from '../components/CommentList/CommentList'
+import HelperList from '../components/HelperList/HelperList'
 import Spinner from '../components/Spinner'
 import styles from './ItemDetail.module.css'
 
@@ -29,6 +45,12 @@ export default function ItemDetail() {
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [statusOverride, setStatusOverride] = useState<ItemStatus | null>(null)
+  const [actionBusy, setActionBusy] = useState<'withdraw' | 'found' | null>(null)
+  const [actionMsg, setActionMsg] = useState('')
+  const [helpers, setHelpers] = useState<HelperUser[]>([])
+  const [helperState, setHelperState] = useState<HelperState | null>(null)
+  const [helperBusy, setHelperBusy] = useState(false)
+  const [helperMsg, setHelperMsg] = useState('')
   const key = useRef('')
 
   const { data: item, error, loading } = useAsync(() => getItem(id ?? ''), [id])
@@ -42,6 +64,10 @@ export default function ItemDetail() {
     setEvidence('')
     setLostItemId('')
     setMsg('')
+    setActionMsg('')
+    setHelpers(item?.helpers ?? [])
+    setHelperState(null)
+    setHelperMsg('')
     if (!item) return
     if (item.direction === 'lost' && item.is_owner) {
       getCandidates(item.id)
@@ -97,6 +123,39 @@ export default function ItemDetail() {
     }
   }
 
+  async function runAction(kind: 'withdraw' | 'found') {
+    if (actionBusy) return
+    setActionBusy(kind)
+    setActionMsg('')
+    try {
+      const updated = kind === 'withdraw' ? await withdrawItem(id ?? '') : await markItemFound(id ?? '')
+      setStatusOverride(updated.status)
+      setActionMsg(kind === 'withdraw' ? '已撤销发布' : '已标记为已找回')
+    } catch (e) {
+      setActionMsg(errorMessage(e))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function toggleHelper() {
+    if (helperBusy || !item) return
+    const active = helperState?.is_helper ?? item.is_helper
+    setHelperBusy(true)
+    setHelperMsg('')
+    try {
+      const result = active ? await abandonHelper(item.id) : await takeHelper(item.id)
+      setHelperState(result)
+      setHelperMsg(active ? '已放弃委托' : '已接取委托')
+      const refreshed = await getItem(item.id)
+      setHelpers(refreshed.helpers ?? [])
+    } catch (e) {
+      setHelperMsg(errorMessage(e))
+    } finally {
+      setHelperBusy(false)
+    }
+  }
+
   if (loading) {
     return (
       <PageContainer>
@@ -108,7 +167,7 @@ export default function ItemDetail() {
     return (
       <PageContainer>
         <ErrorNotice message={error} />
-        <Link to="/">返回大厅</Link>
+        <Link to="/hall">返回大厅</Link>
       </PageContainer>
     )
   }
@@ -116,33 +175,88 @@ export default function ItemDetail() {
     return <PageContainer>记录不存在</PageContainer>
   }
   const status = statusOverride ?? item.status
+  const isHelper = helperState?.is_helper ?? item.is_helper
+  const canTake = item.direction === 'lost' && !item.is_owner && ['searching', 'reviewing'].includes(status)
   return (
     <PageContainer>
-      <h1>{item.title}</h1>
+      <PageHeader title={item.title} backTo="/hall" />
       <p>
         {directionLabels[item.direction]} · {item.category} · {statusLabels[status]}
       </p>
+      <div className={styles.reactions}>
+        <LikeButton itemId={item.id} liked={item.is_liked} count={item.like_count} />
+        <FavoriteButton itemId={item.id} favorited={item.is_favorited} count={item.favorite_count} />
+      </div>
+      {canTake && (
+        <div className={styles.actions}>
+          <Button
+            variant={isHelper ? 'secondary' : 'primary'}
+            loading={helperBusy}
+            disabled={helperBusy}
+            onClick={toggleHelper}
+          >
+            {helperBusy ? '处理中…' : isHelper ? '放弃接取' : '接取委托'}
+          </Button>
+        </div>
+      )}
+      {helperMsg && <p role="status">{helperMsg}</p>}
+      {item.is_owner && ['searching', 'pending', 'reviewing'].includes(status) && (
+        <div className={styles.actions}>
+          {item.direction === 'lost' && status === 'searching' && (
+            <Button loading={actionBusy === 'found'} disabled={actionBusy !== null} onClick={() => runAction('found')}>
+              {actionBusy === 'found' ? '提交中…' : '我已找回'}
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            loading={actionBusy === 'withdraw'}
+            disabled={actionBusy !== null}
+            onClick={() => runAction('withdraw')}
+          >
+            {actionBusy === 'withdraw' ? '撤销中…' : '撤销发布'}
+          </Button>
+        </div>
+      )}
+      {actionMsg && <p role="status">{actionMsg}</p>}
       <p>{item.description}</p>
-      <p>地点：{item.location_area || '未知'}</p>
+      {item.photos_hidden ? (
+        <p className={styles.hint}>为防冒领，拾获照片仅发布者与工作人员可查看</p>
+      ) : (
+        item.photos &&
+        item.photos.length > 0 && (
+          <section className={styles.block}>
+            <h2>物品照片</h2>
+            <PhotoGallery photos={item.photos} />
+          </section>
+        )
+      )}
+      <p>地点：{item.building_name ? placeLabel(item) : item.location_area || '未知'}</p>
       {item.precise_location && <p>精确位置：{item.precise_location}</p>}
       {item.is_simulated && <p>演示记录 / 模拟位置</p>}
+      {item.direction === 'lost' && (
+        <HelperList
+          itemId={item.id}
+          helpers={helpers}
+          canThank={item.is_owner === true && status === 'found'}
+        />
+      )}
       {item.direction === 'lost' && item.is_owner && (
         <section>
           <h2>候选匹配</h2>
           {candidates.length === 0 && <p>暂无候选，可补充线索或申请协助。</p>}
           {candidates.map((c) => (
             <Card key={c.found_item_id} className={styles.block}>
-              <Link to={'/items/' + c.found_item_id + '?lost=' + id}>{c.title}</Link>（{c.category} ·{' '}
+              <Link to={'/hall/' + c.found_item_id + '?lost=' + id}>{c.title}</Link>（{c.category} ·{' '}
               {c.location_area || '未知'}）
               <p>
                 依据：{c.explanation} ｜ 来源：{c.source === 'rule' ? '规则推荐' : c.source}
               </p>
             </Card>
           ))}
-          <Link to="/tickets">申请工作人员协助</Link>
+          <Link to="/staff/tickets">申请工作人员协助</Link>
         </section>
       )}
-      {item.direction === 'found' && role === 'student' && ['pending', 'reviewing'].includes(status) && (
+      {item.direction === 'found' && role === 'student' && !item.is_owner && ['pending', 'reviewing'].includes(status) && (
         <Card className={styles.block}>
           <h2>认领该物品</h2>
           <Field label="私密认领证据">
@@ -177,6 +291,7 @@ export default function ItemDetail() {
           {msg && <p role="status">{msg}</p>}
         </Card>
       )}
+      <CommentList itemId={item.id} />
     </PageContainer>
   )
 }

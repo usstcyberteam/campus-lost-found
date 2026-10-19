@@ -44,7 +44,7 @@ export default function MyDelegations() {
       <ul>
         {items.map((i) => (
           <li key={i.id}>
-            <Link to={`/items/${i.id}`}>
+            <Link to={`/hall/${i.id}`}>
               [{directionLabels[i.direction]}] {i.title}
             </Link>{' '}
             · {statusLabels[i.status]}
@@ -57,7 +57,7 @@ export default function MyDelegations() {
       <ul>
         {claims.map((c) => (
           <li key={c.id}>
-            <Link to={'/items/' + c.found_item_id}>认领物品</Link> · {claimStatusLabels[c.status]}
+            <Link to={'/hall/' + c.found_item_id}>认领物品</Link> · {claimStatusLabels[c.status]}
           </li>
         ))}
       </ul>

@@ -7,6 +7,13 @@ class Role(str, Enum):
     admin = "admin"
 
 
+class StaffStatus(str, Enum):
+    none = "none"
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
 class Direction(str, Enum):
     lost = "lost"
     found = "found"
@@ -53,6 +60,33 @@ class RouteKind(str, Enum):
     circle = "circle"
 
 
+class Visibility(str, Enum):
+    public = "public"
+    private = "private"
+
+
+class SimulatedPointKind(str, Enum):
+    help_point = "help_point"
+    monitor_point = "monitor_point"
+
+
 class EvidenceKind(str, Enum):
     image = "image"
     text = "text"
+
+
+class AttachmentPurpose(str, Enum):
+    item_photo = "item_photo"
+    comment_image = "comment_image"
+    evidence = "evidence"
+
+
+class HelperStatus(str, Enum):
+    active = "active"
+    abandoned = "abandoned"
+
+
+class PointReason(str, Enum):
+    thank = "thank"
+    return_ = "return"
+    ticket_feedback = "ticket_feedback"

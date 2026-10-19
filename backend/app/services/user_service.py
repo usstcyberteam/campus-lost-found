@@ -2,10 +2,20 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
 from app.errors import ApiError
-from app.models import Role, User
+from app.models import Role, StaffStatus, User
 
 
-def create_user(db: Session, username: str, password: str, display_name: str, contact: str | None, role: Role) -> User:
+def create_user(
+    db: Session,
+    username: str,
+    password: str,
+    display_name: str,
+    contact: str | None,
+    role: Role,
+    staff_status: StaffStatus = StaffStatus.none,
+    staff_no: str | None = None,
+    department: str | None = None,
+) -> User:
     exists = db.query(User).filter(User.username == username).first()
     if exists is not None:
         raise ApiError(409, "STATE_CONFLICT", "用户名已存在")
@@ -15,6 +25,9 @@ def create_user(db: Session, username: str, password: str, display_name: str, co
         display_name=display_name,
         contact=contact,
         role=role,
+        staff_status=staff_status,
+        staff_no=staff_no,
+        department=department,
     )
     db.add(user)
     db.commit()

@@ -1,0 +1,37 @@
+.nav {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--color-bg-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  text-decoration: none;
+}
+
+.tab:active {
+  background: var(--color-bg-2);
+}
+
+.active {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+@media (min-width: 768px) {
+  .nav {
+    display: none;
+  }
+}

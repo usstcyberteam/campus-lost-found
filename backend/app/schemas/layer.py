@@ -3,7 +3,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from app.models.enums import RouteKind
+from app.models.enums import RouteKind, SimulatedPointKind, Visibility
 
 
 class LayerOut(BaseModel):
@@ -16,6 +16,8 @@ class LayerOut(BaseModel):
     height: int
     scale_calibrated: bool
     image_path: str | None
+    building_id: uuid.UUID | None
+    floor: int | None
 
 
 class CalibrateRequest(BaseModel):
@@ -38,6 +40,24 @@ class SimulatedPointOut(BaseModel):
     norm_y: float
     is_simulated: bool
     description: str | None
+
+
+class LayerPointOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: SimulatedPointKind
+    label: str
+    norm_x: float
+    norm_y: float
+    is_simulated: bool
+    is_public: bool
+    description: str | None
+
+
+class LayerPointsOut(BaseModel):
+    points: list[LayerPointOut]
+    has_monitor: bool
 
 
 class MapAnchorRequest(BaseModel):
@@ -66,6 +86,7 @@ class RouteCreate(BaseModel):
     layer_id: uuid.UUID | None = None
     geometry: PolylineGeometry | CircleGeometry | None = None
     floor_segments: list | None = None
+    visibility: Visibility | None = None
 
     @model_validator(mode="after")
     def _check_geometry_matches_kind(self) -> "RouteCreate":
@@ -85,7 +106,7 @@ class MapAnchorOut(BaseModel):
 class RouteOut(BaseModel):
     id: uuid.UUID
     kind: RouteKind
-    is_private: bool
+    visibility: Visibility
 
 
 class RouteDetail(BaseModel):
@@ -93,5 +114,5 @@ class RouteDetail(BaseModel):
     kind: RouteKind
     geometry: dict | None
     floor_segments: list | None
-    is_private: bool
+    visibility: Visibility
     authorized: bool

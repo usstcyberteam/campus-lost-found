@@ -66,7 +66,7 @@ export default function StaffClaims() {
     }
   }
 
-  if (role !== 'staff' && role !== 'admin') return <Navigate to="/" replace />
+  if (role !== 'staff' && role !== 'admin') return <Navigate to="/hall" replace />
   return (
     <PageContainer>
       <h1>认领审核</h1>
@@ -109,10 +109,10 @@ export default function StaffClaims() {
             {found?.category} · {found?.location_area || '未知地点'}
           </p>
           <p>{found?.description}</p>
-          <Link to={'/items/' + detail.found_item_id}>查看拾获详情</Link>
+          <Link to={'/hall/' + detail.found_item_id}>查看拾获详情</Link>
           {detail.lost_item_id && (
             <p>
-              <Link to={'/items/' + detail.lost_item_id}>查看关联寻物</Link>
+              <Link to={'/hall/' + detail.lost_item_id}>查看关联寻物</Link>
             </p>
           )}
           <h3>私密认领证据</h3>

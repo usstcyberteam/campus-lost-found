@@ -6,8 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.models import Claim, ClaimEvidence, ClaimStatus, Direction, Item, ItemStatus, Role, User
+from app.models import Claim, ClaimEvidence, ClaimStatus, Direction, Item, ItemStatus, PointReason, Role, User
 from app.schemas.claim import ClaimCreate, ClaimDetail, ClaimOut, EvidenceIn, ReviewRequest
+from app.services import points_service
 
 ACTIVE = (ClaimStatus.pending, ClaimStatus.approved)
 
@@ -183,6 +184,7 @@ def complete_claim(db: Session, user: User, claim_id: uuid.UUID) -> Claim:
     claim, items = editable_claim(db, claim_id)
     if claim.status != ClaimStatus.approved:
         raise ApiError(409, "STATE_CONFLICT", "认领未通过核验或已归还")
+    found = items.get(claim.found_item_id)
     lost = items.get(claim.lost_item_id)
     if lost is not None and (lost.owner_user_id != claim.applicant_user_id or lost.status != ItemStatus.reviewing):
         raise ApiError(409, "STATE_CONFLICT", "关联寻物记录状态或归属冲突")
@@ -212,4 +214,7 @@ def complete_claim(db: Session, user: User, claim_id: uuid.UUID) -> Claim:
         restore_unclaimed(db, sibling.lost_item_id)
     db.commit()
     db.refresh(claim)
+    if found is not None:
+        points_service.add(db, found.owner_user_id, PointReason.return_, points_service.RETURN_POINTS, claim.id)
+        db.commit()
     return claim

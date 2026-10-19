@@ -6,8 +6,10 @@
 | 阶段 | 阶段3：编码任务规划 |
 | 特性名 | `campus_lost_found` |
 | 写入路径 | `.codeartsdoer/specs/campus_lost_found/tasks.md` |
-| 上游输入 | `spec.md` v1.0 + `design.md` v1.0（含 2.11 T02、2.12 T20、2.13 T21、2.14 T22、2.15 T23、2.16 T24 细化） |
-| 状态 | v1.6（2026-10-14，新增 T24 地图逻辑抽取为可复用组件） |
+| 上游输入 | `spec.md` v2.0 + `design.md` v2.0；v1.0 的 T01–T24 与 2.11–2.16 细化仍作为基线保留 |
+| 状态 | v2.0（2026-10-18，新增第 13 章 F1–F16 v2.0 功能任务；v1.0 任务保留） |
+
+> **v1.0 → v2.0 任务变更说明**：第 1–12 章的 T01–T24 是 v1.0 已落地或已细化的基线，继续有效，不重做。第 13 章按 `spec.md` v2.0 与 `design.md` 2.17–2.25 增量拆分为 F1–F16，覆盖教职工、导航重构、上传、互动、积分、地图增强、AI、演示数据、我的页面、生产部署与全流程回归。v1.0 中与 v2.0 冲突的字段/页面（如 `route.is_private`、`Home.tsx`、顶部导航）在第 13 章对应任务内改造，既有认领、核验、归还、协助工单行为与测试不得改变。
 
 ## 0. 约定与负责人
 
@@ -526,3 +528,465 @@ flowchart LR
 - [ ] 切换图层 5 次后点击地图，坐标 popup 正常弹出且只弹出一个
 - [ ] 离开地图页再返回无报错（实例与事件监听正确销毁）
 - [ ] `ClickCoordsPopup` 作为 `useCampusMap` 验证用例：组件内成功获取 `map` 与换算函数，切换图层后拿到新实例
+---
+
+## 13. v2.0 功能任务（F1–F16）
+
+> 对应 `spec.md` v2.0 与 `design.md` 2.17–2.25。第 1–12 章的 T01–T24 为 v1.0 基线，继续有效；本章任务在其上叠加，**不得删除或改变认领、核验、归还、协助工单的既有行为**，既有测试必须继续通过。
+>
+> 通用约束：后端只新增 `httpx`、`Pillow`；前端不新增依赖；所有新接口声明 `response_model`、支持 `limit/offset`（默认 20，最大 100）；出错统一抛 `ApiError`；新增/修改表结构必须提供 Alembic 迁移；每个新接口至少三类测试（正常、无权限、非法输入或状态冲突）；前端 375px 宽度下完整可用、可点击区域不小于 44px。
+
+### 13.0 任务依赖图
+
+```mermaid
+graph TD
+    F1[F1 教职工注册与审核] --> F4
+    F2[F2 应用框架与底部导航] --> F3
+    F2 --> F4
+    F3 --> F4
+    F4[F4 照片上传与存储抽象] --> F5
+    F5[F5 卡片/详情/撤销/找回] --> F6
+    F6[F6 评论/点赞/收藏] --> F7
+    F7[F7 接取委托/致谢/积分称号] --> F14
+    F2 --> F8
+    F8[F8 2.5D 底图与建筑] --> F9
+    F9[F9 建筑层与点位层] --> F10
+    F10[F10 绘制工具与地图发帖] --> F11
+    F11[F11 求助/监控/楼层图] --> F14
+    F2 --> F12
+    F12[F12 模型客户端与智能发帖] --> F13
+    F13[F13 演示数据与地点推荐] --> F14
+    F14[F14 我的页面整合] --> F15
+    F15[F15 生产部署] --> F16[F16 全流程回归]
+```
+
+| ID | 标题 | 前置依赖 | 主要交付 |
+|---|---|---|---|
+| F1 | 教职工注册与审核 | — | `staff_application_service`、4 个接口、迁移 |
+| F2 | 应用框架与底部导航 | — | 路由重构、AppShell、底部/侧边导航 |
+| F3 | 视觉风格落地 | F2 | tokens、基础组件、模块样式 |
+| F4 | 照片上传与存储抽象 | F1、F2、F3 | `upload_service`、`StorageBackend`、`/uploads` |
+| F5 | 卡片/详情/撤销/找回 | F4 | `withdraw`、`mark-found`、Hall/Detail 改版 |
+| F6 | 评论/点赞/收藏 | F5 | `comment_service`、`reaction_service` |
+| F7 | 接取委托/致谢/积分称号 | F6 | `helper_service`、`points_service` |
+| F8 | 2.5D 底图与建筑数据 | F2 | `building` 表、`building_service`、配置导入 |
+| F9 | 建筑层与帖子点位层 | F8 | `BuildingLayer`、`ItemPointsLayer`、聚合 |
+| F10 | 绘制工具与从地图发帖 | F9 | `DrawToolLayer`、`useDrawTool` |
+| F11 | 求助/监控/楼层图 | F10 | 点位过滤接口、`FloorSwitcher` |
+| F12 | 模型客户端与智能发帖 | F2 | `ai_service`、`/ai/draft-post` |
+| F13 | 演示数据与地点推荐 | F12 | `seed_demo.py`、`/ai/search-advice`、热力层 |
+| F14 | 我的页面整合 | F7、F11、F13 | `/me`、`/me/*`、工作人员入口 |
+| F15 | 生产部署 | F14 | Nginx、生产镜像、ECS 部署说明 |
+| F16 | 全流程回归测试 | F15 | 回归用例与手工验收清单 |
+
+---
+
+### 13.1 F1 教职工注册与审核
+
+**目标**：学生可自助注册；注册时可选「教职工」身份并提交工号与部门，申请进入「待审核」；审核通过前 `role` 保持 `student`（按学生权限），管理员通过后 `role` 改为 `staff`，拒绝须填理由且申请人可见。
+
+**涉及文件**
+- 后端：`backend/app/models/enums.py`（新增 `StaffStatus`）、`backend/app/models/user.py`（新增 `staff_status`/`staff_no`/`department`/`staff_reject_reason`）、`backend/app/schemas/staff_application.py`（新建）、`backend/app/schemas/auth.py`、`backend/app/services/staff_application_service.py`（新建）、`backend/app/services/auth_service.py`、`backend/app/api/v1/staff_applications.py`（新建，或在 `admin.py` 内挂载）、`backend/app/api/v1/router.py`
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（与 F4–F13 共用同一 v2 增量迁移，首个建表任务负责创建，后续任务追加内容）
+- 测试：`backend/tests/test_staff_application.py`（新建）
+- 前端：`frontend/src/pages/Register.tsx`、`frontend/src/pages/StaffApplications.tsx`（新建，管理员审核）、`frontend/src/api/staffApplications.ts`（新建）、`frontend/src/api/auth.ts`、`frontend/src/types.ts`
+
+**依赖任务**：无（后端可立即开始）；前端页面依赖 F2 的路由与页面骨架。
+
+**接口**（详见 `design.md` 2.21.1）
+- `POST /me/staff-application`：登录且 `role=student` 且无 pending/approved 记录；`staff_no` 4~20 位字母或数字；`department` ≤64 选填。
+- `GET /admin/staff-applications`：仅 `admin`，`status` 默认 `pending`。
+- `POST /admin/staff-applications/{user_id}/approve`：仅 `admin`，`pending → approved`，`role` 改为 `staff`。
+- `POST /admin/staff-applications/{user_id}/reject`：仅 `admin`，`reason` 必填 ≤500。
+
+**验收标准**
+- [ ] 迁移生成成功，`user` 表含 4 个新列，`alembic check` 无差异
+- [ ] 正常：学生提交合法工号后 `staff_status=pending`、`role=student`；管理员通过后 `role=staff`
+- [ ] 无权限：学生调用 `GET /admin/staff-applications` 或 approve/reject 返回 403
+- [ ] 非法输入：工号少于 4 位、含非字母数字、拒绝理由为空分别返回 400；重复申请返回 409
+- [ ] 审核通过前调用 staff 专属接口（如核验认领）返回 403（验证「审核前按学生权限」）
+- [ ] 拒绝后申请人可查询到 `staff_status=rejected` 与 `staff_reject_reason`
+- [ ] 注册页可选「学生 / 教职工」，选教职工时工号必填、部门选填；375px 下表单无横向滚动、控件高度 ≥44px
+- [ ] 管理员审核页可看申请列表并通过/拒绝（拒绝弹窗含理由输入）
+- [ ] `cd backend && .venv/Scripts/python -m pytest tests/ -q` 通过；`ruff check .`、`ruff format --check .` 通过
+- [ ] `cd frontend && npm run lint && npm run build` 通过
+
+---
+
+### 13.2 F2 应用框架与底部导航
+
+**目标**：重构应用外壳与路由。移动端底部固定四标签（大厅/地图/AI/我的），≥768px 改为左侧导航；统一页面头部；旧路径重定向到新路径；工作人员与管理员专属入口从「我的」页进入。
+
+**涉及文件**
+- 前端：`frontend/src/App.tsx`、`frontend/src/components/AppShell/AppShell.tsx` + `AppShell.module.css`（新建）、`BottomNav.tsx`、`SideNav.tsx`、`PageHeader.tsx`（均新建）、`frontend/src/pages/Hall.tsx`（由 `Home.tsx` 改名）、`frontend/src/pages/ItemDetail.tsx`（由 `ItemDetail` 旧路由迁移）、`frontend/src/pages/AiPage.tsx`（新建占位）、`frontend/src/pages/Me.tsx`（新建占位）、`frontend/src/auth/AuthContext.tsx`
+- 后端：无（仅前端路由）
+
+**依赖任务**：无。
+
+**路由**（详见 `design.md` 2.22.1）
+- 新路由：`/hall`、`/hall/:id`、`/publish`、`/map`、`/ai`、`/me`、`/me/*`、`/staff/claims`、`/staff/tickets`、`/admin/staff-applications`
+- 重定向：`/` → `/hall`；`/items/:id` → `/hall/:id`；`/tickets` → `/staff/tickets`
+
+**验收标准**
+- [ ] 375px 下底部四标签固定可见，四页均可到达；单标签点击区域 ≥44×44px，无横向滚动
+- [ ] ≥768px 时底部导航切换为左侧导航，内容区无遮挡
+- [ ] 页面头部在四个主页面一致（标题、返回、右侧操作区）
+- [ ] 旧路径 `/`、`/items/:id`、`/tickets` 均重定向到新路径，浏览器历史无死循环
+- [ ] 未登录访问受保护路由跳转登录；学生访问 staff/admin 路由不渲染专属入口（权限仍以后端为准）
+- [ ] 「我的」页包含工作人员/管理员专属入口占位（F14 完成内容）
+- [ ] `npm run lint`、`npm run build` 通过；375px 手工检查无横向滚动
+
+---
+
+### 13.3 F3 视觉风格落地
+
+**目标**：建立 v2.0 设计变量与基础组件，供后续所有页面复用。风格另定，但必须满足移动端优先与 token 约束。
+
+**涉及文件**
+- 前端：`frontend/src/styles/tokens.css`（扩展颜色、间距、圆角、字号、阴影、层级）、`frontend/src/styles/global.css`、`frontend/src/components/ui/Button.tsx` + `.module.css`、`Card.tsx` + `.module.css`、`Input.tsx` + `.module.css`、`Textarea.tsx` + `.module.css`、`Select.tsx` + `.module.css`、`Tag.tsx` + `.module.css`、`Avatar.tsx` + `.module.css`、`EmptyState.tsx`、`LoadingState.tsx`、`ErrorState.tsx`（均新建）
+
+**依赖任务**：F2。
+
+**验收标准**
+- [ ] 所有基础组件只引用 `tokens.css` 变量，无硬编码颜色/间距/字号；无内联 `style`
+- [ ] `Button` 支持 `primary/secondary/ghost/danger` 与 `disabled` 状态，最小高度 44px
+- [ ] `Input`/`Textarea`/`Select` 必须接受 `label` 或 `aria-label`，聚焦态可见
+- [ ] 加载中/出错/空数据三态组件可复用，文案为中文
+- [ ] 375px 下组件不溢出；≥768px 下不拉伸变形
+- [ ] `npm run lint`、`npm run build` 通过
+
+---
+
+### 13.4 F4 照片上传与存储抽象
+
+**目标**：实现照片上传、Pillow 去 EXIF、存储抽象（本地 `storage/`，预留 OBS）、受控下载与拾获帖照片可见性控制；发布表单支持最多 6 张照片。
+
+**涉及文件**
+- 后端：`backend/app/models/enums.py`（`AttachmentPurpose`）、`backend/app/models/attachment.py`（新增 5 列）、`backend/app/services/upload_service.py`（新建）、`backend/app/services/storage/base.py`、`local.py`、`factory.py`（新建）、`backend/app/api/v1/uploads.py`（新建）、`backend/app/schemas/upload.py`（新建）、`backend/app/config.py`（`STORAGE_DIR`、`STORAGE_BACKEND`）、`backend/app/api/v1/items.py`（`POST /items/{id}/photos`、发布时 `photo_ids`）、`backend/requirements.txt`（新增 `Pillow`）
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（`attachment` 加列）
+- 测试：`backend/tests/test_upload.py`（新建）、`backend/tests/test_item_photos.py`（新建）
+- 前端：`frontend/src/api/uploads.ts`（新建）、`frontend/src/components/PhotoUploader/PhotoUploader.tsx` + `.module.css`（新建）、`frontend/src/pages/ItemForm.tsx`、`frontend/src/pages/ItemDetail.tsx`
+
+**依赖任务**：F1（迁移基线）、F2、F3。
+
+**接口**（详见 `design.md` 2.21.2）
+- `POST /uploads`：multipart，jpg/png/webp，单张 ≤5MB。
+- `GET /uploads/{id}`：按可见性鉴权（寻物帖公开；拾获帖仅发布者与 staff/admin；评论图按评论可见性）。
+- `POST /items/{id}/photos`：发布者本人，最多 6 张。
+
+**验收标准**
+- [ ] 迁移成功，`attachment` 含 `owner_user_id`/`comment_id`/`purpose`/`mime`/`size`
+- [ ] 正常：上传 jpg/png/webp 成功，返回 `{id,url,mime,size}`；下载可获取图片
+- [ ] 异常：非 jpg/png/webp 或 >5MB 返回 400；上传后图片 EXIF 中位置信息已移除
+- [ ] 无权限：他人访问拾获帖照片 `GET /uploads/{id}` 返回 403；其他用户删除/替换照片返回 403
+- [ ] 状态冲突：一次绑定超过 6 张返回 400；引用不存在或非本人上传的 `photo_ids` 返回 400
+- [ ] 前端选择照片后展示缩略图、可删除；提交期间按钮禁用；单张超 5MB 或超过 6 张时前端提示
+- [ ] 前端压缩长边不超过 1600px 后再上传（不新增依赖）
+- [ ] 拾获帖详情对非发布者/非工作人员显示「为防冒领，照片已隐藏」
+- [ ] `pytest tests/ -q`、`ruff check .`、`ruff format --check .` 通过；`npm run lint && npm run build` 通过
+- [ ] 375px 下照片网格不溢出，删除按钮 ≥44px
+
+---
+
+### 13.5 F5 帖子卡片与详情改版、撤销与「我已找回」
+
+**目标**：大厅卡片与详情展示首图、类型标签、标题、状态、建筑+楼层、发布时间、点赞/评论/接取人数；支持发布者撤销帖子与自行标记「我已找回」。
+
+**涉及文件**
+- 后端：`backend/app/models/item.py`（`building_id`/`floor`）、`backend/app/services/item_service.py`（`withdraw_item`、`mark_found`）、`backend/app/api/v1/items.py`、`backend/app/schemas/item.py`（`ItemPublic` 扩展计数字段与 `building_name`/`floor`）
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（`item` 加列）
+- 测试：`backend/tests/test_item_lifecycle.py`（新建或扩展）
+- 前端：`frontend/src/pages/Hall.tsx`、`frontend/src/components/ItemCard/ItemCard.tsx` + `.module.css`（新建）、`frontend/src/pages/ItemDetail.tsx`、`frontend/src/api/items.ts`、`frontend/src/types.ts`
+
+**依赖任务**：F4。
+
+**接口**（详见 `design.md` 2.21.3）
+- `POST /items/{id}/withdraw`：发布者本人；`lost/searching`、`found/pending`、`reviewing` 且无已通过认领可撤销。
+- `POST /items/{id}/mark-found`：发布者本人；仅 `lost/searching` 且无 `approved` 认领。
+
+**验收标准**
+- [ ] 正常：发布者撤销后状态为 `withdrawn`；发布者标记后状态为 `found`
+- [ ] 无权限：非发布者调用两个接口返回 403；未登录 401
+- [ ] 状态冲突：已找回/已归还/已撤销再次撤销返回 409；存在已通过认领时 `mark-found` 返回 409
+- [ ] 卡片展示首图缩略图、寻物/拾获标签、标题、状态、建筑名与楼层、发布时间、点赞数、评论数、接取人数
+- [ ] 筛选支持关键词、类型、类别、状态、建筑；分页为「加载更多」，追加不重复
+- [ ] 详情页按身份显示「撤销」「我已找回」按钮，提交期间禁用；成功后状态即时更新
+- [ ] 建筑+楼层为空时显示「未指定地点」，不报错
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+- [ ] 375px 下卡片单列展示、按钮 ≥44px、无横向滚动
+
+---
+
+### 13.6 F6 评论、点赞、收藏
+
+**目标**：实现评论（1~500 字、最多 3 图、仅一层回复、软删除）与点赞/收藏（一人一次、可取消、计数子查询）。
+
+**涉及文件**
+- 后端：`backend/app/models/comment.py`、`item_like.py`、`item_favorite.py`（新建）、`backend/app/services/comment_service.py`、`reaction_service.py`（新建）、`backend/app/api/v1/comments.py`、`reactions.py`（新建）、`backend/app/schemas/comment.py`、`reaction.py`（新建）、`backend/app/api/v1/items.py`、`backend/app/api/v1/me.py`
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（建 3 表 + `attachment.comment_id`）
+- 测试：`backend/tests/test_comments.py`、`backend/tests/test_reactions.py`（新建）
+- 前端：`frontend/src/components/CommentList/CommentList.tsx` + `.module.css`、`CommentItem.tsx`、`CommentComposer.tsx`、`LikeButton.tsx`、`FavoriteButton.tsx`（新建）、`frontend/src/api/comments.ts`、`reactions.ts`（新建）、`frontend/src/pages/ItemDetail.tsx`
+
+**依赖任务**：F5。
+
+**接口**（详见 `design.md` 2.21.4、2.21.5）
+- `GET/POST /items/{id}/comments`；`DELETE /comments/{id}`
+- `POST/DELETE /items/{id}/like`；`POST/DELETE /items/{id}/favorite`
+
+**验收标准**
+- [ ] 正常：登录用户发表评论成功；回复仅一层；本人/工作人员/管理员删除后显示「该评论已删除」
+- [ ] 异常：内容为空或 >500 字返回 400；评论图 >3 张返回 400；父评论已删除或层级非法返回 409
+- [ ] 无权限：未登录评论/点赞/收藏返回 401；非本人且非 staff/admin 删除评论返回 403
+- [ ] 点赞/收藏一人一次，重复 POST 幂等、取消后计数回落；`UNIQUE(item_id,user_id)` 生效
+- [ ] 列表/详情返回计数与 `is_liked`/`is_favorited`；计数用子查询，无冗余计数字段
+- [ ] 评论数为未软删除评论数
+- [ ] 前端评论输入有 `label`/`aria-label`，提交期间禁用；点赞/收藏按钮状态即时切换
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+- [ ] 375px 下评论区可完整操作、按钮 ≥44px
+
+---
+
+### 13.7 F7 接取委托、致谢、积分与称号
+
+**目标**：登录用户可对「寻找中/核验中」寻物帖接取委托并随时放弃；发布者找回后可从协助者中选最多 3 人致谢；积分仅经 `points_service` 写入，同一事件对同一人只计一次；称号按累计积分计算。
+
+**涉及文件**
+- 后端：`backend/app/models/item_helper.py`、`point_record.py`（新建）、`backend/app/models/enums.py`（`HelperStatus`、`PointReason`）、`backend/app/services/helper_service.py`、`points_service.py`（新建）、`backend/app/services/claim_service.py`（归还完成后 +15）、`backend/app/services/ticket_service.py`（反馈后 +10）、`backend/app/api/v1/helpers.py`、`backend/app/api/v1/me.py`、`backend/app/schemas/helper.py`、`points.py`（新建）
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（建 2 表 + 唯一约束 `uq_point_record_user_reason_ref`）
+- 测试：`backend/tests/test_helpers.py`、`backend/tests/test_points.py`（新建）
+- 前端：`frontend/src/components/HelperList/HelperList.tsx` + `.module.css`、`ThankDialog.tsx`（新建）、`frontend/src/api/helpers.ts`、`points.ts`（新建）、`frontend/src/pages/ItemDetail.tsx`
+
+**依赖任务**：F6。
+
+**接口**（详见 `design.md` 2.21.6、2.21.7）
+- `POST/DELETE /items/{id}/helpers`；`POST /items/{id}/thank`；`GET /me/points`
+
+**验收标准**
+- [ ] 正常：非发布者接取成功，`helper_count` +1；放弃后回落；致谢 1~3 人成功并各自 +20
+- [ ] 无权限：发布者接取自己的帖子返回 403；非发布者致谢返回 403；未登录 401
+- [ ] 状态冲突：非「寻找中/核验中」接取返回 409；重复接取返回 409；未接取放弃返回 409；帖子非「已找回」致谢返回 409；致谢 >3 人返回 400
+- [ ] 积分唯一：同一 `(user_id, reason, ref_id)` 重复触发只计一次；重复致谢不重复加分
+- [ ] 拾获帖完成归还后拾获者 +15；工作人员工单反馈 +10；发帖/评论/点赞不产生积分
+- [ ] `GET /me/points` 返回 `total/title/next_title/next_threshold` 与分页明细
+- [ ] 称号阈值命中：0/20/60/150/300 分别对应见习寻物人/热心同学/寻物能手/校园守护者/寻物传说
+- [ ] 既有「协助徽章」逻辑保留，与积分称号并存
+- [ ] 前端详情页显示协助者人数与名单（昵称+称号）；致谢弹窗最多选 3 人
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过；375px 下按钮 ≥44px
+
+---
+
+### 13.8 F8 2.5D 底图与建筑数据接入
+
+**目标**：室外底图更换为 2.5D 立体校园示意图；建筑数据（编号、名称、类别、层数、点击区域、标签位置）通过配置文件导入数据库；坐标统一为左下角原点。
+
+**涉及文件**
+- 后端：`backend/app/models/building.py`（新建）、`backend/app/services/building_service.py`（新建）、`backend/app/api/v1/buildings.py`（新建）、`backend/app/schemas/building.py`（新建）、`backend/app/data/buildings.json`（新建配置）、`backend/seed.py` 或 `backend/scripts/import_buildings.py`（新建）、`backend/app/models/layer.py`（`building_id`/`floor`）、`backend/app/models/item.py`（已在 F5）、`backend/app/api/v1/router.py`
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（建 `building`、`layer` 加列、`item` 加列）
+- 测试：`backend/tests/test_buildings.py`（新建）
+- 前端：`frontend/public/map/campus-2.5d.png`（自备静态底图，[假设]）、`frontend/src/api/buildings.ts`（新建）、`frontend/src/types.ts`
+
+**依赖任务**：F2。
+
+**接口**（详见 `design.md` 2.21.9）
+- `GET /buildings`（`category?`、分页）；`GET /buildings/{id}`
+
+**验收标准**
+- [ ] 迁移成功，`building` 表字段与 `design.md` 2.18.2 一致，`code` 唯一、`category` 有索引
+- [ ] 配置导入幂等：重复执行不产生重复建筑；`click_region`/`label_position` 为归一化坐标（左下角原点）
+- [ ] 正常：`GET /buildings` 返回分页列表；`GET /buildings/{id}` 返回详情与 `active_item_count`、`has_floor_map`
+- [ ] 无权限：未登录访问返回 401
+- [ ] 异常：不存在的建筑 id 返回 404
+- [ ] 前端地图加载 2.5D 底图；底图路径不存在时显示占位矩形且不崩溃
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+
+---
+
+### 13.9 F9 建筑层与帖子点位层（含聚合）
+
+**目标**：以 `CampusMap` 子组件实现可独立开关的建筑层与帖子点位层；点击建筑弹出建筑卡片；寻物/拾获使用不同图标；点位密集时聚合为数字气泡。
+
+**涉及文件**
+- 前端：`frontend/src/components/CampusMap/BuildingLayer.tsx`、`ItemPointsLayer.tsx`、`BuildingCard.tsx` + `.module.css`（新建）、`frontend/src/utils/cluster.ts`（新建，自行实现聚合）、`frontend/src/hooks/useCampusMapLayers.ts`（新建或扩展 `useLayers`）、`frontend/src/pages/MapView.tsx`、`frontend/src/api/buildings.ts`、`frontend/src/api/items.ts`
+- 后端：`backend/app/api/v1/items.py`（列表支持 `building_id` 筛选，若 F5 未覆盖）
+
+**依赖任务**：F8。
+
+**验收标准**
+- [ ] 建筑层与帖子点位层可分别开关，互不影响；切换后无残留图层
+- [ ] 点击建筑弹出卡片：名称、类别、进行中帖子数、「查看相关帖子」、「进入楼层」（有平面图时可用）
+- [ ] 寻物与拾获点位图标可区分；点位密集时聚合为数字气泡，点击展开列表
+- [ ] 聚合算法自行实现，不新增第三方依赖；缩放到不同级别时聚合结果正确重算
+- [ ] 图层组件为 `null` 渲染，通过 `useCampusMap()` 获取实例；`map` 为 `null` 时跳过注册
+- [ ] `npm run lint`、`npm run build` 通过；375px 下地图可操作、卡片按钮 ≥44px
+- [ ] 手工回归：切换图层 5 次后仅一个地图实例
+
+---
+
+### 13.10 F10 绘制工具与从地图发帖
+
+**目标**：实现手指可用的标点、圈范围、画路径工具（完成、撤销上一步、清空）；绘制完成后可「发布到大厅」，带入位置与建筑到发布表单。
+
+**涉及文件**
+- 前端：`frontend/src/components/CampusMap/DrawToolLayer.tsx` + `.module.css`、`frontend/src/hooks/useDrawTool.ts`（新建）、`frontend/src/pages/MapView.tsx`、`frontend/src/pages/ItemForm.tsx`、`frontend/src/api/items.ts`
+- 后端：`backend/app/models/route.py`（`visibility` 替换 `is_private`）、`backend/app/services/item_service.py`（发布时接收 `geometry`/`building_id`/`floor`）、`backend/app/schemas/item.py`
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（`route.visibility` + 数据回填 + 删 `is_private`）
+- 测试：`backend/tests/test_route_visibility.py`（新建）
+
+**依赖任务**：F9。
+
+**验收标准**
+- [ ] 标点：点一下生成点位；圈范围：点圆心后拖拽调整半径；路径：依次点击、支持完成/撤销上一步/清空
+- [ ] 触摸与鼠标均可操作；375px 下工具按钮 ≥44px 且不遮挡地图关键区域
+- [ ] 圈选默认 `public`、路径默认 `private`，均可在发布表单切换
+- [ ] 「发布到大厅」跳转 `/publish` 并带入位置、建筑与楼层；返回地图不丢失其他状态
+- [ ] 私有路线仅本人与「已授权且工单分配」的处理人员可见；他人访问返回 403
+- [ ] 迁移完成 `is_private → visibility` 数据转换，旧字段删除后相关接口改为返回 `visibility`
+- [ ] 未标定比例尺时不显示实际米数
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+
+---
+
+### 13.11 F11 求助点位层、监控点位层与楼层图
+
+**目标**：新增求助点位（保卫处/服务台/失物招领处，所有人可见）与监控点位（仅模拟数据、仅工作人员可见、标注「模拟」）；有平面图的建筑可进入楼层图并切换楼层（首批 1~2 栋）。
+
+**涉及文件**
+- 后端：`backend/app/models/simulated_point.py`（`kind`/`is_public`）、`backend/app/api/v1/layers.py`（`GET /layers/{id}/points`）、`backend/app/schemas/layer.py`、`backend/seed.py`（求助点与模拟监控点）
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（`simulated_point` 加列）
+- 测试：`backend/tests/test_layer_points.py`（新建）
+- 前端：`frontend/src/components/CampusMap/HelpPointsLayer.tsx`、`MonitorPointsLayer.tsx`、`FloorSwitcher.tsx` + `.module.css`（新建）、`frontend/src/api/layers.ts`、`frontend/src/pages/MapView.tsx`
+
+**依赖任务**：F10。
+
+**接口**（详见 `design.md` 2.21.10）
+- `GET /layers/{id}/points`：按身份过滤；监控点仅 staff/admin。
+
+**验收标准**
+- [ ] 正常：所有登录用户可见求助点位；staff/admin 额外可见监控点位且界面标注「模拟」
+- [ ] 无权限：学生请求不返回 `monitor_point`，`has_monitor=false`
+- [ ] 异常：不存在的 layer 返回 404；未登录 401
+- [ ] 求助点位层/监控点位层可独立开关；监控层仅工作人员可开启
+- [ ] 楼层图：首批 1~2 栋可进入并切换楼层，返回室外不迷路；无平面图的建筑不显示「进入楼层」
+- [ ] 375px 下楼层切换控件可点击（≥44px）
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+
+---
+
+### 13.12 F12 模型客户端与智能整理发帖
+
+**目标**：实现 OpenAI 兼容模型客户端（可配置 ModelArts Studio 等），超时 10 秒、未配置或失败时降级；AI 页对话式界面支持自然语言生成发帖草稿，草稿经用户确认后才发布。
+
+**涉及文件**
+- 后端：`backend/app/config.py`（`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_API_KEY`、`MODEL_TIMEOUT_SECONDS=10`）、`backend/app/services/model_client.py`（新建，httpx）、`backend/app/services/ai_service.py`（新建）、`backend/app/api/v1/ai.py`（新建）、`backend/app/schemas/ai.py`（新建）、`backend/app/api/v1/router.py`、`backend/requirements.txt`（新增 `httpx`）、`.env.example`
+- 测试：`backend/tests/test_ai_draft.py`（新建，模型调用用 mock，不访问外网）
+- 前端：`frontend/src/pages/AiPage.tsx`、`frontend/src/components/AiChat/AiChat.tsx` + `.module.css`（新建）、`frontend/src/api/ai.ts`（新建）、`frontend/src/pages/ItemForm.tsx`、`frontend/src/types.ts`
+
+**依赖任务**：F2（前端壳）；后端可先于 F8–F11 启动。
+
+**接口**（详见 `design.md` 2.21.11）
+- `POST /ai/draft-post`：登录；`text` 1~2000；返回草稿，不落库。
+
+**验收标准**
+- [ ] 正常：输入自然语言返回 `category/title/description/location_area/building_code/floor/time_occurred`，`source=model`
+- [ ] 异常：`text` 为空返回 400；模型超时/不可用返回降级结果与 `degraded=true`，不返回 500、不阻断
+- [ ] 无权限：未登录 401
+- [ ] 未配置模型（缺 base_url/name/key 任一）时视为不可用，走降级
+- [ ] 发送给模型的内容不含精确位置、联系方式、认领证据、他人私密路径（用测试断言请求体）
+- [ ] 草稿不落库；前端展示「AI 生成，仅供参考」及来源（实时模型/规则）
+- [ ] 用户确认/修改后跳转发布表单带入字段，提交期间按钮禁用
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过；375px 下对话界面可用
+
+---
+
+### 13.13 F13 演示数据与寻物地点推荐（含 AI 推荐层、热力层）
+
+**目标**：提供一键生成约 60 条演示数据的脚本（标记「演示」）；实现寻物地点推荐（规则打分 + 模型解释，最多 5 个地点与顺序），结果在 AI 推荐层高亮，并提供热力层。
+
+**涉及文件**
+- 后端：`backend/scripts/seed_demo.py`（新建）、`backend/app/services/ai_service.py`（`search_advice`）、`backend/app/api/v1/ai.py`、`backend/app/schemas/ai.py`、`backend/app/models/item.py`（`is_demo` 标记，若未包含则加入迁移）、`backend/app/models/building.py`
+- 迁移：`backend/alembic/versions/20261018_v2_incremental.py`（如需 `item.is_demo`）
+- 测试：`backend/tests/test_search_advice.py`、`backend/tests/test_demo_seed.py`（新建）
+- 前端：`frontend/src/components/CampusMap/AIRecommendLayer.tsx`、`HeatmapLayer.tsx` + `.module.css`（新建）、`frontend/src/pages/AiPage.tsx`、`frontend/src/pages/MapView.tsx`、`frontend/src/api/ai.ts`、`frontend/src/components/ItemCard/ItemCard.tsx`（「演示」标签）
+
+**依赖任务**：F12。
+
+**接口**（详见 `design.md` 2.21.11）
+- `POST /ai/search-advice`：`item_id` 或 `geometry`，可选 `category`；返回最多 5 个地点、理由与顺序。
+
+**验收标准**
+- [ ] 演示脚本可一键生成约 60 条记录，分布在各建筑，标记为演示数据；重复执行不产生重复（幂等）
+- [ ] 界面对演示数据展示「演示」标签
+- [ ] 正常：规则打分返回 ≤5 个地点，含 `reason` 与 `order`；`source=model` 或 `rule` 正确标注
+- [ ] 异常：`item_id` 与 `geometry` 均缺失返回 400；模型不可用时返回规则结果 + 模板解释，`degraded=true`
+- [ ] 无权限：使用他人寻物帖的私密路径返回 403；未登录 401
+- [ ] 规则打分依据覆盖：与范围/路径距离、建筑历史寻物与拾获数、同类别历史数、建筑类型与类别对应
+- [ ] AI 推荐层高亮推荐地点并标注「AI 生成，仅供参考」与来源；热力层可独立开关
+- [ ] 推荐结果不包含他人私密数据
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+
+---
+
+### 13.14 F14 我的页面整合
+
+**目标**：整合「我的」页面：个人信息（昵称、身份、称号、积分进度）与 8 类列表；工作人员/管理员专属入口从「我的」进入。
+
+**涉及文件**
+- 前端：`frontend/src/pages/Me.tsx`、`frontend/src/pages/me/MeFavorites.tsx`、`MeLikes.tsx`、`MeComments.tsx`、`MeHelping.tsx`、`MePoints.tsx`、`MeItems.tsx`、`MeClaims.tsx`、`MeTickets.tsx`（新建）、`frontend/src/components/AppShell/MeMenu.tsx`（新建）、`frontend/src/api/me.ts`（新建）、`frontend/src/pages/StaffApplications.tsx`（F1 已建）
+- 后端：`backend/app/api/v1/me.py`（`GET /me/favorites`、`/me/likes`、`/me/comments`、`/me/helping`、`/me/points`）、`backend/app/services/reaction_service.py`、`comment_service.py`、`helper_service.py`、`points_service.py`
+- 测试：`backend/tests/test_me_lists.py`（新建）
+
+**依赖任务**：F7、F11、F13。
+
+**验收标准**
+- [ ] 正常：四个「我的」列表接口返回分页数据且仅含本人记录
+- [ ] 无权限：未登录 401；不能通过参数读取他人收藏/点赞/评论/接取记录（越权返回 403 或空结果，不得泄露）
+- [ ] 异常：非法 `limit`（>100 或 <1）返回 400
+- [ ] 页面展示昵称、身份（学生/教职工/教职工审核中）、称号、积分与距下一称号进度
+- [ ] 列表入口完整：我的发布、我的收藏、我点赞的、我的评论、我的认领、我接取的委托、我的工单、积分明细
+- [ ] 工作人员入口：认领审核、协助工单处理；管理员入口：教职工审核；学生不显示（后端仍强制鉴权）
+- [ ] 375px 下菜单与列表无横向滚动，可点击项 ≥44px
+- [ ] `pytest`、`ruff check/format --check`、`npm run lint/build` 通过
+
+---
+
+### 13.15 F15 生产部署（Nginx、生产镜像、华为云 ECS）
+
+**目标**：提供生产部署方案：前端构建后由 Nginx 提供，后端生产镜像，Docker Compose 编排，可在华为云 ECS 部署。
+
+**涉及文件**
+- 部署：`deploy/nginx.conf`（新建，SPA 路由回退 + `/api` 反代）、`frontend/Dockerfile.prod`（新建，多阶段构建）、`backend/Dockerfile.prod`（新建）、`docker-compose.prod.yml`（新建）、`.env.example`（补充 `STORAGE_BACKEND`、模型配置、`STORAGE_DIR`）、`README.md`（部署步骤）、`docs/`（如需部署说明，限本任务范围）
+- 配置：`backend/app/config.py`（生产环境变量读取）
+
+**依赖任务**：F14。
+
+**验收标准**
+- [ ] `docker compose -f docker-compose.prod.yml up --build` 可启动（用户本地执行）
+- [ ] Nginx 托管前端静态文件，`/hall` 等前端路由刷新返回 200（SPA fallback）
+- [ ] `/api` 反向代理到后端，鉴权头透传
+- [ ] 生产镜像不含 `.env`、密钥、`node_modules`、`.venv`；密钥仅经环境变量注入
+- [ ] `storage/` 目录以卷挂载持久化（预留 OBS 切换说明）
+- [ ] README 含华为云 ECS 部署步骤与所需安全组端口
+- [ ] 前端 `npm run build` 产物可被 Nginx 直接托管
+
+---
+
+### 13.16 F16 全流程回归测试
+
+**目标**：覆盖 v2.0 全流程回归，确认 v1.0 认领、核验、归还、协助工单行为未改变，新增功能按验收标准工作。
+
+**涉及文件**
+- 后端：`backend/tests/test_acceptance.py`（扩展 v2.0 场景）、`backend/tests/test_regression_v2.py`（新建）
+- 前端：手工验收清单（写入 `docs/` 或任务总结，不新增依赖）
+
+**依赖任务**：F15。
+
+**验收标准**
+- [ ] v1.0 既有验收用例全部通过（权限、私密字段、归还唯一性、工单授权）
+- [ ] 新建接口三类用例齐全：正常、无权限、非法输入或状态冲突
+- [ ] 端到端手工流程通过：注册（学生/教职工）→ 教职工审核 → 发布（含照片/地图位置）→ 大厅筛选 → 评论/点赞/收藏 → 接取委托 → 认领 → 核验 → 归还 → 致谢与积分 → 我的列表
+- [ ] 教职工审核前无法执行 staff 操作；审核通过后可核验；拾获帖照片对他人隐藏
+- [ ] AI 草稿与推荐均标注「AI 生成，仅供参考」，模型不可用时手动流程不受阻
+- [ ] 375px 下逐页检查：无横向滚动、可点击区域 ≥44px
+- [ ] 后端 `pytest tests/ -q`、`ruff check .`、`ruff format --check .` 通过
+- [ ] 前端 `npm run lint`、`npm run build` 通过
+- [ ] 汇总未解决问题与已知限制（不编造测试结果）
