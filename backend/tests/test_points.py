@@ -72,7 +72,12 @@ def test_points_record_unique_and_paginated(client):
     assert page["records"]["limit"] == 1
     assert len(page["records"]["items"]) == 1
     second = client.get("/api/v1/me/points?limit=1&offset=1", headers=auth(token)).json()
-    assert second["records"]["items"][0]["reason"] == "thank"
+    assert len(second["records"]["items"]) == 1
+
+    # 两条记录 created_at 可能相同，顺序由 id 兜底，只断言分页合起来完整且不重复
+    reasons = [row["reason"] for row in page["records"]["items"] + second["records"]["items"]]
+    assert sorted(reasons) == ["return", "thank"]
+    assert len(reasons) == len(set(reasons))
 
     assert client.get("/api/v1/me/points").status_code == 401
 

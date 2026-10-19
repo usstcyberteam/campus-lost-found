@@ -21,6 +21,13 @@ from app.schemas.layer import (
 
 router = APIRouter(tags=["layers"])
 
+_IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
 
 @router.get("", response_model=list[LayerOut])
 def list_layers(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -38,7 +45,8 @@ def get_layer_image(layer_id: uuid.UUID, db: Session = Depends(get_db), user: Us
     path = os.path.join(settings.file_storage_dir, layer.image_path)
     if not os.path.exists(path):
         raise ApiError(404, "NOT_FOUND", "底图文件不存在")
-    return FileResponse(path, media_type="image/jpeg")
+    media_type = _IMAGE_MEDIA_TYPES.get(os.path.splitext(path)[1].lower(), "image/jpeg")
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post("/{layer_id}/calibrate", response_model=LayerOut)

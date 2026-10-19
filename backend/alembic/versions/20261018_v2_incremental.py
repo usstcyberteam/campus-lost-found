@@ -35,20 +35,25 @@ def upgrade() -> None:
     op.create_index(op.f('ix_building_code'), 'building', ['code'], unique=True)
     op.create_index(op.f('ix_building_category'), 'building', ['category'], unique=False)
 
-    op.add_column('item', sa.Column('building_id', sa.Uuid(), nullable=True))
-    op.add_column('item', sa.Column('floor', sa.Integer(), nullable=True))
-    op.add_column('item', sa.Column('is_demo', sa.Boolean(), nullable=False, server_default=sa.false()))
-    op.create_index(op.f('ix_item_building_id'), 'item', ['building_id'], unique=False)
-    op.create_foreign_key('fk_item_building_id_building', 'item', 'building', ['building_id'], ['id'])
+    # SQLite 不支持直接加列约束/改列，统一走 batch 重建；PostgreSQL 下等价于普通 ALTER
+    with op.batch_alter_table('item') as batch_op:
+        batch_op.add_column(sa.Column('building_id', sa.Uuid(), nullable=True))
+        batch_op.add_column(sa.Column('floor', sa.Integer(), nullable=True))
+        batch_op.add_column(sa.Column('is_demo', sa.Boolean(), nullable=False, server_default=sa.false()))
+        batch_op.create_index(batch_op.f('ix_item_building_id'), ['building_id'], unique=False)
+        batch_op.create_foreign_key('fk_item_building_id_building', 'building', ['building_id'], ['id'])
 
-    op.add_column('layer', sa.Column('building_id', sa.Uuid(), nullable=True))
-    op.add_column('layer', sa.Column('floor', sa.Integer(), nullable=True))
-    op.create_index(op.f('ix_layer_building_id'), 'layer', ['building_id'], unique=False)
-    op.create_foreign_key('fk_layer_building_id_building', 'layer', 'building', ['building_id'], ['id'])
+    with op.batch_alter_table('layer') as batch_op:
+        batch_op.add_column(sa.Column('building_id', sa.Uuid(), nullable=True))
+        batch_op.add_column(sa.Column('floor', sa.Integer(), nullable=True))
+        batch_op.create_index(batch_op.f('ix_layer_building_id'), ['building_id'], unique=False)
+        batch_op.create_foreign_key('fk_layer_building_id_building', 'building', ['building_id'], ['id'])
 
-    op.add_column('route', sa.Column('visibility', sa.String(length=16), nullable=False, server_default='private'))
+    with op.batch_alter_table('route') as batch_op:
+        batch_op.add_column(sa.Column('visibility', sa.String(length=16), nullable=False, server_default='private'))
     op.execute("UPDATE route SET visibility = CASE WHEN is_private THEN 'private' ELSE 'public' END")
-    op.drop_column('route', 'is_private')
+    with op.batch_alter_table('route') as batch_op:
+        batch_op.drop_column('is_private')
 
     op.add_column(
         'simulated_point',
@@ -68,18 +73,18 @@ def upgrade() -> None:
     op.add_column('user', sa.Column('staff_reject_reason', sa.Text(), nullable=True))
 
     # 附件先上传后绑定，item_id 需允许为空；comment_id 的外键在评论表创建后追加
-    op.alter_column('attachment', 'item_id', existing_type=sa.Uuid(), nullable=True)
-    op.add_column('attachment', sa.Column('comment_id', sa.Uuid(), nullable=True))
-    op.add_column('attachment', sa.Column('owner_user_id', sa.Uuid(), nullable=True))
-    op.add_column(
-        'attachment',
-        sa.Column('purpose', sa.String(length=16), nullable=False, server_default='item_photo'),
-    )
-    op.add_column('attachment', sa.Column('mime', sa.String(length=64), nullable=True))
-    op.add_column('attachment', sa.Column('size', sa.Integer(), nullable=True))
-    op.create_index(op.f('ix_attachment_comment_id'), 'attachment', ['comment_id'], unique=False)
-    op.create_index(op.f('ix_attachment_owner_user_id'), 'attachment', ['owner_user_id'], unique=False)
-    op.create_foreign_key('fk_attachment_owner_user_id_user', 'attachment', 'user', ['owner_user_id'], ['id'])
+    with op.batch_alter_table('attachment') as batch_op:
+        batch_op.alter_column('item_id', existing_type=sa.Uuid(), nullable=True)
+        batch_op.add_column(sa.Column('comment_id', sa.Uuid(), nullable=True))
+        batch_op.add_column(sa.Column('owner_user_id', sa.Uuid(), nullable=True))
+        batch_op.add_column(
+            sa.Column('purpose', sa.String(length=16), nullable=False, server_default='item_photo'),
+        )
+        batch_op.add_column(sa.Column('mime', sa.String(length=64), nullable=True))
+        batch_op.add_column(sa.Column('size', sa.Integer(), nullable=True))
+        batch_op.create_index(batch_op.f('ix_attachment_comment_id'), ['comment_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_attachment_owner_user_id'), ['owner_user_id'], unique=False)
+        batch_op.create_foreign_key('fk_attachment_owner_user_id_user', 'user', ['owner_user_id'], ['id'])
 
     op.create_table(
         'comment',
@@ -100,7 +105,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_comment_author_user_id'), 'comment', ['author_user_id'], unique=False)
     op.create_index(op.f('ix_comment_item_id'), 'comment', ['item_id'], unique=False)
     op.create_index(op.f('ix_comment_parent_id'), 'comment', ['parent_id'], unique=False)
-    op.create_foreign_key('fk_attachment_comment_id_comment', 'attachment', 'comment', ['comment_id'], ['id'])
+    with op.batch_alter_table('attachment') as batch_op:
+        batch_op.create_foreign_key('fk_attachment_comment_id_comment', 'comment', ['comment_id'], ['id'])
 
     op.create_table(
         'item_like',
@@ -181,40 +187,47 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_item_like_user_id'), table_name='item_like')
     op.drop_index(op.f('ix_item_like_item_id'), table_name='item_like')
     op.drop_table('item_like')
-    op.drop_constraint('fk_attachment_comment_id_comment', 'attachment', type_='foreignkey')
+    with op.batch_alter_table('attachment') as batch_op:
+        batch_op.drop_constraint('fk_attachment_comment_id_comment', type_='foreignkey')
     op.drop_index(op.f('ix_comment_parent_id'), table_name='comment')
     op.drop_index(op.f('ix_comment_item_id'), table_name='comment')
     op.drop_index(op.f('ix_comment_author_user_id'), table_name='comment')
     op.drop_table('comment')
 
-    op.drop_constraint('fk_attachment_owner_user_id_user', 'attachment', type_='foreignkey')
-    op.drop_index(op.f('ix_attachment_owner_user_id'), table_name='attachment')
-    op.drop_index(op.f('ix_attachment_comment_id'), table_name='attachment')
-    op.drop_column('attachment', 'size')
-    op.drop_column('attachment', 'mime')
-    op.drop_column('attachment', 'purpose')
-    op.drop_column('attachment', 'owner_user_id')
-    op.drop_column('attachment', 'comment_id')
-    op.alter_column('attachment', 'item_id', existing_type=sa.Uuid(), nullable=False)
+    with op.batch_alter_table('attachment') as batch_op:
+        batch_op.drop_constraint('fk_attachment_owner_user_id_user', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_attachment_owner_user_id'))
+        batch_op.drop_index(batch_op.f('ix_attachment_comment_id'))
+        batch_op.drop_column('size')
+        batch_op.drop_column('mime')
+        batch_op.drop_column('purpose')
+        batch_op.drop_column('owner_user_id')
+        batch_op.drop_column('comment_id')
+        batch_op.alter_column('item_id', existing_type=sa.Uuid(), nullable=False)
 
     op.drop_column('user', 'staff_reject_reason')
     op.drop_column('user', 'department')
     op.drop_column('user', 'staff_no')
     op.drop_column('user', 'staff_status')
-    op.drop_constraint('fk_item_building_id_building', 'item', type_='foreignkey')
-    op.drop_index(op.f('ix_item_building_id'), table_name='item')
-    op.drop_column('item', 'is_demo')
-    op.drop_column('item', 'floor')
-    op.drop_column('item', 'building_id')
 
-    op.drop_constraint('fk_layer_building_id_building', 'layer', type_='foreignkey')
-    op.drop_index(op.f('ix_layer_building_id'), table_name='layer')
-    op.drop_column('layer', 'floor')
-    op.drop_column('layer', 'building_id')
+    with op.batch_alter_table('item') as batch_op:
+        batch_op.drop_constraint('fk_item_building_id_building', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_item_building_id'))
+        batch_op.drop_column('is_demo')
+        batch_op.drop_column('floor')
+        batch_op.drop_column('building_id')
 
-    op.add_column('route', sa.Column('is_private', sa.Boolean(), nullable=False, server_default=sa.true()))
+    with op.batch_alter_table('layer') as batch_op:
+        batch_op.drop_constraint('fk_layer_building_id_building', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_layer_building_id'))
+        batch_op.drop_column('floor')
+        batch_op.drop_column('building_id')
+
+    with op.batch_alter_table('route') as batch_op:
+        batch_op.add_column(sa.Column('is_private', sa.Boolean(), nullable=False, server_default=sa.true()))
     op.execute("UPDATE route SET is_private = (visibility = 'private')")
-    op.drop_column('route', 'visibility')
+    with op.batch_alter_table('route') as batch_op:
+        batch_op.drop_column('visibility')
 
     op.drop_column('simulated_point', 'is_public')
     op.drop_column('simulated_point', 'kind')

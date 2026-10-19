@@ -37,7 +37,12 @@ def staff_login(client) -> str:
 
 def make_image(fmt: str = "JPEG", exif: Image.Exif | None = None) -> bytes:
     buffer = io.BytesIO()
-    Image.new("RGB", (32, 32), (200, 30, 30)).save(buffer, format=fmt, exif=exif)
+    image = Image.new("RGB", (32, 32), (200, 30, 30))
+    # Pillow 11 起显式传 exif=None 会报错，未提供 EXIF 时不能带该参数
+    if exif is None:
+        image.save(buffer, format=fmt)
+    else:
+        image.save(buffer, format=fmt, exif=exif)
     return buffer.getvalue()
 
 
