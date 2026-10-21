@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,7 @@ from app.models.enums import HelperStatus
 
 class ItemHelper(Base):
     __tablename__ = "item_helper"
+    __table_args__ = (UniqueConstraint("item_id", "user_id", name="uq_item_helper_item_user"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("item.id"), nullable=False, index=True)

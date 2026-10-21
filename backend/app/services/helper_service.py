@@ -1,12 +1,16 @@
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.models import Direction, HelperStatus, Item, ItemHelper, ItemStatus, PointReason, User
 from app.schemas.helper import ThankRequest
 from app.services import points_service
+
+_TAKEN_MESSAGE = "已接取该委托"
 
 
 def _ensure_item(db: Session, item_id: uuid.UUID) -> Item:
@@ -22,6 +26,10 @@ def _active_helper(db: Session, item_id: uuid.UUID, user_id: uuid.UUID) -> ItemH
         .filter(ItemHelper.item_id == item_id, ItemHelper.user_id == user_id, ItemHelper.status == HelperStatus.active)
         .first()
     )
+
+
+def _any_helper(db: Session, item_id: uuid.UUID, user_id: uuid.UUID) -> ItemHelper | None:
+    return db.query(ItemHelper).filter(ItemHelper.item_id == item_id, ItemHelper.user_id == user_id).first()
 
 
 def stats_for_items(db: Session, item_ids: list[uuid.UUID], user_id: uuid.UUID) -> dict[uuid.UUID, dict]:
@@ -88,10 +96,23 @@ def take_helper(db: Session, user: User, item_id: uuid.UUID) -> dict:
         raise ApiError(403, "FORBIDDEN", "不能接取自己发布的委托")
     if item.direction != Direction.lost or item.status not in (ItemStatus.searching, ItemStatus.reviewing):
         raise ApiError(409, "STATE_CONFLICT", "该记录当前不可接取")
-    if _active_helper(db, item_id, user.id) is not None:
-        raise ApiError(409, "STATE_CONFLICT", "已接取该委托")
-    db.add(ItemHelper(item_id=item_id, user_id=user.id, status=HelperStatus.active))
-    db.commit()
+    helper = _any_helper(db, item_id, user.id)
+    if helper is not None and helper.status == HelperStatus.active:
+        raise ApiError(409, "STATE_CONFLICT", _TAKEN_MESSAGE)
+    if helper is not None:
+        # 放弃后重接复用原记录，唯一约束保证一人一帖只能保留一行
+        helper.status = HelperStatus.active
+        helper.thanked = False
+        helper.created_at = datetime.now(UTC)
+        db.commit()
+    else:
+        db.add(ItemHelper(item_id=item_id, user_id=user.id, status=HelperStatus.active))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 并发重复接取会绕过上层检查命中唯一约束，响应与串行分支保持一致
+            db.rollback()
+            raise ApiError(409, "STATE_CONFLICT", _TAKEN_MESSAGE) from None
     count = db.query(ItemHelper).filter(ItemHelper.item_id == item_id, ItemHelper.status == HelperStatus.active).count()
     return {"helper_count": count, "is_helper": True}
 
