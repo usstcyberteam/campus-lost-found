@@ -7,7 +7,7 @@
 ## 当前能力与边界
 
 - 已实现：登录注册、发布与筛选、规则候选、认领、私密证据、工作人员审核归还、工单接单授权与反馈、我的委托。
-- 地图：一个室外底图与两个室内图层元数据，支持切换、坐标查看和工作人员模拟点位。室内尚未提供底图。
+- 地图：室外平面图（flat）、2.5D 选楼图（iso）与楼层图（floor）三视图。平面图支持图层开关、坐标查看与工作人员模拟点位；点击建筑可进入楼层或回到室外，楼层暂无底图时显示整理中占位。2.5D 图只用于选楼，不用于标点或绘制路线。
 - 尚未实现：图片上传与理解、真实模型调用、特征确认、语义匹配、委托地图标记、范围与路线绘制、完整游戏化视觉。
 - 推荐当前明确标为规则；特征提取适配器明确返回手动降级。排序不代表找回概率，AI 不决定所有权。
 - 工作人员必须由管理员创建；公开接口不返回认领证据或联系方式。路线须由本人授权且工单分配后才供处理人员访问。
@@ -34,8 +34,13 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt
 .venv/Scripts/python -m alembic upgrade head
 .venv/Scripts/python seed.py
+.venv/Scripts/python scripts/import_map_assets.py
 .venv/Scripts/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+地图素材位于 `backend/app/data/`：`campus_buildings.json`（建筑轮廓、2.5D 命中区与底图尺寸/比例尺）、`campus_floors.json`（楼层与房间）、`campus_roads.json`（路网节点，校门模拟监控点来源）；底图为 `backend/storage/campus_flat.webp`、`campus_25d.webp`，楼层图放在 `backend/storage/floors/`。
+
+`seed.py` 创建管理员、图层与点位，并按素材导入建筑与楼层占位；`scripts/import_map_assets.py` 可单独重导建筑与楼层素材（`--dry-run` 只打印差异），重复执行结果幂等。演示数据由 `python -m scripts.seed_demo` 另行生成。平面图素材带 `meters_per_pixel` 时，推荐理由才会显示实际米数；2.5D 图未标定比例尺，不输出米数。
 
 另一终端启动前端：
 
@@ -45,7 +50,7 @@ npm ci
 npm run dev -- --host 127.0.0.1
 ```
 
-打开 `http://127.0.0.1:5173`。首次初始化创建管理员与三个图层；重复初始化不会覆盖已有管理员密码。
+打开 `http://127.0.0.1:5173`。首次初始化创建管理员、室外与 2.5D 图层、占位楼层；重复初始化不会覆盖已有管理员密码。
 
 创建工作人员：打开 `http://127.0.0.1:8000/docs`，调用 `POST /api/v1/auth/login` 登录管理员，将返回的令牌填入 Swagger 的 Authorize，再调用 `POST /api/v1/admin/staff`，提供用户名、昵称及自行设置的密码。学生可在网页注册。工作人员登录后进入“认领审核”。
 

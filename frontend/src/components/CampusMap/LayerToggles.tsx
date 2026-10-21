@@ -14,7 +14,7 @@ interface LayerTogglesProps {
 
 export default function LayerToggles({ options }: LayerTogglesProps) {
   return (
-    <div className={styles.toggles}>
+    <div className={styles.toggles} role="group" aria-label="图层显示">
       {options.map((option) => (
         <label key={option.key} className={styles.toggle}>
           <input

@@ -28,6 +28,9 @@ frontend/vite.config.d.ts
 # 文件存储（运行时数据忽略，底图保留）
 backend/storage/*
 !backend/storage/outdoor.jpg
+!backend/storage/campus_flat.webp
+!backend/storage/campus_25d.webp
+!backend/storage/floors/
 
 # 系统与编辑器
 .DS_Store

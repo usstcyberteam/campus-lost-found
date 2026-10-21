@@ -2,14 +2,14 @@ import uuid
 
 from app.database import SessionLocal
 from app.models import Layer, Role, SimulatedPoint
-from app.models.enums import SimulatedPointKind
+from app.models.enums import LayerKind, SimulatedPointKind
 from tests.test_acceptance import auth, create_user, login, register
 
 
 def seed_layer_with_points() -> str:
     db = SessionLocal()
     try:
-        layer = Layer(name="测试室外图层", width=1000, height=1000)
+        layer = Layer(name="测试室外图层", width=1000, height=1000, kind=LayerKind.flat)
         db.add(layer)
         db.flush()
         db.add_all(

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { listLayerPoints } from '../api/layers'
+import { getMapMeta, listLayerPoints } from '../api/layers'
 import { useAsync } from '../hooks/useAsync'
 import { useCampusMapLayers } from '../hooks/useCampusMapLayers'
 import { useDrawTool } from '../hooks/useDrawTool'
@@ -16,27 +16,34 @@ import CampusMap, { type MapMarker } from '../components/CampusMap/CampusMap'
 import AIRecommendLayer from '../components/CampusMap/AIRecommendLayer'
 import BuildingCard from '../components/CampusMap/BuildingCard'
 import BuildingLayer, { buildingAt } from '../components/CampusMap/BuildingLayer'
+import { flatBuildingAt, isoBuildingAt } from '../components/CampusMap/coords'
 import DrawToolLayer from '../components/CampusMap/DrawToolLayer'
 import FloorSwitcher from '../components/CampusMap/FloorSwitcher'
 import HeatmapLayer from '../components/CampusMap/HeatmapLayer'
 import HelpPointsLayer from '../components/CampusMap/HelpPointsLayer'
+import IsoBuildingLayer from '../components/CampusMap/IsoBuildingLayer'
 import ItemPointsLayer from '../components/CampusMap/ItemPointsLayer'
 import LayerToggles from '../components/CampusMap/LayerToggles'
+import MapErrorBoundary from '../components/CampusMap/MapErrorBoundary'
 import MonitorPointsLayer from '../components/CampusMap/MonitorPointsLayer'
 import ClickCoordsPopup from './ClickCoordsPopup'
 import styles from './MapView.module.css'
 
+type MapViewMode = 'flat' | 'iso' | 'floor'
+type BuildingCardMode = 'flat' | 'iso' | 'floor'
+
 const NO_MARKERS: MapMarker[] = []
+const NO_BUILDINGS: Building[] = []
 const MAP_STATE_KEY = 'campus-map-view'
 
 interface StoredMapState {
-  selected?: string
   showBuildings?: boolean
   showItems?: boolean
   showHelp?: boolean
   showMonitor?: boolean
   showAdvice?: boolean
   showHeatmap?: boolean
+  showLabels?: boolean
 }
 
 function readStoredMapState(): StoredMapState {
@@ -54,7 +61,8 @@ export default function MapView() {
   const [initial] = useState(readStoredMapState)
   const initialAdvice = (location.state as { advice?: SearchAdvice } | null)?.advice ?? null
   const { advice, error: adviceError, pending: advicePending, request } = useSearchAdvice(initialAdvice)
-  const [selected, setSelected] = useState(initial.selected ?? '')
+  const [view, setView] = useState<MapViewMode>('flat')
+  const [floorLayerId, setFloorLayerId] = useState<string | null>(null)
 
   const [imageError, setImageError] = useState('')
   const [showBuildings, setShowBuildings] = useState(initial.showBuildings ?? true)
@@ -63,58 +71,105 @@ export default function MapView() {
   const [showMonitor, setShowMonitor] = useState(initial.showMonitor ?? false)
   const [showAdvice, setShowAdvice] = useState(initial.showAdvice ?? true)
   const [showHeatmap, setShowHeatmap] = useState(initial.showHeatmap ?? false)
+  const [showLabels, setShowLabels] = useState(initial.showLabels ?? false)
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null)
+  const [cardClosed, setCardClosed] = useState(false)
+  const [focus, setFocus] = useState<{ buildingId: string; nonce: number } | null>(null)
   const tool = useDrawTool()
 
   const canSeeMonitor = role === 'staff' || role === 'admin'
   const { data: layers, error: layersError } = useLayers()
   const { data: mapLayers, error: mapLayersError } = useCampusMapLayers()
+  const { data: mapMeta, error: mapMetaError } = useAsync(() => getMapMeta(), [])
+  const flatLayerId = mapMeta?.flat_layer_id ?? layers?.find((item) => item.kind === 'flat')?.id ?? null
+  const isoLayerId = mapMeta?.iso_layer_id ?? layers?.find((item) => item.kind === 'iso')?.id ?? null
+  const canUseIso = mapMeta != null && isoLayerId != null
   const { data: pointData, error: pointsError } = useAsync(
-    () => (selected ? listLayerPoints(selected) : Promise.resolve<LayerPoints | null>(null)),
-    [selected],
+    () => (flatLayerId ? listLayerPoints(flatLayerId) : Promise.resolve<LayerPoints | null>(null)),
+    [flatLayerId],
   )
 
-  useEffect(() => {
-    if (layers && layers.length > 0) {
-      setSelected((current) => {
-        if (current && layers.some((item) => item.id === current)) return current
-        return (layers.find((item) => item.building_id === null) ?? layers[0]).id
-      })
-    }
-  }, [layers])
+  const activeLayerId = view === 'flat' ? flatLayerId : view === 'iso' ? isoLayerId : floorLayerId
+  const layer = layers?.find((item) => item.id === activeLayerId) ?? null
 
-  const layer = layers?.find((l) => l.id === selected)
-  const outdoor = layer != null && layer.building_id === null
-  const floorLayers =
-    selectedBuilding && layers ? layers.filter((item) => item.building_id === selectedBuilding.id) : []
-  const currentBuilding =
-    layer?.building_id != null
-      ? (mapLayers?.buildings.find((building) => building.id === layer.building_id) ?? null)
-      : null
-  const currentFloorLayers =
-    layer?.building_id != null && layers ? layers.filter((item) => item.building_id === layer.building_id) : []
-  const outdoorLayerId = layers?.find((item) => item.building_id === null)?.id ?? null
+  const outdoor = view === 'flat'
+  const isIso = view === 'iso'
+  const isFloor = view === 'floor'
+  const canDraw = layer != null && !isIso && !(isFloor && !layer.image_path)
   const drawing = tool.mode !== null
   const canUndo = tool.point !== null || tool.circle !== null || tool.points.length > 0
+
+  const currentBuilding =
+    isFloor && layer?.building_id != null
+      ? (mapLayers?.buildings.find((building) => building.id === layer.building_id) ?? null)
+      : null
+  const cardBuilding = isFloor ? currentBuilding : selectedBuilding
+  const floorLayers =
+    cardBuilding && layers
+      ? layers.filter((item) => item.kind === 'floor' && item.building_id === cardBuilding.id)
+      : []
+  const currentFloorLayers =
+    isFloor && layer?.building_id != null && layers
+      ? layers.filter((item) => item.kind === 'floor' && item.building_id === layer.building_id)
+      : []
+  const cardMode: BuildingCardMode = isFloor ? 'floor' : isIso ? 'iso' : 'flat'
 
   useEffect(() => {
     try {
       sessionStorage.setItem(
         MAP_STATE_KEY,
-        JSON.stringify({ selected, showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap }),
+        JSON.stringify({ showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap, showLabels }),
       )
     } catch {
       /* 隐私模式下写入可能失败，不影响地图使用 */
     }
-  }, [selected, showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap])
+  }, [showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap, showLabels])
 
   const helpPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'help_point') ?? [], [pointData])
   const monitorPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'monitor_point') ?? [], [pointData])
+  const recommendedCodes = useMemo(
+    () => (showAdvice && advice ? advice.locations.map((location) => location.building_code) : []),
+    [showAdvice, advice],
+  )
 
-  function selectLayer(layerId: string) {
+  function resetTransient() {
     tool.clear()
-    setSelected(layerId)
     setSelectedBuilding(null)
+    setCardClosed(false)
+    setFocus(null)
+  }
+
+  function switchView(next: MapViewMode) {
+    if (next === 'iso' && !canUseIso) return
+    resetTransient()
+    setView(next)
+    if (next !== 'floor') setFloorLayerId(null)
+  }
+
+  function openFloor(targetId: string) {
+    const target = layers?.find((item) => item.id === targetId)
+    if (!target || target.kind !== 'floor') return
+    resetTransient()
+    setFloorLayerId(targetId)
+    setView('floor')
+  }
+
+  function locateOutdoor() {
+    if (!selectedBuilding || !flatLayerId) return
+    tool.clear()
+    setCardClosed(false)
+    setView('flat')
+    setFocus({ buildingId: selectedBuilding.id, nonce: Date.now() })
+  }
+
+  function handleMapClick(point: { x: number; y: number }) {
+    if (drawing || (!outdoor && !isIso)) {
+      setSelectedBuilding(null)
+      return
+    }
+    const buildings = mapLayers?.buildings ?? []
+    setSelectedBuilding(isIso ? isoBuildingAt(point, buildings) : flatBuildingAt(point, buildings))
+    setCardClosed(false)
   }
 
   function publish() {
@@ -130,7 +185,7 @@ export default function MapView() {
         building_name: matched?.name ?? null,
         floor,
         location_area: `${matched?.name ?? ''}${floor != null ? `${floor}F` : ''}`,
-        layer_id: selected,
+        layer_id: layer.id,
         norm_x: anchor.x,
         norm_y: anchor.y,
         geometry: tool.geometry(),
@@ -150,33 +205,69 @@ export default function MapView() {
       {layersError && <ErrorNotice message={layersError} />}
       {mapLayersError && <ErrorNotice message={mapLayersError} />}
       {pointsError && <ErrorNotice message={pointsError} />}
+      {mapMetaError && <ErrorNotice message="地图元数据加载失败，室内视图不可用" />}
       {(imageError || adviceError) && <ErrorNotice message={imageError || adviceError} />}
       {(!layers || layers.length === 0) && !layersError && <p>暂无图层，请先初始化地图数据。</p>}
-      <select value={selected} onChange={(e) => selectLayer(e.target.value)} aria-label="选择图层">
-        {layers?.map((l) => (
-          <option key={l.id} value={l.id}>
-            {l.name}
-            {l.scale_calibrated ? '（已标定）' : '（未标定，不显示米数）'}
-          </option>
-        ))}
-      </select>
-      {currentBuilding && currentFloorLayers.length > 0 && (
-        <FloorSwitcher buildingName={currentBuilding.name} floors={currentFloorLayers}
-          currentId={selected} outdoorId={outdoorLayerId} onSelect={selectLayer} />
+      <div className={styles.viewSwitch} role="group" aria-label="地图视图">
+        <Button
+          type="button"
+          variant={view === 'flat' ? 'primary' : 'secondary'}
+          aria-pressed={view === 'flat'}
+          onClick={() => switchView('flat')}
+        >
+          室外
+        </Button>
+        <Button
+          type="button"
+          variant={view === 'iso' ? 'primary' : 'secondary'}
+          aria-pressed={view === 'iso'}
+          disabled={!canUseIso}
+          onClick={() => switchView('iso')}
+        >
+          室内
+        </Button>
+      </div>
+      {isFloor && currentBuilding && currentFloorLayers.length > 0 && (
+        <FloorSwitcher
+          buildingName={currentBuilding.name}
+          floors={currentFloorLayers}
+          currentId={layer?.id ?? ''}
+          onSelect={openFloor}
+          onExit={() => switchView('flat')}
+        />
       )}
       <LayerToggles
         options={[
-          { key: 'buildings', label: '建筑层', checked: showBuildings, disabled: !outdoor, onChange: setShowBuildings },
+          {
+            key: 'buildings',
+            label: '建筑层',
+            checked: showBuildings,
+            disabled: !outdoor && !isIso,
+            onChange: setShowBuildings,
+          },
           { key: 'items', label: '帖子点位', checked: showItems, disabled: !outdoor, onChange: setShowItems },
-          { key: 'help', label: '求助点位', checked: showHelp, onChange: setShowHelp },
+          { key: 'help', label: '求助点位', checked: showHelp, disabled: !outdoor, onChange: setShowHelp },
           ...(canSeeMonitor
             ? [{ key: 'monitor', label: '监控点位（模拟）', checked: showMonitor, onChange: setShowMonitor }]
             : []),
-          { key: 'advice', label: 'AI 推荐层', checked: showAdvice, disabled: !outdoor || !advice, onChange: setShowAdvice },
+          {
+            key: 'advice',
+            label: 'AI 推荐层',
+            checked: showAdvice,
+            disabled: (!outdoor && !isIso) || !advice,
+            onChange: setShowAdvice,
+          },
           { key: 'heatmap', label: '热力层', checked: showHeatmap, disabled: !outdoor, onChange: setShowHeatmap },
+          {
+            key: 'labels',
+            label: '显示楼名',
+            checked: showLabels,
+            disabled: !outdoor && !isIso,
+            onChange: setShowLabels,
+          },
         ]}
       />
-      {layer && (
+      {layer && canDraw && (
         <div className={styles.drawBar} role="toolbar" aria-label="地图绘制工具">
           <Button
             type="button"
@@ -222,7 +313,7 @@ export default function MapView() {
           </Button>
         </div>
       )}
-      {tool.hasResult && tool.routeKind && (
+      {canDraw && tool.hasResult && tool.routeKind && (
         <div className={styles.visibility}>
           <label className={styles.visibilityLabel}>
             路线可见性
@@ -237,52 +328,82 @@ export default function MapView() {
           <span className={styles.note}>圈选默认公开，路径默认私密</span>
         </div>
       )}
+      {view === 'iso' && !layer && !mapMetaError && <p>2.5D 选楼图未就绪，暂不可用。</p>}
       {layer && (
         <div className={styles.mapArea}>
-          <CampusMap
-            layer={layer}
-            markers={NO_MARKERS}
-            onMapClick={() => setSelectedBuilding(null)}
-            onImageError={setImageError}
-          >
-            {outdoor && showBuildings && mapLayers && (
-              <BuildingLayer
-                buildings={mapLayers.buildings}
-                selectedId={selectedBuilding?.id ?? null}
-                onSelect={setSelectedBuilding}
-                interactive={!drawing}
-              />
-            )}
-            {outdoor && showItems && mapLayers && (
-              <ItemPointsLayer
-                buildings={mapLayers.buildings}
-                items={mapLayers.items}
-                interactive={!drawing}
-              />
-            )}
-            {showHelp && <HelpPointsLayer points={helpPoints} />}
-            {canSeeMonitor && showMonitor && <MonitorPointsLayer points={monitorPoints} />}
-            {outdoor && showHeatmap && mapLayers && (
-              <HeatmapLayer buildings={mapLayers.buildings} items={mapLayers.items} />
-            )}
-            {outdoor && showAdvice && advice && mapLayers && (
-              <AIRecommendLayer buildings={mapLayers.buildings} locations={advice.locations} source={advice.source} degraded={advice.degraded} />
-            )}
-            <DrawToolLayer tool={tool} />
-            {!drawing && <ClickCoordsPopup />}
-          </CampusMap>
-          {outdoor && selectedBuilding && (
+          <MapErrorBoundary>
+            <CampusMap layer={layer} markers={NO_MARKERS} onMapClick={handleMapClick} onImageError={setImageError}>
+              {outdoor && showBuildings && mapLayers && (
+                <BuildingLayer
+                  buildings={mapLayers.buildings}
+                  selectedId={selectedBuilding?.id ?? null}
+                  recommendedCodes={recommendedCodes}
+                  showLabels={showLabels}
+                  focus={focus}
+                />
+              )}
+              {isIso && showBuildings && mapLayers && (
+                <IsoBuildingLayer
+                  buildings={mapLayers.buildings}
+                  matrix={mapMeta?.flat_to_iso ?? null}
+                  selectedId={selectedBuilding?.id ?? null}
+                  recommendedCodes={recommendedCodes}
+                  showLabels={showLabels}
+                  monitorPoints={monitorPoints}
+                  canSeeMonitor={canSeeMonitor && showMonitor}
+                />
+              )}
+              {outdoor && showItems && mapLayers && (
+                <ItemPointsLayer buildings={mapLayers.buildings} items={mapLayers.items} interactive={!drawing} />
+              )}
+              {outdoor && showHelp && <HelpPointsLayer points={helpPoints} />}
+              {outdoor && canSeeMonitor && showMonitor && <MonitorPointsLayer points={monitorPoints} />}
+              {outdoor && showHeatmap && mapLayers && (
+                <HeatmapLayer buildings={mapLayers.buildings} items={mapLayers.items} />
+              )}
+              {outdoor && showAdvice && advice && mapLayers && (
+                <AIRecommendLayer
+                  buildings={mapLayers.buildings}
+                  locations={advice.locations}
+                  source={advice.source}
+                  degraded={advice.degraded}
+                />
+              )}
+              {isFloor && (layer.rooms?.length ?? 0) > 0 && (
+                <BuildingLayer buildings={NO_BUILDINGS} selectedId={null} rooms={layer.rooms ?? undefined} />
+              )}
+              {canDraw && <DrawToolLayer tool={tool} />}
+              {canDraw && !drawing && <ClickCoordsPopup />}
+            </CampusMap>
+          </MapErrorBoundary>
+          {isIso && !layer.image_path && (
+            <div className={styles.floorPlaceholder} aria-live="polite">
+              <span>2.5D 底图缺失，暂不可用</span>
+            </div>
+          )}
+          {isFloor && !layer.image_path && (
+            <div className={styles.floorPlaceholder} aria-live="polite">
+              <span>楼层图整理中</span>
+            </div>
+          )}
+          {cardBuilding && !cardClosed && (
             <BuildingCard
-              key={selectedBuilding.id}
-              building={selectedBuilding}
+              key={cardBuilding.id}
+              building={cardBuilding}
+              mode={cardMode}
               floorLayers={floorLayers}
-              onClose={() => setSelectedBuilding(null)}
-              onEnterFloor={selectLayer}
+              filterFloor={isFloor ? (layer.floor ?? null) : null}
+              onClose={() => {
+                setSelectedBuilding(null)
+                setCardClosed(true)
+              }}
+              onEnterFloor={openFloor}
+              onLocateOutdoor={isIso ? locateOutdoor : undefined}
             />
           )}
         </div>
       )}
-      {layer && tool.hasResult && (
+      {layer && canDraw && tool.hasResult && (
         <div className={styles.publish}>
           <Button type="button" onClick={publish}>
             发布到大厅
@@ -290,7 +411,7 @@ export default function MapView() {
         </div>
       )}
       <p className={styles.hint}>
-        点击地图获取归一化坐标；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
+        室外视图支持标点、圈范围、画路径；室内 2.5D 视图仅用于选楼，不写入位置；监控点为模拟数据，仅工作人员可见；
         {layer?.scale_calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
       </p>
     </PageContainer>

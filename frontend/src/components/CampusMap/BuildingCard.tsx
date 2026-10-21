@@ -7,18 +7,34 @@ import Button from '../Button'
 import Tag from '../Tag'
 import styles from './BuildingCard.module.css'
 
+type BuildingCardMode = 'flat' | 'iso' | 'floor'
+
 interface BuildingCardProps {
   building: Building
+  mode: BuildingCardMode
   floorLayers: Layer[]
+  filterFloor?: number | null
   onClose: () => void
   onEnterFloor: (layerId: string) => void
+  onLocateOutdoor?: () => void
 }
 
-export default function BuildingCard({ building, floorLayers, onClose, onEnterFloor }: BuildingCardProps) {
+export default function BuildingCard({
+  building,
+  mode,
+  floorLayers,
+  filterFloor = null,
+  onClose,
+  onEnterFloor,
+  onLocateOutdoor,
+}: BuildingCardProps) {
   const [items, setItems] = useState<Item[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const floors = [...floorLayers].sort((left, right) => (left.floor ?? 0) - (right.floor ?? 0))
+  const visible = filterFloor == null ? items : items.filter((item) => item.floor === filterFloor)
+  const emptyText = filterFloor == null ? '该建筑暂无相关帖子' : '该楼层暂无相关帖子'
 
   async function toggleItems() {
     if (open) {
@@ -48,28 +64,33 @@ export default function BuildingCard({ building, floorLayers, onClose, onEnterFl
         </Button>
       </div>
       <div className={styles.meta}>
+        <Tag>{building.code}</Tag>
         <Tag>{building.category}</Tag>
         <span>共 {building.floors} 层</span>
         <span>进行中 {building.active_item_count} 条</span>
+        <span>{floors.length > 0 ? '有楼层图' : '暂无楼层图'}</span>
       </div>
       <div className={styles.actions}>
         <Button variant="secondary" onClick={toggleItems} aria-expanded={open}>
-          {open ? '收起帖子' : '查看相关帖子'}
+          {open ? '收起帖子' : '查看这栋楼的帖子'}
         </Button>
-        <Button
-          variant="primary"
-          disabled={floorLayers.length === 0}
-          onClick={() => floorLayers[0] && onEnterFloor(floorLayers[0].id)}
-        >
-          {floorLayers.length === 0 ? '暂无楼层图' : '进入楼层'}
-        </Button>
+        {mode !== 'floor' && floors.length > 0 && (
+          <Button variant="primary" onClick={() => onEnterFloor(floors[0].id)}>
+            进入楼层
+          </Button>
+        )}
+        {mode === 'iso' && onLocateOutdoor && (
+          <Button variant="secondary" onClick={onLocateOutdoor}>
+            在室外地图定位
+          </Button>
+        )}
       </div>
       {error && <p className={styles.error}>{error}</p>}
       {loading && <p className={styles.hint}>加载中…</p>}
-      {open && !loading && items.length === 0 && !error && <p className={styles.hint}>暂无进行中的帖子</p>}
-      {open && items.length > 0 && (
+      {open && !loading && visible.length === 0 && !error && <p className={styles.hint}>{emptyText}</p>}
+      {open && visible.length > 0 && (
         <ul className={styles.items}>
-          {items.map((item) => (
+          {visible.map((item) => (
             <li key={item.id}>
               <Link className={styles.itemLink} to={`/hall/${item.id}`}>
                 <span>

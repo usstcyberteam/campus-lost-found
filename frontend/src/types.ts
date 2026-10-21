@@ -80,9 +80,20 @@ export interface Item {
   helpers?: HelperUser[]
 }
 
-export function placeLabel(item: { building_name: string | null; floor: number | null }): string {
-  if (!item.building_name) return '未指定地点'
-  return item.floor == null ? item.building_name : `${item.building_name} ${item.floor}F`
+export interface PlaceFields {
+  building_name: string | null
+  location_area: string | null
+  floor: number | null
+}
+
+function trimmed(value: string | null): string {
+  return value?.trim() ?? ''
+}
+
+export function placeLabel(item: PlaceFields): string {
+  const building = trimmed(item.building_name)
+  if (!building) return trimmed(item.location_area) || '未指定地点'
+  return item.floor == null ? building : `${building} ${item.floor}F`
 }
 
 export interface Building {
@@ -93,6 +104,10 @@ export interface Building {
   floors: number
   click_region: Record<string, number>[] | null
   label_position: Record<string, number> | null
+  iso_hit_area: Record<string, number>[] | null
+  iso_label_position: Record<string, number> | null
+  draw_order: number
+  entrance_node: number | null
   active_item_count: number
   has_floor_map: boolean
 }
@@ -145,6 +160,22 @@ export interface StaffApplication {
   created_at: string
 }
 
+export type LayerKind = 'flat' | 'iso' | 'floor'
+
+export type FlatToIsoMatrix = [[number, number, number], [number, number, number]]
+
+export interface Room {
+  name: string
+  x: number
+  y: number
+}
+
+export interface MapMeta {
+  flat_layer_id: string
+  iso_layer_id: string
+  flat_to_iso: FlatToIsoMatrix
+}
+
 export interface Layer {
   id: string
   name: string
@@ -155,6 +186,8 @@ export interface Layer {
   image_path: string | null
   building_id: string | null
   floor: number | null
+  kind: LayerKind
+  rooms: Room[] | null
 }
 
 export interface SimulatedPoint {

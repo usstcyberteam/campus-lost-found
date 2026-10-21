@@ -14,7 +14,6 @@ from app.models import (
     Item,
     ItemFeature,
     ItemStatus,
-    Layer,
     Role,
     Route,
     RouteKind,
@@ -24,7 +23,7 @@ from app.models import (
 )
 from app.schemas.item import ItemCreate
 from app.schemas.layer import MapAnchorRequest, RouteCreate
-from app.services import helper_service, reaction_service, upload_service
+from app.services import building_service, helper_service, reaction_service, upload_service
 from app.services.matching_service import find_candidates
 from app.services.model import extract_features
 
@@ -263,8 +262,8 @@ def mark_found(db: Session, user: User, item_id: uuid.UUID) -> dict:
 
 def set_map_anchor(db: Session, user: User, item_id: uuid.UUID, body: MapAnchorRequest) -> dict:
     item = _get_owned_item(db, user, item_id, "只能给自己的记录标点")
-    if db.get(Layer, body.layer_id) is None:
-        raise ApiError(404, "NOT_FOUND", "图层不存在")
+    layer = building_service.ensure_position_layer(db, body.layer_id)
+    building_service.ensure_floor_anchor(layer, item.building_id, item.floor)
     item.layer_id = body.layer_id
     item.norm_x = body.norm_x
     item.norm_y = body.norm_y
@@ -276,8 +275,8 @@ def set_map_anchor(db: Session, user: User, item_id: uuid.UUID, body: MapAnchorR
 
 def create_route(db: Session, user: User, item_id: uuid.UUID, body: RouteCreate) -> dict:
     _get_owned_item(db, user, item_id, "只能给自己的记录添加路线")
-    if body.layer_id is not None and db.get(Layer, body.layer_id) is None:
-        raise ApiError(404, "NOT_FOUND", "图层不存在")
+    if body.layer_id is not None:
+        building_service.ensure_flat_layer(db, body.layer_id, "route")
     default_visibility = Visibility.public if body.kind == RouteKind.circle else Visibility.private
     route = Route(
         item_id=item_id,
