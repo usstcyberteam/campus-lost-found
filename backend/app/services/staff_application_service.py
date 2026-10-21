@@ -12,11 +12,12 @@ def submit_application(db: Session, user: User, body: StaffApplicationCreate) ->
         raise ApiError(403, "FORBIDDEN", "仅学生可提交教职工申请")
     if user.staff_status == StaffStatus.pending:
         raise ApiError(409, "STATE_CONFLICT", "申请正在审核中")
-    if user.staff_status in (StaffStatus.approved, StaffStatus.rejected):
+    if user.staff_status == StaffStatus.approved:
         raise ApiError(409, "STATE_CONFLICT", "申请已结束，不能重复提交")
     user.staff_no = body.staff_no
     user.department = body.department
     user.staff_status = StaffStatus.pending
+    user.staff_reject_reason = None
     db.commit()
     db.refresh(user)
     return user

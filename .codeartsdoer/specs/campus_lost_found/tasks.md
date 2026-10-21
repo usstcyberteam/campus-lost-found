@@ -990,3 +990,564 @@ graph TD
 - [ ] 后端 `pytest tests/ -q`、`ruff check .`、`ruff format --check .` 通过
 - [ ] 前端 `npm run lint`、`npm run build` 通过
 - [ ] 汇总未解决问题与已知限制（不编造测试结果）
+---
+
+## 14. F14 我的页面整合（增量实现，2026-10-20）
+
+**依据**：`spec.md` 6.18（我的页面）、`design.md` 2.26（F14 增量实现方案，2026-10-20 修订）。
+
+**与 13.14 的关系**：13.14 保留为任务级总览，不重写、不删除；本章是 13.14 的可执行分解。13.14 中提到的 `pages/me/MeFavorites.tsx` 等 8 个页面文件与 `components/AppShell/MeMenu.tsx` 方案已被 `design.md` 2.26 取代，**不创建这些文件**，实际文件清单以本章为准。
+
+**允许修改的文件（清单外不改）**
+- 后端：`backend/app/api/v1/me.py`、`backend/app/schemas/comment.py`、`backend/app/schemas/item.py`、`backend/app/schemas/claim.py`、`backend/app/services/comment_service.py`（仅新增函数）、`backend/app/services/helper_service.py`（仅新增函数）、`backend/app/services/claim_service.py`（仅新增查询函数）、`backend/app/services/staff_application_service.py`（已批准修复）
+- 测试：`backend/tests/test_me_lists.py`（新建）、`backend/tests/test_staff_application.py`（仅新增 1 条）
+- 前端：`frontend/src/api/me.ts`、`frontend/src/types.ts`、`frontend/src/components/ItemCard/ItemCard.tsx`、`ItemCard.module.css`、`frontend/src/pages/Me.tsx`、`Me.module.css`、`frontend/src/pages/MeList.tsx`/`MeList.module.css`（新建）、`frontend/src/pages/MePoints.tsx`/`MePoints.module.css`（新建）、`frontend/src/App.tsx`（仅加路由）；删除 `frontend/src/pages/MyDelegations.tsx`（经全仓检索，无外部引用，当前无同名 `.module.css`，若存在一并删除）
+
+**约束**
+- 数据库迁移：**无**。不新增表、列、索引；不改模型。
+- 不改既有认领、核验、归还、协助工单的行为与测试；不改 `points_service`、`item_service`、`reaction_service`、`ticket_service`、`AuthContext`、`PageHeader`、`AppShell`。
+- 后端接口只读：不 `commit`、不加锁、不写积分；身份只取 `get_current_user`，不接受 `user_id` 参数。
+- 前端：375px 优先、可点击元素 ≥44px、无内联 `style`、样式变量只取 `tokens.css`、不新增依赖。
+- 沙箱约束：不执行 `pytest`、不启动服务、不安装依赖；验证命令见 14.27，由用户本地执行。
+
+### 14.0 任务依赖图
+
+```mermaid
+flowchart TD
+  B1[14.1 MyCommentOut] --> B8[14.8 GET /me/comments]
+  B4[14.4 list_my_comments] --> B8
+  B2[14.2 MyHelpingOut] --> B9[14.9 GET /me/helping]
+  B5[14.5 list_my_helping] --> B9
+  B3[14.3 MyClaimOut] --> B10[14.10 GET /me/claims 扩展]
+  B6[14.6 list_my_claims 改造] --> B10
+  B7[14.7 重新申请修复] --> T4[14.14 教职工测试]
+  B8 --> T1[14.11 评论测试]
+  B9 --> T2[14.12 委托测试]
+  B8 --> T3[14.13 认领与横切测试]
+  B9 --> T3
+  B10 --> T3
+  T3 --> F1[14.15 前端类型]
+  F1 --> F2[14.16 api/me.ts]
+  F3[14.17 ItemCard extra] --> F4[14.19 MeList]
+  F1 --> F4
+  F2 --> F4
+  F1 --> F5[14.21 MePoints]
+  F1 --> F6[14.23 Me.tsx]
+  F2 --> F6
+  F4 --> D1[14.25 删除 MyDelegations]
+  F4 --> R[14.26 App.tsx 路由]
+  F5 --> R
+  F6 --> R
+  R --> V1[14.27 本地验证]
+  V1 --> V2[14.28 手工检查]
+```
+
+**顺序说明**：14.1–14.10 后端（schema → service → 路由）；14.11–14.14 测试；14.15–14.18 前端类型、接口层与卡片插槽；14.19–14.24 页面与样式；14.25–14.26 删除旧页与路由；14.27–14.28 验证。后端 14.1/14.2/14.3、14.4/14.5/14.6、14.7 之间互不依赖，可并行；前端 14.17/14.18 可与后端测试并行。
+
+---
+
+### 14.1 新增我的评论响应模型
+
+**目标**：定义 `MyCommentOut`，作为 `/me/comments` 的唯一响应模型，字段与 `design.md` 2.26.2.2 完全一致。
+
+**涉及文件**：`backend/app/schemas/comment.py`（仅追加类）
+
+**依赖任务**：无（可与 14.2、14.3 并行）
+
+**完成标准**
+- [ ] 追加 `MyCommentOut`，字段为 `id: UUID`、`item_id: UUID`、`item_title: str`、`content: str`、`created_at: datetime`
+- [ ] 不设置 `model_config = ConfigDict(from_attributes=True)`（service 返回 dict）
+- [ ] 不包含 `is_deleted`、`parent_id`、`images`、`author`、`replies`
+- [ ] `CommentCreate`、`CommentOut`、`CommentDeletedOut` 未改动
+
+---
+
+### 14.2 新增我的委托响应模型
+
+**目标**：定义 `MyHelpingOut(ItemPublic)`，复用大厅帖子字段契约并追加委托字段。
+
+**涉及文件**：`backend/app/schemas/item.py`（仅追加类与 `HelperStatus` 导入）
+
+**依赖任务**：无（可与 14.1、14.3 并行）
+
+**完成标准**
+- [ ] 从 `app.models.enums` 追加导入 `HelperStatus`
+- [ ] 追加 `MyHelpingOut(ItemPublic)`，字段为 `helper_id: UUID`、`helper_status: HelperStatus`、`thanked: bool`、`taken_at: datetime`
+- [ ] 不重新声明大厅字段，不修改 `ItemPublic` 既有字段
+- [ ] `backend/app/schemas/helper.py` 未改动（避免循环导入）
+
+---
+
+### 14.3 新增我的认领响应模型
+
+**目标**：定义 `MyClaimOut(ClaimOut)`，仅供 `/me/claims` 使用，追加物品标题。
+
+**涉及文件**：`backend/app/schemas/claim.py`（仅追加类）
+
+**依赖任务**：无（可与 14.1、14.2 并行）
+
+**完成标准**
+- [ ] 追加 `MyClaimOut(ClaimOut)`，字段 `item_title: str`
+- [ ] `ClaimOut`、`ClaimDetail`、`ClaimCreate`、`ReviewRequest` 未改动
+- [ ] `GET /claims`、创建/审核/完成接口的响应模型仍为 `ClaimOut`/`ClaimDetail`
+
+---
+
+### 14.4 实现我的评论查询服务
+
+**目标**：在 `comment_service` 新增 `list_my_comments`，按作者反查未删除评论并联表取帖子标题。
+
+**涉及文件**：`backend/app/services/comment_service.py`（仅新增函数）
+
+**依赖任务**：无（可与 14.5、14.6、14.7 并行）
+
+**完成标准**
+- [ ] 函数签名 `list_my_comments(db: Session, user: User, limit: int, offset: int) -> tuple[list[dict], int]`
+- [ ] 计数与列表使用完全相同的条件：`comment.author_user_id == user.id` 且 `comment.is_deleted.is_(False)`
+- [ ] 列表 `JOIN item ON item.id == comment.item_id`，只取 `item.title`；不过滤 `item.status`（撤销帖照常返回）
+- [ ] 排序 `comment.created_at DESC, comment.id DESC`，分页使用 `offset/limit`
+- [ ] 每个 item 组装为 `{"id", "item_id", "item_title", "content", "created_at"}`，与 `MyCommentOut` 键一一对应
+- [ ] 函数只读：不 `flush`、不 `commit`、不加锁；不读附件表、不算点赞/回复数
+- [ ] `_serialize`、`list_comments`、`create_comment`、`delete_comment` 未改动
+
+---
+
+### 14.5 实现我接取的委托查询服务
+
+**目标**：在 `helper_service` 新增 `list_my_helping`，按协助者反查委托记录（含已放弃），返回帖子与委托的成对结果。
+
+**涉及文件**：`backend/app/services/helper_service.py`（仅新增函数）
+
+**依赖任务**：无（可与 14.4、14.6、14.7 并行）
+
+**完成标准**
+- [ ] 函数签名 `list_my_helping(db: Session, user: User, limit: int, offset: int) -> tuple[list[tuple[ItemHelper, Item]], int]`
+- [ ] 过滤条件仅为 `item_helper.user_id == user.id`，不过滤 `status`（`active` 与 `abandoned` 都返回）
+- [ ] 列表 `JOIN item ON item.id == item_helper.item_id`，返回 `(ItemHelper, Item)` 元组
+- [ ] 排序 `item_helper.created_at DESC, item_helper.id DESC`，分页使用 `offset/limit`
+- [ ] `total` 与列表同条件计数；按每帖一条设计，`total` 即去重帖子数
+- [ ] 不在函数内序列化帖子、不调用 `item_service`（避免循环导入）
+- [ ] `_active_helper`、`take_helper`、`abandon_helper`、`thank_helpers` 未改动
+
+---
+
+### 14.6 改造我的认领查询为联表取标题
+
+**目标**：改造 `claim_service.list_my_claims`，一次 `JOIN item` 返回 `(Claim, item_title)`，消除前端逐条补查。
+
+**涉及文件**：`backend/app/services/claim_service.py`（仅改造该查询函数）
+
+**依赖任务**：无（可与 14.4、14.5、14.7 并行）
+
+**完成标准**
+- [ ] 签名改为 `list_my_claims(db: Session, user: User, limit: int, offset: int) -> tuple[list[tuple[Claim, str]], int]`
+- [ ] 过滤 `claim.applicant_user_id == user.id`，计数与列表条件一致
+- [ ] 列表 `JOIN item ON item.id == claim.found_item_id`，只取 `item.title`；不过滤 `item.status`
+- [ ] 排序 `claim.created_at DESC, claim.id DESC`
+- [ ] `list_claims`、`get_claim`、`create_claim`、`review_claim`、`complete_claim` 未改动
+- [ ] 全仓检索确认 `list_my_claims` 的调用方仅 `backend/app/api/v1/me.py`，无其他调用点被遗漏
+
+---
+
+### 14.7 修复教职工被拒后重新提交
+
+**目标**：按已批准方案修改 `submit_application`，允许 `rejected` 重新提交并回到待审核。
+
+**涉及文件**：`backend/app/services/staff_application_service.py`
+
+**依赖任务**：无（可与 14.4–14.6 并行）
+
+**完成标准**
+- [ ] 保留角色校验：`user.role != Role.student` 返回 403 `FORBIDDEN`「仅学生可提交教职工申请」
+- [ ] `StaffStatus.pending` 仍返回 409 `STATE_CONFLICT`「申请正在审核中」
+- [ ] `StaffStatus.rejected` 允许提交：写入新 `staff_no`/`department`、`staff_status = pending`、`staff_reject_reason = None`
+- [ ] `StaffStatus.approved` 仍返回 409「申请已结束，不能重复提交」（防御性分支）
+- [ ] 一次提交只 `commit` 一次，提交后 `refresh` 并返回 `User`
+- [ ] `approve`、`reject`、`list_applications` 未改动；不新增接口、不改 `UserOut`
+
+---
+
+### 14.8 新增 GET /me/comments 路由
+
+**目标**：暴露我的评论列表接口，薄封装 14.4 的查询服务。
+
+**涉及文件**：`backend/app/api/v1/me.py`（新增路由与 imports）
+
+**依赖任务**：14.1、14.4
+
+**完成标准**
+- [ ] 路由 `GET /me/comments`，`response_model=Page[MyCommentOut]`
+- [ ] `limit: int = Query(20, ge=1, le=100)`、`offset: int = Query(0, ge=0)`，无 `user_id` 参数
+- [ ] 依赖 `get_current_user` 鉴权；调用 `comment_service.list_my_comments` 后返回 `Page(items=..., total=..., limit=limit, offset=offset)`
+- [ ] handler 不写业务判断、不拼接 SQL、不 `commit`
+- [ ] `GET /me/items`、`/me/claims`、`/me/tickets`、`/me/badges`、`/me/likes`、`/me/favorites`、`/me/points` 行为不变
+
+---
+
+### 14.9 新增 GET /me/helping 路由
+
+**目标**：暴露我接取的委托列表，复用大厅序列化保证字段一致。
+
+**涉及文件**：`backend/app/api/v1/me.py`（新增路由、`_merge_helping` 私有辅助与 imports）
+
+**依赖任务**：14.2、14.5
+
+**完成标准**
+- [ ] 路由 `GET /me/helping`，`response_model=Page[MyHelpingOut]`
+- [ ] `limit`/`offset` 约束与 `/me/comments` 一致，无 `user_id` 参数
+- [ ] 调用 `helper_service.list_my_helping` 后，用 `item_service.serialize_items(db, [item for _, item in rows], user)` **一次**批量序列化
+- [ ] `_merge_helping` 以帖子 `id` 建索引，按 `rows` 顺序输出 `{**payload[item.id], "helper_id": helper.id, "helper_status": helper.status, "thanked": helper.thanked, "taken_at": helper.created_at}`
+- [ ] 每帖最多一条记录；不因按 `item.id` 索引而丢行或改变顺序
+- [ ] 响应不含 `precise_location`、`norm_x`、`norm_y`、`layer_id`、`routes`、联系方式、认领证据
+
+---
+
+### 14.10 扩展 GET /me/claims 响应
+
+**目标**：将 `/me/claims` 的响应模型切换为 `Page[MyClaimOut]`，由 14.6 的结果直接带出 `item_title`。
+
+**涉及文件**：`backend/app/api/v1/me.py`（改造既有 `my_claims` 与 imports）
+
+**依赖任务**：14.3、14.6
+
+**完成标准**
+- [ ] `my_claims` 的 `response_model` 改为 `Page[MyClaimOut]`
+- [ ] 逐条组装 `MyClaimOut(**ClaimOut.model_validate(claim).model_dump(), item_title=title)`，保留 `ClaimOut` 全部字段
+- [ ] 返回 `Page(items=..., total=total, limit=limit, offset=offset)`，排序沿用 service
+- [ ] 其他认领接口（`/claims`、创建、审核、完成）未改动
+- [ ] 前端所需 `item_title` 由本接口一次返回，无逐条补查
+
+---
+
+### 14.11 新建 test_me_lists.py 与评论用例（5 条）
+
+**目标**：新建我的列表接口测试文件，先覆盖评论接口的正常、越权、分页、未登录与非法参数。
+
+**涉及文件**：`backend/tests/test_me_lists.py`（新建）
+
+**依赖任务**：14.8
+
+**完成标准**
+- [ ] 文件内定义辅助 `auth(token)`、`register(client, username) -> (token, user_id)`、`create_item(...)`、`comment(client, token, item_id, content)`、`take(...)`、`abandon(...)`、`thank(...)`，写法参照 `test_reactions.py`/`test_helpers.py`
+- [ ] `test_me_comments_returns_only_own_and_undeleted`：A/B 各评论同一帖，A 再发一条并删除；只返回 A 的未删除评论，`total` 正确，字段仅含 `id/item_id/item_title/content/created_at`
+- [ ] `test_me_comments_includes_withdrawn_item`：发布者撤销帖子后，评论仍返回，`item_title` 为原标题，`item_id` 正确
+- [ ] `test_me_comments_order_and_pagination`：3 条评论，`limit=2&offset=0` 与 `limit=2&offset=2` 两页无重复且并为全集，`created_at` 非递增，`limit/offset` 回显
+- [ ] `test_me_comments_requires_login`：不带 Authorization，401 且 `code=UNAUTH`
+- [ ] `test_me_comments_rejects_invalid_pagination`：`limit=0`、`limit=101`、`offset=-1` 均 400 且 `code=VALIDATION`
+- [ ] 请求路径统一带 `/api/v1` 前缀；不修改 `conftest.py`、不新增 fixture；用例不依赖同秒内严格顺序
+
+---
+
+### 14.12 补齐委托列表用例（5 条）
+
+**目标**：在 `test_me_lists.py` 覆盖 `/me/helping` 的字段、状态分支、分页、未登录与非法参数。
+
+**涉及文件**：`backend/tests/test_me_lists.py`（追加用例）
+
+**依赖任务**：14.9、14.11（复用辅助函数）
+
+**完成标准**
+- [ ] `test_me_helping_returns_item_summary_and_helper_state`：A 发 lost，B 接取，C 接取另一帖；B 只看到自己的记录，含大厅字段（`title/status/building_name/first_photo/...`）与 `helper_id/helper_status/thanked/taken_at`
+- [ ] `test_me_helping_reports_abandoned_and_thanked`：B 接取两个不同帖子，一帖放弃，另一帖由 A 标记找回并致谢 B；返回 2 条且 `item.id` 不同，放弃记录 `helper_status=abandoned`，被致谢记录 `thanked=true` 且 `helper_status=active`
+- [ ] `test_me_helping_order_and_pagination`：3 条不同帖子的接取记录，`limit=2` 分两页，无重复并集完整，按 `taken_at` 非递增，`total=3`
+- [ ] `test_me_helping_requires_login`：不带 Authorization，401 且 `code=UNAUTH`
+- [ ] `test_me_helping_rejects_invalid_pagination`：`limit=0`、`limit=101`、`offset=-1` 均 400 且 `code=VALIDATION`
+- [ ] 不构造“同一帖子多次接取”的数据；状态分支用不同帖子构造
+
+---
+
+### 14.13 补齐认领与横切用例（3 条）
+
+**目标**：覆盖 `/me/claims` 的标题与仅本人语义，以及“忽略他人 user_id”和“私密字段不外泄”两条横切约束。
+
+**涉及文件**：`backend/tests/test_me_lists.py`（追加用例）
+
+**依赖任务**：14.8、14.9、14.10、14.11
+
+**完成标准**
+- [ ] `test_me_claims_returns_item_title`：B 认领 A 的拾获帖，C 也提交一条认领；B 的结果只含自己的认领，`item_title` 等于拾获帖标题，`found_item_id/status/created_at` 正确，`total=1`
+- [ ] `test_me_lists_ignore_foreign_user_id`：请求 `/me/comments`、`/me/helping`、`/me/claims` 时附带 `?user_id=<他人 id>`；参数被忽略，仍只返回本人数据，不出现他人记录
+- [ ] `test_me_lists_hide_private_fields`：helping 返回一条他人发布的 found 帖，claims 返回一条本人认领；两个响应均不含 `precise_location`、`norm_x`、`norm_y`、`layer_id`、`routes`、`contact`、`evidence`，`first_photo` 按大厅规则隐藏
+- [ ] 本文件最终恰好包含 2.26.7 列出的 13 条用例，用例名与设计一致
+
+---
+
+### 14.14 补教职工重新申请用例（1 条）
+
+**目标**：验证被拒绝用户可以重新提交申请并回到待审核。
+
+**涉及文件**：`backend/tests/test_staff_application.py`（仅追加 1 条用例）
+
+**依赖任务**：14.7
+
+**完成标准**
+- [ ] 新增 `test_rejected_application_can_be_resubmitted`：管理员拒绝申请后，学生用新的 `staff_no/department` 再次 `POST /api/v1/me/staff-application`
+- [ ] 断言 200；`staff_status=pending`；`staff_reject_reason is None`；`staff_no/department` 为新值
+- [ ] 断言 `GET /auth/me` 同步新状态；管理员待审核列表能再次看到该用户
+- [ ] `test_duplicate_application_conflicts` 等 11 条既有用例未修改、未删除、未放宽
+
+---
+
+### 14.15 追加前端类型与积分进度函数
+
+**目标**：补齐 F14 所需前端类型，并提供唯一的进度派生函数，避免前端保存称号阈值。
+
+**涉及文件**：`frontend/src/types.ts`（仅追加）
+
+**依赖任务**：14.3、14.8、14.9、14.10（接口契约确定）
+
+**完成标准**
+- [ ] 追加 `HelperStatus = 'active' | 'abandoned'`
+- [ ] 追加 `HelpingItem = Item & { helper_id: string; helper_status: HelperStatus; thanked: boolean; taken_at: string }`
+- [ ] 追加 `MyComment = { id: string; item_id: string; item_title: string; content: string; created_at: string }`
+- [ ] 追加 `MyClaim = Claim & { item_title: string }`
+- [ ] 追加 `helperStatusLabels: Record<HelperStatus, string>`：`active → 进行中`、`abandoned → 已放弃`
+- [ ] 追加 `pointProgress(total: number, nextThreshold: number | null): number`：`nextThreshold == null` 返回 1，否则返回 `clamp(total / nextThreshold, 0, 1)`
+- [ ] **不新增** `pointTitles` 或任何称号阈值常量；不使用 `any`；既有类型未改动
+
+---
+
+### 14.16 扩展前端“我的”接口层
+
+**目标**：在 `api/me.ts` 补齐收藏、点赞、评论、委托四个请求函数，并切换认领返回类型。
+
+**涉及文件**：`frontend/src/api/me.ts`
+
+**依赖任务**：14.15
+
+**完成标准**
+- [ ] 新增 `listMyFavorites(params)` → `GET /me/favorites`，返回 `Page<Item>`
+- [ ] 新增 `listMyLikes(params)` → `GET /me/likes`，返回 `Page<Item>`
+- [ ] 新增 `listMyComments(params)` → `GET /me/comments`，返回 `Page<MyComment>`
+- [ ] 新增 `listMyHelping(params)` → `GET /me/helping`，返回 `Page<HelpingItem>`
+- [ ] `listMyClaims` 返回类型改为 `Page<MyClaim>`，请求路径不变
+- [ ] 全部复用现有 `client` 与 `ListParams`；不新增依赖；页面中不出现接口地址
+
+---
+
+### 14.17 ItemCard 新增 extra 插槽
+
+**目标**：为帖子卡片提供可选的展示型底部插槽，供 helping 列表插入委托状态，且大厅外观不变。
+
+**涉及文件**：`frontend/src/components/ItemCard/ItemCard.tsx`
+
+**依赖任务**：无（可与后端任务并行）
+
+**完成标准**
+- [ ] Props 由 `{ item: Item }` 扩展为 `{ item: Item; extra?: ReactNode }`，追加 `ReactNode` 类型导入
+- [ ] 在 `Card` 的 body 内、`footer` 之后条件渲染 `<div className={styles.extra}>{extra}</div>`
+- [ ] 不传 `extra` 时不渲染该节点，DOM 与当前完全一致
+- [ ] 既有首图加载、状态标签、跳转 `/hall/{id}`、计数展示逻辑未改动
+
+---
+
+### 14.18 ItemCard 新增底部插槽样式
+
+**目标**：为 14.17 的插槽提供 375px 友好的换行样式。
+
+**涉及文件**：`frontend/src/components/ItemCard/ItemCard.module.css`（仅追加 `.extra`）
+
+**依赖任务**：14.17
+
+**完成标准**
+- [ ] `.extra` 使用 `display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-2)`
+- [ ] 颜色、字号只引用 `tokens.css` 变量，无具体数值颜色
+- [ ] 标签内容不超出卡片宽度，不产生横向滚动
+- [ ] 既有类名与样式未改动
+
+---
+
+### 14.19 新建通用列表页 MeList
+
+**目标**：实现 `/me/:kind` 通用列表页，覆盖 7 种 kind，统一分页、三态与去重。
+
+**涉及文件**：`frontend/src/pages/MeList.tsx`（新建）
+
+**依赖任务**：14.15、14.16、14.17、14.18
+
+**完成标准**
+- [ ] `useParams()` 取 `kind`；不在 `KIND_CONFIG`（`posts/helping/favorites/likes/claims/comments/tickets`）中时返回 `<Navigate to="/me" replace />`
+- [ ] `KIND_CONFIG` 为每种 kind 提供页面标题、数据函数与空态文案：`posts → listMyItems`、`helping → listMyHelping`、`favorites → listMyFavorites`、`likes → listMyLikes`、`claims → listMyClaims`、`comments → listMyComments`、`tickets → listMyTickets`
+- [ ] 7 种空态文案依次为「还没有发布过寻物或拾获」「还没有接取过委托」「还没有收藏任何记录」「还没有点赞任何记录」「还没有提交过认领申请」「还没有发表过评论」「还没有提交过协助工单」
+- [ ] `PageHeader` 传入对应标题与 `backTo="/me"`
+- [ ] 首屏 `useAsync(() => fetchPage(kind, 0), [kind])`；`PAGE_SIZE = 20`
+- [ ] 追加页存本地 `extra`，`useEffect([kind])` 清空；`loadMore` 以 `offset = data.items.length + extra.length` 请求，`busy` 防重复
+- [ ] 追加前按主键去重：帖子类与 helping 用 `item.id`，claims 用 `claim.id`，comments 用评论 `id`，tickets 用 `ticket.id`
+- [ ] 帖子类用 `<ul><li key={item.id}><ItemCard item={item} /></li></ul>`；helping 通过 `extra` 传入 `Tag`（进行中/已放弃）、`已被致谢`（`thanked`）与「接取于 YYYY/M/D」`span`，`extra` 内不含按钮或链接
+- [ ] claims 行显示 `item_title`、`claimStatusLabels[status]`、申请时间，整行 `<Link to={/hall/${found_item_id}}>`，不调用 `getItem`、不做逐条补查
+- [ ] comments 行显示 `content` 60 字摘要（超出加 `…`）、`item_title`、时间，整行链接 `/hall/{item_id}`
+- [ ] tickets 行显示 `ticketStatusLabels[status]` 与 `result || '等待处理结果'`，不提供跳转、不展示接单人
+- [ ] 首屏三态：`LoadingState` / `ErrorState(onRetry=reload)` / 对应 `EmptyState`；追加失败在底部显示 `ErrorState` 且保留已加载数据
+- [ ] `items.length < total` 时才显示「加载更多」；文件 ≤300 行；无内联 `style`
+
+---
+
+### 14.20 新建列表页样式 MeList.module.css
+
+**目标**：为 MeList 的行卡片、标签行、加载更多与 375px 布局提供样式。
+
+**涉及文件**：`frontend/src/pages/MeList.module.css`（新建）
+
+**依赖任务**：14.19
+
+**完成标准**
+- [ ] 行卡片使用 `--space-3` 内边距、`--color-border` 边框、`--radius-md` 圆角
+- [ ] 长文本 `overflow-wrap: anywhere`；claims 标题使用省略号单行截断
+- [ ] 可点击行与「加载更多」高度 ≥44px；列表无横向滚动
+- [ ] 颜色、间距、字号、圆角只引用 `tokens.css` 变量；无内联样式
+
+---
+
+### 14.21 新建积分明细页 MePoints
+
+**目标**：实现 `/me/points`，顶部摘要与个人卡片同源同算法，下方为可追加的积分记录。
+
+**涉及文件**：`frontend/src/pages/MePoints.tsx`（新建）
+
+**依赖任务**：14.15；复用既有 `frontend/src/api/points.ts` 的 `getMyPoints`（不修改该文件）
+
+**完成标准**
+- [ ] `PageHeader title="积分明细" backTo="/me"`
+- [ ] 顶部摘要显示 `title`、`total` 与进度；进度用 `pointProgress(total, next_threshold)`，`next_threshold === null` 显示「已达最高称号」且不渲染进度条
+- [ ] 进度条用 `role="progressbar"` 与 `aria-valuenow/aria-valuemin/aria-valuemax`，宽度通过 `Math.round(progress * 10)` 选择 `.p0`…`.p10` 类名，不写内联 `style`
+- [ ] 明细每条显示事件说明、`+{amount} 分`、时间；`reason` 映射：`thank → 协助寻物获致谢`、`return → 拾获物品完成归还`、`ticket_feedback → 工单处理反馈`，未知 reason 显示「积分变动」
+- [ ] 分页 `PAGE_SIZE = 20`；`loadMore` 用 `records.offset + records.items.length` 追加，`records.total` 判断是否还有更多，`busy` 防重复
+- [ ] 首屏三态：`LoadingState` / 整页 `ErrorState(onRetry)` / 「还没有积分记录」；追加失败在底部显示可重试错误且保留已加载记录
+- [ ] 文件 ≤300 行；不读取任何前端阈值表；不使用 `any`；无内联 `style`
+
+---
+
+### 14.22 新建积分页样式 MePoints.module.css
+
+**目标**：提供积分摘要、进度条与明细列表样式。
+
+**涉及文件**：`frontend/src/pages/MePoints.module.css`（新建）
+
+**依赖任务**：14.21
+
+**完成标准**
+- [ ] 摘要区使用 `--space-4` 内边距与 `display: grid; gap: var(--space-3)`
+- [ ] 进度条高度用 `--space-2`、底色 `--color-border`、填充 `--color-primary`、圆角 `--radius-full`；定义 `.p0`…`.p10` 共 11 档宽度（0%~100%，步长 10%）
+- [ ] 明细行内边距 `--space-3`、边框 `--color-border`、圆角 `--radius-md`；分值使用主色
+- [ ] 375px 下无横向滚动，「加载更多」≥44px；只引用 `tokens.css` 变量
+
+---
+
+### 14.23 重写 Me 页面
+
+**目标**：把个人卡片、拒绝卡与重新申请、数字入口、列表入口、徽章面板、工作人员分组与退出登录整合到 `/me`。
+
+**涉及文件**：`frontend/src/pages/Me.tsx`（重写）
+
+**依赖任务**：14.15、14.16
+
+**完成标准**
+- [ ] 个人卡片显示 `displayName || '未设置昵称'`、身份 `Tag`、称号、当前积分与进度；积分来自 `getMyPoints({ limit: 1 })`，失败时卡片底部显示可重试错误，**不显示 0 分或默认称号**
+- [ ] 身份标签按优先级：`admin → 管理员`（primary）、`staff → 工作人员`（primary）、`student && staffStatus === 'pending' → 教职工审核中`（warning）、其余 → `学生`（neutral）
+- [ ] 进度文案 `再得 ${next_threshold - total} 分成为 ${next_title}`；差值 ≤0 时按已达到处理，不显示负数；`next_threshold === null` 显示「已达最高称号」
+- [ ] 进度条宽度通过 `Math.round(pointProgress(total, next_threshold) * 10)` 选择 `.p0`…`.p10` 类名（11 档），不写内联 `style`；进度条带 `role="progressbar"` 与 `aria-valuenow/valuemin/valuemax`
+- [ ] 个人卡片点击进入 `/me/points`，卡片内无嵌套按钮/链接
+- [ ] `staffStatus === 'rejected'` 时显示拒绝理由（空值显示「未填写拒绝理由」）与「重新申请」；展开表单含 `staff_no`（4~20 位字母或数字）与 `department`（≤64），使用 `Field` 与 `aria-label`
+- [ ] 重新申请调用 `api/staffApplications.ts` 的 `applyStaffApplication`；请求期间 `Button loading` 且输入禁用；成功后 `await refresh()` 并显示「申请已提交，等待审核」；失败保留表单并展示后端中文错误
+- [ ] 4 个数字入口（发布/接取/收藏/认领）用同一 `useAsync` 包 `Promise.allSettled`，各自以 `limit=1` 取 `total`；失败项显示 `—`，加载中显示 `…`，不显示错误的 0
+- [ ] 每个数字入口是 `<Link>`，`aria-label` 形如「我的发布，3 条」，高度 ≥44px
+- [ ] 列表入口：我点赞的 `/me/likes`、我的评论 `/me/comments`、我的工单 `/me/tickets`、我的徽章（`<button type="button">` 打开面板）
+- [ ] 徽章面板在打开时才请求 `listMyBadges()`；`role="dialog" aria-modal="true"`；点击遮罩或按 `Esc` 关闭；打开时聚焦关闭按钮；`LoadingState`/`ErrorState`/「还没有获得徽章」三态齐全；`kind` 映射 `assist → 协助徽章`，未知 kind 原样显示
+- [ ] `role === 'staff' || role === 'admin'` 显示「认领审核」「工单处理」，`admin` 额外显示「教职工审核」；学生不显示（仅前端展示，后端仍鉴权）
+- [ ] 页面底部退出登录：`logout()` 后 `navigate('/login')`
+- [ ] 文件 ≤300 行（超出时停下说明并申请新增组件文件）；无内联 `style`；不新增依赖；不改 `AuthContext`
+
+---
+
+### 14.24 重写 Me 页面样式
+
+**目标**：为新版 `/me` 提供 375px 布局、进度条档位、数字入口与弹层样式。
+
+**涉及文件**：`frontend/src/pages/Me.module.css`（重写）
+
+**依赖任务**：14.23
+
+**完成标准**
+- [ ] 个人卡片 `display: grid; gap: var(--space-3)`，内边距 `--space-4`，整卡可点击区域 ≥44px
+- [ ] 进度条高度 `--space-2`、底色 `--color-border`、填充 `--color-primary`、圆角 `--radius-full`，定义 `.p0`…`.p10` 共 11 档宽度（0%~100%，步长 10%）
+- [ ] 数字入口 `grid-template-columns: repeat(4, 1fr)`，每格 `min-height: 44px`，数字 `--font-lg`、标签 `--font-sm`，允许换行
+- [ ] 列表入口单列、行高 ≥44px、两端对齐；工作人员分组与列表入口有明确间距
+- [ ] 徽章面板固定定位，宽度 `calc(100% - var(--space-4) * 2)`、最大 420px，层级用 `--z-overlay`
+- [ ] 退出登录按钮 `margin-top: var(--space-6)`、宽度 100%
+- [ ] 375px 下无横向滚动；只引用 `tokens.css` 变量；无内联样式、无具体颜色数值
+
+---
+
+### 14.25 删除旧版 MyDelegations 页面
+
+**目标**：移除已被 `/me/helping` 取代的旧页面，避免出现第二套委托入口。
+
+**涉及文件**：删除 `frontend/src/pages/MyDelegations.tsx`（若存在同名样式文件一并删除）
+
+**依赖任务**：14.19
+
+**完成标准**
+- [ ] 删除前再次全仓检索 `MyDelegations`，确认除自身外无 import、无路由、无样式引用
+- [ ] 删除 `frontend/src/pages/MyDelegations.tsx`；当前无 `MyDelegations.module.css`，如有则一并删除
+- [ ] 删除后 `npm run build` 无未解析引用
+- [ ] 不修改其他页面与路由的既有行为
+
+---
+
+### 14.26 追加前端路由
+
+**目标**：注册 `/me/points` 与 `/me/:kind`，不改变既有路由与重定向。
+
+**涉及文件**：`frontend/src/App.tsx`（仅新增 import 与两条 Route）
+
+**依赖任务**：14.19、14.21、14.25
+
+**完成标准**
+- [ ] 引入 `MeList`、`MePoints`
+- [ ] 在 `/me` 之后追加 `<Route path="/me/points" element={<MePoints />} />`，再追加 `<Route path="/me/:kind" element={<MeList />} />`（静态路径在前）
+- [ ] 既有 `/hall`、`/hall/:id`、`/publish`、`/map`、`/ai`、`/me`、`/staff/*`、`/admin/*` 与兜底重定向均未改动
+- [ ] 两条新路由位于 `RequireAuth` 包裹的布局路由内，未登录仍被拦截
+
+---
+
+### 14.27 执行本地验证命令
+
+**目标**：按固定顺序执行后端与前端验证，记录真实输出，不编造结果。
+
+**涉及文件**：无代码改动（仅执行验证）
+
+**依赖任务**：14.1–14.26
+
+**完成标准**
+- [ ] 按以下顺序由用户在本地执行，逐条记录真实输出：
+  1. `cd backend && .venv/Scripts/python -m pytest tests/ -q`
+  2. `cd backend && .venv/Scripts/python -m ruff check .`
+  3. `cd backend && .venv/Scripts/python -m ruff format --check .`
+  4. `cd frontend && npm run lint`
+  5. `cd frontend && npm run build`
+- [ ] **沙箱不执行 `pytest`、不启动服务、不安装依赖**；`npm run lint`/`npm run build` 可在沙箱执行，`pytest` 与依赖安装由用户本地完成
+- [ ] 预期后端全部通过，含新增 `tests/test_me_lists.py` 13 条与 `test_staff_application.py::test_rejected_application_can_be_resubmitted`，且既有测试无回归
+- [ ] 任一命令失败时修代码而非改测试/放宽断言，修复后重跑同一条命令
+- [ ] 总结中区分「已执行」与「未执行（原因）」；确认无数据库迁移（本次不产生 Alembic 文件）
+
+---
+
+### 14.28 浏览器手工检查与交付确认
+
+**目标**：按 `design.md` 2.26.11 核对 F14 的用户可见行为，尤其是角色差异、计数一致性、委托状态与 375px。
+
+**涉及文件**：无代码改动（仅验收）
+
+**依赖任务**：14.27
+
+**完成标准**
+- [ ] 角色差异：学生只见个人卡片、4 个数字入口、列表入口与退出登录；工作人员多「认领审核」「工单处理」；管理员再显示「教职工审核」
+- [ ] 计数一致性：4 个数字入口的 `total` 与进入对应列表后的总条数一致（造 3 条以上数据确认分页生效）；单项失败显示 `—`
+- [ ] 积分进度：0 分、中间档、最高档三种数据下，进度条与「再得 N 分」/「已达最高称号」显示正确；积分失败时不显示 0 分
+- [ ] 评论与认领：`/me/comments` 可跳转 `/hall/{item_id}`（含已撤销帖子）；`/me/claims` 直接显示标题且网络面板只有一次 `/me/claims` 请求
+- [ ] 教职工重新申请：被拒账号看到拒绝理由与按钮，提交后标签变「教职工审核中」、拒绝卡消失；失败时按钮恢复并显示中文错误
+- [ ] 委托状态：`/me/helping` 显示「进行中/已放弃」「已被致谢」「接取于 …」；同一帖子放弃后重新接取仍是同一条记录
+- [ ] 卡片插槽：委托标签位于卡片内部底部；大厅 `/hall` 同一卡片不传 `extra` 时外观无变化、无空白区域
+- [ ] 徽章面板：打开才请求，空态正常，`Esc` 与点击遮罩可关闭
+- [ ] 375px：`/me`、`/me/points`、7 种 `/me/:kind` 均无横向滚动，入口与按钮 ≥44px
+- [ ] 分页与失败：加载更多可追加且不重复；断网追加出现可重试错误且已加载内容不消失

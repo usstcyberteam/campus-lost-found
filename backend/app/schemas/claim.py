@@ -39,3 +39,7 @@ class ReviewRequest(BaseModel):
 class ClaimDetail(ClaimOut):
     evidence: list[EvidenceIn]
     review_reason: str | None = None
+
+
+class MyClaimOut(ClaimOut):
+    item_title: str

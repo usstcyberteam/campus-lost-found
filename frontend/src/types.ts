@@ -278,3 +278,34 @@ export interface HelperState {
   helper_count: number
   is_helper: boolean
 }
+export type HelperStatus = 'active' | 'abandoned'
+
+export interface HelpingItem extends Item {
+  helper_id: string
+  helper_status: HelperStatus
+  thanked: boolean
+  taken_at: string
+}
+
+export interface MyComment {
+  id: string
+  item_id: string
+  item_title: string
+  content: string
+  created_at: string
+}
+
+export interface MyClaim extends Claim {
+  item_title: string
+}
+
+export const helperStatusLabels: Record<HelperStatus, string> = {
+  active: '进行中',
+  abandoned: '已放弃',
+}
+
+export function pointProgress(total: number, nextThreshold: number | null): number {
+  if (nextThreshold == null) return 1
+  const ratio = total / nextThreshold
+  return Math.min(Math.max(ratio, 0), 1)
+}

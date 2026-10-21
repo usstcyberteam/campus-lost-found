@@ -8,6 +8,8 @@ import ItemForm from './pages/ItemForm'
 import Login from './pages/Login'
 import MapView from './pages/MapView'
 import Me from './pages/Me'
+import MeList from './pages/MeList'
+import MePoints from './pages/MePoints'
 import Register from './pages/Register'
 import StaffApplications from './pages/StaffApplications'
 import StaffClaims from './pages/StaffClaims'
@@ -36,6 +38,8 @@ export default function App() {
         <Route path="/map" element={<MapView />} />
         <Route path="/ai" element={<AiPage />} />
         <Route path="/me" element={<Me />} />
+        <Route path="/me/points" element={<MePoints />} />
+        <Route path="/me/:kind" element={<MeList />} />
         <Route path="/staff/claims" element={<StaffClaims />} />
         <Route path="/staff/tickets" element={<Tickets />} />
         <Route path="/admin/staff-applications" element={<StaffApplications />} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchPhotoUrl } from '../../api/uploads'
 import { directionLabels, placeLabel, statusLabels, type Item, type ItemStatus } from '../../types'
@@ -41,7 +41,7 @@ function Thumb({ url }: { url: string }) {
   return <img className={styles.thumb} src={src} alt="" />
 }
 
-export default function ItemCard({ item }: { item: Item }) {
+export default function ItemCard({ item, extra }: { item: Item; extra?: ReactNode }) {
   return (
     <Link to={`/hall/${item.id}`} className={styles.link}>
       <Card className={styles.card}>
@@ -62,6 +62,7 @@ export default function ItemCard({ item }: { item: Item }) {
             <span>评论 {item.comment_count}</span>
             <span>接取 {item.helper_count}</span>
           </div>
+          {extra && <div className={styles.extra}>{extra}</div>}
         </div>
       </Card>
     </Link>

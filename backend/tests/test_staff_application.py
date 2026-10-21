@@ -188,3 +188,38 @@ def test_admin_lists_pending_applications(client):
     assert r.status_code == 200
     assert r.json()["total"] == 1
     assert r.json()["items"][0]["staff_status"] == "pending"
+
+
+def test_rejected_application_can_be_resubmitted(client):
+    create_admin()
+    token = register_staff_applicant(client, "resubmitter")
+    user_id = client.get("/api/v1/auth/me", headers=auth(token)).json()["id"]
+
+    admin_token = admin_login(client)
+    r = client.post(
+        f"/api/v1/admin/staff-applications/{user_id}/reject",
+        json={"reason": "工号无法核实"},
+        headers=auth(admin_token),
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/v1/me/staff-application",
+        json={"staff_no": "T2026003", "department": "保卫处"},
+        headers=auth(token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "student"
+    assert body["staff_status"] == "pending"
+    assert body["staff_reject_reason"] is None
+    assert body["staff_no"] == "T2026003"
+    assert body["department"] == "保卫处"
+
+    r = client.get("/api/v1/auth/me", headers=auth(token))
+    assert r.json()["staff_status"] == "pending"
+    assert r.json()["staff_reject_reason"] is None
+
+    r = client.get("/api/v1/admin/staff-applications", headers=auth(admin_token))
+    assert r.json()["total"] == 1
+    assert r.json()["items"][0]["staff_no"] == "T2026003"

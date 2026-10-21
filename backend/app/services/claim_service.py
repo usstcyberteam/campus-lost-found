@@ -69,11 +69,18 @@ def list_claims(
     return items, total
 
 
-def list_my_claims(db: Session, user: User, limit: int, offset: int) -> tuple[list[Claim], int]:
-    query = db.query(Claim).filter(Claim.applicant_user_id == user.id)
-    total = query.count()
-    items = query.order_by(Claim.created_at.desc()).offset(offset).limit(limit).all()
-    return items, total
+def list_my_claims(db: Session, user: User, limit: int, offset: int) -> tuple[list[tuple[Claim, str]], int]:
+    total = db.query(Claim).filter(Claim.applicant_user_id == user.id).count()
+    rows = (
+        db.query(Claim, Item.title)
+        .join(Item, Item.id == Claim.found_item_id)
+        .filter(Claim.applicant_user_id == user.id)
+        .order_by(Claim.created_at.desc(), Claim.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [(claim, item_title) for claim, item_title in rows], total
 
 
 def get_claim(db: Session, user: User, claim_id: uuid.UUID) -> ClaimDetail:

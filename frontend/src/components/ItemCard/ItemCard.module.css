@@ -72,3 +72,12 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+.extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}

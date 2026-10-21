@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.models.enums import Direction, ItemStatus, Source
+from app.models.enums import Direction, HelperStatus, ItemStatus, Source
 from app.schemas.helper import HelperUserOut
 from app.schemas.upload import UploadOut
 
@@ -49,6 +49,13 @@ class ItemPublic(BaseModel):
     is_liked: bool = False
     is_favorited: bool = False
     is_helper: bool = False
+
+
+class MyHelpingOut(ItemPublic):
+    helper_id: uuid.UUID
+    helper_status: HelperStatus
+    thanked: bool
+    taken_at: datetime
 
 
 class ItemDetail(BaseModel):

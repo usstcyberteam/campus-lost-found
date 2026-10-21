@@ -92,6 +92,30 @@ def list_comments(db: Session, item_id: uuid.UUID, limit: int = 20, offset: int 
     return items, total
 
 
+def list_my_comments(db: Session, user: User, limit: int, offset: int) -> tuple[list[dict], int]:
+    total = db.query(Comment).filter(Comment.author_user_id == user.id, Comment.is_deleted.is_(False)).count()
+    rows = (
+        db.query(Comment, Item.title)
+        .join(Item, Item.id == Comment.item_id)
+        .filter(Comment.author_user_id == user.id, Comment.is_deleted.is_(False))
+        .order_by(Comment.created_at.desc(), Comment.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
+        {
+            "id": comment.id,
+            "item_id": comment.item_id,
+            "item_title": item_title,
+            "content": comment.content,
+            "created_at": comment.created_at,
+        }
+        for comment, item_title in rows
+    ]
+    return items, total
+
+
 def create_comment(db: Session, user: User, item_id: uuid.UUID, body: CommentCreate) -> dict:
     if db.get(Item, item_id) is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")

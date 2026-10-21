@@ -68,6 +68,20 @@ def list_helpers(db: Session, item_id: uuid.UUID) -> list[dict]:
     ]
 
 
+def list_my_helping(db: Session, user: User, limit: int, offset: int) -> tuple[list[tuple[ItemHelper, Item]], int]:
+    total = db.query(ItemHelper).filter(ItemHelper.user_id == user.id).count()
+    rows = (
+        db.query(ItemHelper, Item)
+        .join(Item, Item.id == ItemHelper.item_id)
+        .filter(ItemHelper.user_id == user.id)
+        .order_by(ItemHelper.created_at.desc(), ItemHelper.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [(helper, item) for helper, item in rows], total
+
+
 def take_helper(db: Session, user: User, item_id: uuid.UUID) -> dict:
     item = _ensure_item(db, item_id)
     if item.owner_user_id == user.id:

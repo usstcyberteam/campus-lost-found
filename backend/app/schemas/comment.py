@@ -35,3 +35,11 @@ class CommentOut(BaseModel):
 class CommentDeletedOut(BaseModel):
     id: uuid.UUID
     is_deleted: bool = True
+
+
+class MyCommentOut(BaseModel):
+    id: uuid.UUID
+    item_id: uuid.UUID
+    item_title: str
+    content: str
+    created_at: datetime
