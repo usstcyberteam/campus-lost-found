@@ -2,9 +2,10 @@
 
 | 文件 | 说明 | 状态 |
 |---|---|---|
-| 01-会话摘要.md | 三轮开发记录：悬浮窗实现 → 3 项 BUG 修复 → P0-P4（含 P0 根因：effect 双数据源 + StrictMode 双挂载副作用竞态） | ✅ 已更新 |
+| 01-会话摘要.md | 四轮开发记录：悬浮窗实现 → 3 项 BUG 修复 → P0-P4（含 P0 根因：effect 双数据源 + StrictMode 双挂载副作用竞态）→ 分支归档与推送 | ✅ 已更新 |
 | 02-git-diff.txt | 全部前后端改动差异（1457 行） | ✅ 已更新 |
 | 03-pytest.txt | test_ai_chat + test_ai_draft 输出（20 passed） | ✅ 已更新 |
+| 交接文档.md | 完整交接文档（功能概述/架构/API/启动步骤/注意事项） | ✅ 已新增 |
 | 截图-预填成功 | 需手动截图：跳转后发布页字段填入 + 提示 | ⚠️ 需手动截图 |
 | 截图-右侧吸附 | 需手动截图：右侧停靠 + 聊天窗朝内弹出 | ⚠️ 需手动截图 |
 | 截图-整理草稿 | 需手动截图：按钮 + 确认气泡 | ⚠️ 需手动截图 |
@@ -35,3 +36,8 @@ ItemForm 预填 effect 解析用 `window.location.search`，同 effect 末尾 `r
 - npm run build 通过；Node 模拟双挂载验证 P0 修复前后行为
 - 实测：action=draft 强制提取、suggest-locations 频次排序均正常
 - 浏览器 5 项手动验证待用户执行（见 01-会话摘要.md）
+## 分支归档与推送（2026-10-22 第四轮）
+
+- 分支：`feature/ai-assistant-global-v1`（已推送 origin，8 个 commit：d04129a → e472373）
+- PR 入口：https://github.com/usstcyberteam/campus-lost-found/pull/new/feature/ai-assistant-global-v1
+- 推送前验证：后端 184 passed / 1 skipped；前端 npm run build 通过
