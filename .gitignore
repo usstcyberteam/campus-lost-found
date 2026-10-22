@@ -3,6 +3,11 @@
 *.env
 .env.*
 !.env.example
+.env.local
+.env.*.local
+*.key
+secrets/
+backend/.env
 
 # Python
 __pycache__/

@@ -27,6 +27,16 @@
 - 密钥、密码只放在 .env，不写进代码、日志、文档和对话。
 - 代码规范见 docs/代码规范.md，必须遵守。
 
+## AI 密钥与敏感配置保密规则
+- MODEL_API_KEY、JWT_SECRET 等密钥只允许存在于 .env，禁止写进代码、配置常量、前端、日志、异常堆栈。
+- 前端禁止直连模型 API；所有 AI 请求必须走后端 /api/v1/ai/chat。
+- 后端从环境变量读取密钥（os.getenv / pydantic-settings），不硬编码、不从代码里读 .env 文本。
+- .env 必须加入 .gitignore，禁止提交到 Git。
+- 代码生成/重构时：不输出真实 Key、不打印环境变量、不截图含 .env。
+- 如需示例，只用 .env.example 占位（如 MODEL_API_KEY=）。
+- 密钥疑似泄露处理：立即去平台重置 Key → 更新 .env → 检查 git 历史（如已提交用 BFG 清理）→ 不复用旧 Key。
+- 码道/AI 助手规则：不得主动读取 .env 真实值，不得把密钥写进留痕文档。
+
 补充说明：当前沙箱会拦截本机回环连接，也无法访问 Python 包源。因此：
 - 不要运行 pytest，不要启动服务，不要用 pip 或 npm 安装任何包。这些由我在自己的终端里执行。
 - alembic 和 ruff 已安装在 backend/.venv 中，可以直接运行。

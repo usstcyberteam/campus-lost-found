@@ -7,6 +7,16 @@
 - 提交信息格式：`类型(范围): 说明`。类型为 feat、fix、refactor、docs、test、chore、style 之一；范围为 backend、frontend、docs、deploy 之一。例：`refactor(backend): 抽出候选匹配服务`。
 - 一次提交只包含一个任务的改动。
 
+## AI 密钥与敏感配置保密规则
+- MODEL_API_KEY、JWT_SECRET 等密钥只允许存在于 .env，禁止写进代码、配置常量、前端、日志、异常堆栈。
+- 前端禁止直连模型 API；所有 AI 请求必须走后端 /api/v1/ai/chat。
+- 后端从环境变量读取密钥（os.getenv / pydantic-settings），不硬编码、不从代码里读 .env 文本。
+- .env 必须加入 .gitignore，禁止提交到 Git。
+- 代码生成/重构时：不输出真实 Key、不打印环境变量、不截图含 .env。
+- 如需示例，只用 .env.example 占位（如 MODEL_API_KEY=）。
+- 密钥疑似泄露处理：立即去平台重置 Key → 更新 .env → 检查 git 历史（如已提交用 BFG 清理）→ 不复用旧 Key。
+- 码道/AI 助手规则：不得主动读取 .env 真实值，不得把密钥写进留痕文档。
+
 ## 后端（FastAPI + SQLAlchemy 2）
 
 ### 分层
