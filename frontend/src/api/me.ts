@@ -1,9 +1,19 @@
 import client from './client'
-import type { Badge, HelpingItem, Item, MyClaim, MyComment, Page, Ticket } from '../types'
+import type { Badge, HelpingItem, Item, MyClaim, MyComment, Page, Ticket, User } from '../types'
 
 export interface ListParams {
   limit?: number
   offset?: number
+}
+
+export interface ProfileInput {
+  display_name?: string
+  contact?: string | null
+}
+
+export interface PasswordInput {
+  old_password: string
+  new_password: string
 }
 
 export async function listMyItems(params: ListParams = {}): Promise<Page<Item>> {
@@ -43,5 +53,15 @@ export async function listMyComments(params: ListParams = {}): Promise<Page<MyCo
 
 export async function listMyHelping(params: ListParams = {}): Promise<Page<HelpingItem>> {
   const res = await client.get<Page<HelpingItem>>('/me/helping', { params })
+  return res.data
+}
+
+export async function updateProfile(body: ProfileInput): Promise<User> {
+  const res = await client.patch<User>('/me', body)
+  return res.data
+}
+
+export async function changePassword(body: PasswordInput): Promise<User> {
+  const res = await client.post<User>('/me/password', body)
   return res.data
 }

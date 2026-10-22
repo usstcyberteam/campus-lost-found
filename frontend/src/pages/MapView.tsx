@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { listLayerPoints } from '../api/layers'
 import { useAsync } from '../hooks/useAsync'
@@ -10,8 +10,6 @@ import { useAuth } from '../auth/AuthContext'
 import type { Building, LayerPoints, SearchAdvice, Visibility } from '../types'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
-import PageContainer from '../components/PageContainer'
-import PageHeader from '../components/AppShell/PageHeader'
 import CampusMap, { type MapMarker } from '../components/CampusMap/CampusMap'
 import AIRecommendLayer from '../components/CampusMap/AIRecommendLayer'
 import BuildingCard from '../components/CampusMap/BuildingCard'
@@ -28,6 +26,19 @@ import styles from './MapView.module.css'
 
 const NO_MARKERS: MapMarker[] = []
 const MAP_STATE_KEY = 'campus-map-view'
+const DRAWER_TABS = [
+  { key: 'results', label: '结果' },
+  { key: 'layers', label: '图层' },
+  { key: 'tools', label: '工具' },
+] as const
+const FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'hot', label: '热门' },
+  { key: 'near', label: '附近' },
+] as const
+
+type DrawerTab = (typeof DRAWER_TABS)[number]['key']
+type FilterKey = (typeof FILTERS)[number]['key']
 
 interface StoredMapState {
   selected?: string
@@ -47,6 +58,19 @@ function readStoredMapState(): StoredMapState {
   }
 }
 
+function buildingPoint(building: Building): { x: number; y: number } | null {
+  if (building.label_position) {
+    return { x: Number(building.label_position.x), y: Number(building.label_position.y) }
+  }
+  const region = building.click_region
+  if (!region || region.length === 0) return null
+  const sum = region.reduce(
+    (acc, point) => ({ x: acc.x + Number(point.x), y: acc.y + Number(point.y) }),
+    { x: 0, y: 0 },
+  )
+  return { x: sum.x / region.length, y: sum.y / region.length }
+}
+
 export default function MapView() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -64,6 +88,12 @@ export default function MapView() {
   const [showAdvice, setShowAdvice] = useState(initial.showAdvice ?? true)
   const [showHeatmap, setShowHeatmap] = useState(initial.showHeatmap ?? false)
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<FilterKey>('all')
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>('results')
+  const [expanded, setExpanded] = useState(false)
+  const [focus, setFocus] = useState<{ x: number; y: number; token: number } | null>(null)
+  const dragRef = useRef<{ y: number } | null>(null)
   const tool = useDrawTool()
 
   const canSeeMonitor = role === 'staff' || role === 'admin'
@@ -111,10 +141,48 @@ export default function MapView() {
   const helpPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'help_point') ?? [], [pointData])
   const monitorPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'monitor_point') ?? [], [pointData])
 
+  // 结果列表：搜索过滤 + 全部/热门/附近 排序
+  const results = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    const list = (mapLayers?.buildings ?? []).filter((building) => {
+      if (!keyword) return true
+      return (
+        building.name.toLowerCase().includes(keyword) ||
+        building.code.toLowerCase().includes(keyword) ||
+        building.category.toLowerCase().includes(keyword)
+      )
+    })
+    if (filter === 'hot') {
+      return [...list].sort((a, b) => b.active_item_count - a.active_item_count)
+    }
+    if (filter === 'near') {
+      const anchor = tool.point ?? (selectedBuilding ? buildingPoint(selectedBuilding) : null)
+      if (anchor) {
+        return [...list].sort((a, b) => {
+          const pa = buildingPoint(a)
+          const pb = buildingPoint(b)
+          const da = pa ? Math.hypot(pa.x - anchor.x, pa.y - anchor.y) : Number.POSITIVE_INFINITY
+          const db = pb ? Math.hypot(pb.x - anchor.x, pb.y - anchor.y) : Number.POSITIVE_INFINITY
+          return da - db
+        })
+      }
+    }
+    return list
+  }, [mapLayers, query, filter, tool.point, selectedBuilding])
+
+  const nearUnavailable = filter === 'near' && !tool.point && !selectedBuilding
+
   function selectLayer(layerId: string) {
     tool.clear()
     setSelected(layerId)
     setSelectedBuilding(null)
+  }
+
+  function focusBuilding(building: Building) {
+    setSelectedBuilding(building)
+    setDrawerTab('results')
+    const point = buildingPoint(building)
+    if (point) setFocus({ ...point, token: Date.now() })
   }
 
   function publish() {
@@ -145,103 +213,13 @@ export default function MapView() {
   }
 
   return (
-    <PageContainer>
-      <PageHeader title="地图" />
-      {layersError && <ErrorNotice message={layersError} />}
-      {mapLayersError && <ErrorNotice message={mapLayersError} />}
-      {pointsError && <ErrorNotice message={pointsError} />}
-      {(imageError || adviceError) && <ErrorNotice message={imageError || adviceError} />}
-      {(!layers || layers.length === 0) && !layersError && <p>暂无图层，请先初始化地图数据。</p>}
-      <select value={selected} onChange={(e) => selectLayer(e.target.value)} aria-label="选择图层">
-        {layers?.map((l) => (
-          <option key={l.id} value={l.id}>
-            {l.name}
-            {l.scale_calibrated ? '（已标定）' : '（未标定，不显示米数）'}
-          </option>
-        ))}
-      </select>
-      {currentBuilding && currentFloorLayers.length > 0 && (
-        <FloorSwitcher buildingName={currentBuilding.name} floors={currentFloorLayers}
-          currentId={selected} outdoorId={outdoorLayerId} onSelect={selectLayer} />
-      )}
-      <LayerToggles
-        options={[
-          { key: 'buildings', label: '建筑层', checked: showBuildings, disabled: !outdoor, onChange: setShowBuildings },
-          { key: 'items', label: '帖子点位', checked: showItems, disabled: !outdoor, onChange: setShowItems },
-          { key: 'help', label: '求助点位', checked: showHelp, onChange: setShowHelp },
-          ...(canSeeMonitor
-            ? [{ key: 'monitor', label: '监控点位（模拟）', checked: showMonitor, onChange: setShowMonitor }]
-            : []),
-          { key: 'advice', label: 'AI 推荐层', checked: showAdvice, disabled: !outdoor || !advice, onChange: setShowAdvice },
-          { key: 'heatmap', label: '热力层', checked: showHeatmap, disabled: !outdoor, onChange: setShowHeatmap },
-        ]}
-      />
-      {layer && (
-        <div className={styles.drawBar} role="toolbar" aria-label="地图绘制工具">
-          <Button
-            type="button"
-            variant={tool.mode === 'point' ? 'primary' : 'secondary'}
-            aria-pressed={tool.mode === 'point'}
-            onClick={() => tool.start('point')}
-          >
-            标点
-          </Button>
-          <Button
-            type="button"
-            variant={tool.mode === 'circle' ? 'primary' : 'secondary'}
-            aria-pressed={tool.mode === 'circle'}
-            onClick={() => tool.start('circle')}
-          >
-            圈范围
-          </Button>
-          <Button
-            type="button"
-            variant={tool.mode === 'polyline' ? 'primary' : 'secondary'}
-            aria-pressed={tool.mode === 'polyline'}
-            onClick={() => tool.start('polyline')}
-          >
-            画路径
-          </Button>
-          <Button type="button" variant="secondary" onClick={tool.undo} disabled={!canUndo}>
-            撤销上一步
-          </Button>
-          <Button type="button" variant="secondary" onClick={tool.finish} disabled={!drawing}>
-            完成
-          </Button>
-          <Button type="button" variant="ghost" onClick={tool.clear} disabled={!canUndo && !drawing}>
-            清空
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={recommend}
-            disabled={!outdoor || !tool.hasResult}
-            loading={advicePending}
-          >
-            AI 推荐地点
-          </Button>
-        </div>
-      )}
-      {tool.hasResult && tool.routeKind && (
-        <div className={styles.visibility}>
-          <label className={styles.visibilityLabel}>
-            路线可见性
-            <select
-              value={tool.visibility}
-              onChange={(e) => tool.setVisibility(e.target.value as Visibility)}
-            >
-              <option value="private">私密（仅自己与已授权处理人员）</option>
-              <option value="public">公开</option>
-            </select>
-          </label>
-          <span className={styles.note}>圈选默认公开，路径默认私密</span>
-        </div>
-      )}
-      {layer && (
-        <div className={styles.mapArea}>
+    <div className={styles.page}>
+      <div className={styles.mapWrap}>
+        {layer ? (
           <CampusMap
             layer={layer}
             markers={NO_MARKERS}
+            focus={focus}
             onMapClick={() => setSelectedBuilding(null)}
             onImageError={setImageError}
           >
@@ -249,7 +227,7 @@ export default function MapView() {
               <BuildingLayer
                 buildings={mapLayers.buildings}
                 selectedId={selectedBuilding?.id ?? null}
-                onSelect={setSelectedBuilding}
+                onSelect={focusBuilding}
                 interactive={!drawing}
               />
             )}
@@ -271,7 +249,38 @@ export default function MapView() {
             <DrawToolLayer tool={tool} />
             {!drawing && <ClickCoordsPopup />}
           </CampusMap>
-          {outdoor && selectedBuilding && (
+        ) : (
+          <div className={styles.mapEmpty}>
+            {(!layers || layers.length === 0) && !layersError ? '暂无图层，请先初始化地图数据。' : '正在加载地图…'}
+          </div>
+        )}
+
+        {/* 顶部悬浮搜索 + 筛选 chips */}
+        <div className={styles.overlayTop}>
+          <input
+            className={styles.search}
+            aria-label="搜索建筑"
+            placeholder="搜索建筑 / 类别"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className={styles.chips} role="group" aria-label="结果筛选">
+            {FILTERS.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                className={`${styles.chip} ${filter === chip.key ? styles.chipActive : ''}`}
+                aria-pressed={filter === chip.key}
+                onClick={() => setFilter(chip.key)}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {outdoor && selectedBuilding && (
+          <div className={styles.buildingCard}>
             <BuildingCard
               key={selectedBuilding.id}
               building={selectedBuilding}
@@ -279,20 +288,212 @@ export default function MapView() {
               onClose={() => setSelectedBuilding(null)}
               onEnterFloor={selectLayer}
             />
+          </div>
+        )}
+
+        {(imageError || adviceError) && (
+          <div className={styles.mapNotice}>
+            <ErrorNotice message={imageError || adviceError} />
+          </div>
+        )}
+      </div>
+
+      {/* 底部可拖拽抽屉 */}
+      <section className={`${styles.drawer} ${expanded ? styles.drawerExpanded : ''}`} aria-label="地图结果与设置">
+        <div
+          className={styles.handle}
+          role="button"
+          tabIndex={0}
+          aria-label={expanded ? '收起面板' : '展开面板'}
+          aria-expanded={expanded}
+          onPointerDown={(event) => {
+            dragRef.current = { y: event.clientY }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => {
+            if (!dragRef.current) return
+            const dy = dragRef.current.y - event.clientY
+            if (dy > 40 || dy < -40) {
+              setExpanded(dy > 0)
+              dragRef.current = null
+            }
+          }}
+          onPointerUp={() => {
+            dragRef.current = null
+          }}
+          onClick={() => setExpanded((value) => !value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') setExpanded((value) => !value)
+          }}
+        >
+          <span className={styles.handleBar} aria-hidden="true" />
+        </div>
+
+        <div className={styles.tabs} role="tablist" aria-label="地图面板">
+          {DRAWER_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={drawerTab === tab.key}
+              className={`${styles.tab} ${drawerTab === tab.key ? styles.tabActive : ''}`}
+              onClick={() => {
+                setDrawerTab(tab.key)
+                setExpanded(true)
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.drawerBody}>
+          {drawerTab === 'results' && (
+            <>
+              {nearUnavailable && <p className={styles.note}>「附近」需要一个参照点：点击地图上的建筑或先标一个点。</p>}
+              {results.length === 0 ? (
+                <p className={styles.empty}>没有匹配的建筑，试试其它关键词。</p>
+              ) : (
+                <ul className={styles.results}>
+                  {results.map((building) => (
+                    <li key={building.id}>
+                      <button
+                        type="button"
+                        className={`${styles.resultItem} ${selectedBuilding?.id === building.id ? styles.resultActive : ''}`}
+                        onClick={() => focusBuilding(building)}
+                      >
+                        <span className={styles.resultName}>{building.name}</span>
+                        <span className={styles.resultMeta}>
+                          {building.category}
+                          {building.active_item_count > 0 && (
+                            <span className={styles.resultBadge}>进行中 {building.active_item_count}</span>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {drawerTab === 'layers' && (
+            <div className={styles.panel}>
+              {layersError && <ErrorNotice message={layersError} />}
+              {mapLayersError && <ErrorNotice message={mapLayersError} />}
+              {pointsError && <ErrorNotice message={pointsError} />}
+              <select value={selected} onChange={(event) => selectLayer(event.target.value)} aria-label="选择图层">
+                {layers?.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.scale_calibrated ? '（已标定）' : '（未标定，不显示米数）'}
+                  </option>
+                ))}
+              </select>
+              {currentBuilding && currentFloorLayers.length > 0 && (
+                <FloorSwitcher
+                  buildingName={currentBuilding.name}
+                  floors={currentFloorLayers}
+                  currentId={selected}
+                  outdoorId={outdoorLayerId}
+                  onSelect={selectLayer}
+                />
+              )}
+              <LayerToggles
+                options={[
+                  { key: 'buildings', label: '建筑层', checked: showBuildings, disabled: !outdoor, onChange: setShowBuildings },
+                  { key: 'items', label: '帖子点位', checked: showItems, disabled: !outdoor, onChange: setShowItems },
+                  { key: 'help', label: '求助点位', checked: showHelp, onChange: setShowHelp },
+                  ...(canSeeMonitor
+                    ? [{ key: 'monitor', label: '监控点位（模拟）', checked: showMonitor, onChange: setShowMonitor }]
+                    : []),
+                  { key: 'advice', label: 'AI 推荐层', checked: showAdvice, disabled: !outdoor || !advice, onChange: setShowAdvice },
+                  { key: 'heatmap', label: '热力层', checked: showHeatmap, disabled: !outdoor, onChange: setShowHeatmap },
+                ]}
+              />
+            </div>
+          )}
+
+          {drawerTab === 'tools' && (
+            <div className={styles.panel}>
+              {layer ? (
+                <>
+                  <div className={styles.drawBar} role="toolbar" aria-label="地图绘制工具">
+                    <Button
+                      type="button"
+                      variant={tool.mode === 'point' ? 'primary' : 'secondary'}
+                      aria-pressed={tool.mode === 'point'}
+                      onClick={() => tool.start('point')}
+                    >
+                      标点
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={tool.mode === 'circle' ? 'primary' : 'secondary'}
+                      aria-pressed={tool.mode === 'circle'}
+                      onClick={() => tool.start('circle')}
+                    >
+                      圈范围
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={tool.mode === 'polyline' ? 'primary' : 'secondary'}
+                      aria-pressed={tool.mode === 'polyline'}
+                      onClick={() => tool.start('polyline')}
+                    >
+                      画路径
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={tool.undo} disabled={!canUndo}>
+                      撤销上一步
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={tool.finish} disabled={!drawing}>
+                      完成
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={tool.clear} disabled={!canUndo && !drawing}>
+                      清空
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={recommend}
+                      disabled={!outdoor || !tool.hasResult}
+                      loading={advicePending}
+                    >
+                      AI 推荐地点
+                    </Button>
+                  </div>
+                  {tool.hasResult && tool.routeKind && (
+                    <div className={styles.visibility}>
+                      <label className={styles.visibilityLabel}>
+                        路线可见性
+                        <select
+                          value={tool.visibility}
+                          onChange={(event) => tool.setVisibility(event.target.value as Visibility)}
+                        >
+                          <option value="private">私密（仅自己与已授权处理人员）</option>
+                          <option value="public">公开</option>
+                        </select>
+                      </label>
+                      <span className={styles.note}>圈选默认公开，路径默认私密</span>
+                    </div>
+                  )}
+                  {tool.hasResult && (
+                    <Button type="button" onClick={publish}>
+                      发布到大厅
+                    </Button>
+                  )}
+                  <p className={styles.note}>
+                    点击地图获取归一化坐标；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
+                    {layer.scale_calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
+                  </p>
+                </>
+              ) : (
+                <p className={styles.empty}>地图加载后可在此标点、圈范围、画路径。</p>
+              )}
+            </div>
           )}
         </div>
-      )}
-      {layer && tool.hasResult && (
-        <div className={styles.publish}>
-          <Button type="button" onClick={publish}>
-            发布到大厅
-          </Button>
-        </div>
-      )}
-      <p className={styles.hint}>
-        点击地图获取归一化坐标；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
-        {layer?.scale_calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
-      </p>
-    </PageContainer>
+      </section>
+    </div>
   )
 }

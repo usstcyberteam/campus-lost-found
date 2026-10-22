@@ -23,6 +23,18 @@ class ItemCreate(BaseModel):
     photo_ids: list[uuid.UUID] = Field(default_factory=list, max_length=6)
 
 
+class ItemUpdate(BaseModel):
+    # 所有字段可选：仅更新请求中出现的字段（exclude_unset），传 null 表示清空可空字段
+    category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)] | None = None
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)] | None = None
+    description: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    location_area: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] | None = None
+    precise_location: Annotated[str, StringConstraints(max_length=200)] | None = None
+    time_occurred: datetime | None = None
+    building_id: uuid.UUID | None = None
+    floor: int | None = Field(default=None, ge=-3, le=100)
+
+
 class ItemPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     admin,
     ai,
+    announcements,
     auth,
     buildings,
     claims,
@@ -11,6 +12,7 @@ from app.api.v1 import (
     items,
     layers,
     me,
+    praises,
     reactions,
     staff_applications,
     tickets,
@@ -32,3 +34,5 @@ api_router.include_router(comments.router)
 api_router.include_router(reactions.router)
 api_router.include_router(helpers.router)
 api_router.include_router(ai.router, prefix="/ai")
+api_router.include_router(announcements.router)
+api_router.include_router(praises.router)

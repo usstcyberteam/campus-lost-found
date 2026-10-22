@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { errorMessage } from '../utils/error'
 import { createClaim } from '../api/claims'
 import { abandonHelper, takeHelper } from '../api/helpers'
-import { getCandidates, getItem, markItemFound, withdrawItem } from '../api/items'
+import { deleteItem, getCandidates, getItem, markItemFound, withdrawItem } from '../api/items'
 import { listMyItems } from '../api/me'
 import { useAsync } from '../hooks/useAsync'
 import { useAuth } from '../auth/AuthContext'
@@ -34,6 +34,7 @@ import styles from './ItemDetail.module.css'
 
 export default function ItemDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const requestedLost = params.get('lost')
   const { role } = useAuth()
@@ -47,6 +48,8 @@ export default function ItemDetail() {
   const [statusOverride, setStatusOverride] = useState<ItemStatus | null>(null)
   const [actionBusy, setActionBusy] = useState<'withdraw' | 'found' | null>(null)
   const [actionMsg, setActionMsg] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteMsg, setDeleteMsg] = useState('')
   const [helpers, setHelpers] = useState<HelperUser[]>([])
   const [helperState, setHelperState] = useState<HelperState | null>(null)
   const [helperBusy, setHelperBusy] = useState(false)
@@ -65,6 +68,7 @@ export default function ItemDetail() {
     setLostItemId('')
     setMsg('')
     setActionMsg('')
+    setDeleteMsg('')
     setHelpers(item?.helpers ?? [])
     setHelperState(null)
     setHelperMsg('')
@@ -138,6 +142,19 @@ export default function ItemDetail() {
     }
   }
 
+  async function removeItem() {
+    if (deleteBusy || !item) return
+    setDeleteBusy(true)
+    setDeleteMsg('')
+    try {
+      await deleteItem(item.id)
+      navigate('/hall')
+    } catch (e) {
+      setDeleteMsg(errorMessage(e))
+      setDeleteBusy(false)
+    }
+  }
+
   async function toggleHelper() {
     if (helperBusy || !item) return
     const active = helperState?.is_helper ?? item.is_helper
@@ -177,6 +194,8 @@ export default function ItemDetail() {
   const status = statusOverride ?? item.status
   const isHelper = helperState?.is_helper ?? item.is_helper
   const canTake = item.direction === 'lost' && !item.is_owner && ['searching', 'reviewing'].includes(status)
+  const canModerate = role === 'staff' || role === 'admin'
+  const canEdit = item.is_owner === true && ['searching', 'pending', 'reviewing'].includes(status)
   return (
     <PageContainer>
       <PageHeader title={item.title} backTo="/hall" />
@@ -218,6 +237,22 @@ export default function ItemDetail() {
         </div>
       )}
       {actionMsg && <p role="status">{actionMsg}</p>}
+      {status === 'deleted' && (
+        <p className={styles.hint}>该记录已被删除（下架），不会出现在大厅列表。</p>
+      )}
+      {(item.is_owner || canModerate) && status !== 'deleted' && (
+        <div className={styles.actions}>
+          {canEdit && (
+            <Button variant="secondary" onClick={() => navigate(`/items/${item.id}/edit`)}>
+              编辑
+            </Button>
+          )}
+          <Button variant="danger" loading={deleteBusy} disabled={deleteBusy} onClick={removeItem}>
+            {deleteBusy ? '删除中…' : item.is_owner ? '删除' : '下架'}
+          </Button>
+        </div>
+      )}
+      {deleteMsg && <p role="status">{deleteMsg}</p>}
       <p>{item.description}</p>
       {item.photos_hidden ? (
         <p className={styles.hint}>为防冒领，拾获照片仅发布者与工作人员可查看</p>

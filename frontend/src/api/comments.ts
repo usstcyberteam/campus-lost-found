@@ -1,5 +1,5 @@
 import client from './client'
-import type { Comment, Page } from '../types'
+import type { Comment, ModerationComment, Page } from '../types'
 
 export interface CreateCommentInput {
   content: string
@@ -22,5 +22,22 @@ export async function createComment(itemId: string, body: CreateCommentInput): P
 
 export async function deleteComment(commentId: string): Promise<{ id: string; is_deleted: boolean }> {
   const res = await client.delete<{ id: string; is_deleted: boolean }>(`/comments/${commentId}`)
+  return res.data
+}
+
+export async function listModerationComments(
+  params: { hidden?: boolean | null; limit?: number; offset?: number } = {},
+): Promise<Page<ModerationComment>> {
+  const res = await client.get<Page<ModerationComment>>('/comments/moderation', { params })
+  return res.data
+}
+
+export async function hideComment(commentId: string): Promise<{ id: string; is_hidden: boolean }> {
+  const res = await client.post<{ id: string; is_hidden: boolean }>(`/comments/${commentId}/hide`)
+  return res.data
+}
+
+export async function unhideComment(commentId: string): Promise<{ id: string; is_hidden: boolean }> {
+  const res = await client.post<{ id: string; is_hidden: boolean }>(`/comments/${commentId}/unhide`)
   return res.data
 }

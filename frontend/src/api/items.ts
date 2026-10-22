@@ -78,6 +78,17 @@ export interface FeatureExtractionOut {
   degraded: boolean
 }
 
+export interface ItemUpdateInput {
+  category?: string
+  title?: string
+  description?: string
+  location_area?: string
+  precise_location?: string | null
+  time_occurred?: string | null
+  building_id?: string | null
+  floor?: number | null
+}
+
 export async function listItems(params: ListItemsParams = {}): Promise<Page<Item>> {
   const res = await client.get<Page<Item>>('/items', { params })
   return res.data
@@ -90,6 +101,16 @@ export async function getItem(id: string): Promise<Item> {
 
 export async function createItem(body: ItemCreateInput): Promise<Item> {
   const res = await client.post<Item>('/items', body)
+  return res.data
+}
+
+export async function updateItem(id: string, body: ItemUpdateInput): Promise<Item> {
+  const res = await client.patch<Item>(`/items/${id}`, body)
+  return res.data
+}
+
+export async function deleteItem(id: string): Promise<Item> {
+  const res = await client.delete<Item>(`/items/${id}`)
   return res.data
 }
 

@@ -14,6 +14,7 @@ from app.schemas.item import (
     ItemCreate,
     ItemDetail,
     ItemPublic,
+    ItemUpdate,
 )
 from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
 from app.schemas.upload import PhotoBindRequest
@@ -25,6 +26,18 @@ router = APIRouter(tags=["items"])
 @router.post("", response_model=ItemPublic)
 def create_item(body: ItemCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return item_service.create_item(db, user, body)
+
+
+@router.patch("/{item_id}", response_model=ItemDetail)
+def update_item(
+    item_id: uuid.UUID, body: ItemUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return item_service.update_item(db, user, item_id, body)
+
+
+@router.delete("/{item_id}", response_model=ItemPublic)
+def delete_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.delete_item(db, user, item_id)
 
 
 @router.get("", response_model=Page[ItemPublic])
