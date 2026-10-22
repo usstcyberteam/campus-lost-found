@@ -12,4 +12,13 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })

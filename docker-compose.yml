@@ -21,8 +21,12 @@ services:
       DATABASE_URL: postgresql+psycopg://campus:campus@db:5432/campus
       JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET in .env}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Configure ADMIN_PASSWORD in .env}
-      MODEL_DISABLED: "true"
-      MODEL_TIMEOUT_SECONDS: "5"
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-}
+      MODEL_NAME: ${MODEL_NAME:-}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_DISABLED: ${MODEL_DISABLED:-true}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-10}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
     ports:
       - "8000:8000"
     depends_on:
@@ -31,10 +35,8 @@ services:
 
   frontend:
     build: ./frontend
-    environment:
-      API_PROXY_TARGET: http://backend:8000
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - backend
 
