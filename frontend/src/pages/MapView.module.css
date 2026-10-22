@@ -107,6 +107,20 @@
   height: 68vh;
 }
 
+.drawerHalf {
+  height: 40vh;
+}
+
+.drawerDragging {
+  transition: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.drawerDragging .handle {
+  cursor: grabbing;
+}
+
 @media (min-width: 768px) {
   .drawer {
     left: 232px;
@@ -116,6 +130,10 @@
 
   .drawerExpanded {
     height: 72vh;
+  }
+
+  .drawerHalf {
+    height: 45vh;
   }
 }
 

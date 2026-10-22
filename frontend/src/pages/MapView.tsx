@@ -39,6 +39,24 @@ const FILTERS = [
 
 type DrawerTab = (typeof DRAWER_TABS)[number]['key']
 type FilterKey = (typeof FILTERS)[number]['key']
+type DrawerState = 'collapsed' | 'half' | 'expanded'
+type DrawerAnchors = { collapsed: number; half: number; expanded: number }
+
+function drawerAnchors(): DrawerAnchors {
+  const desktop = window.matchMedia('(min-width: 768px)').matches
+  const collapsed = desktop ? 220 : 190
+  const expanded = Math.round(window.innerHeight * (desktop ? 0.72 : 0.68))
+  const half = Math.round(window.innerHeight * (desktop ? 0.45 : 0.4))
+  return { collapsed, half, expanded }
+}
+
+function nearestDrawerState(height: number, anchors: DrawerAnchors): DrawerState {
+  const dCollapsed = Math.abs(height - anchors.collapsed)
+  const dHalf = Math.abs(height - anchors.half)
+  const dExpanded = Math.abs(height - anchors.expanded)
+  if (dHalf <= dCollapsed && dHalf <= dExpanded) return 'half'
+  return dExpanded < dCollapsed ? 'expanded' : 'collapsed'
+}
 
 interface StoredMapState {
   selected?: string
@@ -91,9 +109,12 @@ export default function MapView() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('results')
-  const [expanded, setExpanded] = useState(false)
+  const [drawerState, setDrawerState] = useState<DrawerState>('collapsed')
+  const [dragHeight, setDragHeight] = useState<number | null>(null)
   const [focus, setFocus] = useState<{ x: number; y: number; token: number } | null>(null)
-  const dragRef = useRef<{ y: number } | null>(null)
+  const drawerRef = useRef<HTMLElement | null>(null)
+  const dragRef = useRef<{ startY: number; startHeight: number; height: number; anchors: DrawerAnchors } | null>(null)
+  const dragMovedRef = useRef(false)
   const tool = useDrawTool()
 
   const canSeeMonitor = role === 'staff' || role === 'admin'
@@ -137,6 +158,18 @@ export default function MapView() {
       /* 隐私模式下写入可能失败，不影响地图使用 */
     }
   }, [selected, showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap])
+
+  const dragging = dragHeight != null
+
+  useEffect(() => {
+    if (!dragging) return
+    const bodyStyle = document.body.style
+    const previous = bodyStyle.userSelect
+    bodyStyle.userSelect = 'none'
+    return () => {
+      bodyStyle.userSelect = previous
+    }
+  }, [dragging])
 
   const helpPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'help_point') ?? [], [pointData])
   const monitorPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'monitor_point') ?? [], [pointData])
@@ -183,6 +216,18 @@ export default function MapView() {
     setDrawerTab('results')
     const point = buildingPoint(building)
     if (point) setFocus({ ...point, token: Date.now() })
+  }
+
+  function finishDrawerDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setDragHeight(null)
+    if (drag && dragMovedRef.current) {
+      setDrawerState(nearestDrawerState(drag.height, drag.anchors))
+    }
   }
 
   function publish() {
@@ -299,31 +344,53 @@ export default function MapView() {
       </div>
 
       {/* 底部可拖拽抽屉 */}
-      <section className={`${styles.drawer} ${expanded ? styles.drawerExpanded : ''}`} aria-label="地图结果与设置">
+      <section
+        ref={drawerRef}
+        className={`${styles.drawer} ${drawerState === 'expanded' ? styles.drawerExpanded : ''} ${drawerState === 'half' ? styles.drawerHalf : ''} ${dragHeight != null ? styles.drawerDragging : ''}`}
+        style={dragHeight != null ? { height: dragHeight } : undefined}
+        aria-label="地图结果与设置"
+      >
         <div
           className={styles.handle}
           role="button"
           tabIndex={0}
-          aria-label={expanded ? '收起面板' : '展开面板'}
-          aria-expanded={expanded}
+          aria-label={drawerState === 'collapsed' ? '展开面板' : '收起面板'}
+          aria-expanded={drawerState !== 'collapsed'}
           onPointerDown={(event) => {
-            dragRef.current = { y: event.clientY }
+            if (event.pointerType === 'mouse' && event.button !== 0) return
+            const rect = drawerRef.current?.getBoundingClientRect()
+            if (!rect) return
+            const anchors = drawerAnchors()
+            dragRef.current = { startY: event.clientY, startHeight: rect.height, height: rect.height, anchors }
+            dragMovedRef.current = false
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
           onPointerMove={(event) => {
-            if (!dragRef.current) return
-            const dy = dragRef.current.y - event.clientY
-            if (dy > 40 || dy < -40) {
-              setExpanded(dy > 0)
-              dragRef.current = null
+            const drag = dragRef.current
+            if (!drag) return
+            const dy = drag.startY - event.clientY
+            if (!dragMovedRef.current && Math.abs(dy) < 4) return
+            dragMovedRef.current = true
+            const next = Math.max(
+              drag.anchors.collapsed,
+              Math.min(drag.startHeight + dy, drag.anchors.expanded),
+            )
+            drag.height = next
+            setDragHeight(next)
+          }}
+          onPointerUp={(event) => finishDrawerDrag(event)}
+          onPointerCancel={(event) => finishDrawerDrag(event)}
+          onClick={() => {
+            if (dragMovedRef.current) {
+              dragMovedRef.current = false
+              return
             }
+            setDrawerState((value) => (value === 'collapsed' ? 'expanded' : 'collapsed'))
           }}
-          onPointerUp={() => {
-            dragRef.current = null
-          }}
-          onClick={() => setExpanded((value) => !value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') setExpanded((value) => !value)
+            if (event.key === 'Enter' || event.key === ' ') {
+              setDrawerState((value) => (value === 'collapsed' ? 'expanded' : 'collapsed'))
+            }
           }}
         >
           <span className={styles.handleBar} aria-hidden="true" />
@@ -339,7 +406,7 @@ export default function MapView() {
               className={`${styles.tab} ${drawerTab === tab.key ? styles.tabActive : ''}`}
               onClick={() => {
                 setDrawerTab(tab.key)
-                setExpanded(true)
+                setDrawerState('expanded')
               }}
             >
               {tab.label}
