@@ -39,3 +39,7 @@ _*.mjs
 *.bundle
 .chrome-prof/
 chrome.log
+# 嵌套解压副本、本地工具目录与临时截图
+campus-lost-found-main/
+.arts/
+img01.png

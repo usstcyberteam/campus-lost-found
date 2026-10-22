@@ -1,0 +1,600 @@
+diff --git a/backend/app/api/v1/ai.py b/backend/app/api/v1/ai.py
+index 9ab203b..7be2a51 100644
+--- a/backend/app/api/v1/ai.py
++++ b/backend/app/api/v1/ai.py
+@@ -4,12 +4,28 @@ from sqlalchemy.orm import Session
+ from app.core.deps import get_current_user
+ from app.database import get_db
+ from app.models import User
+-from app.schemas.ai import DraftPostOut, DraftPostRequest, SearchAdviceOut, SearchAdviceRequest
++from app.schemas.ai import (
++    ChatOut,
++    ChatRequest,
++    DraftPostOut,
++    DraftPostRequest,
++    SearchAdviceOut,
++    SearchAdviceRequest,
++)
+ from app.services import ai_service
+ 
+ router = APIRouter(tags=["ai"])
+ 
+ 
++@router.post("/chat", response_model=ChatOut)
++def chat(
++    body: ChatRequest,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    return ai_service.chat(db, body.message)
++
++
+ @router.post("/draft-post", response_model=DraftPostOut)
+ def draft_post(
+     body: DraftPostRequest,
+diff --git a/backend/app/schemas/ai.py b/backend/app/schemas/ai.py
+index 3863854..28db10d 100644
+--- a/backend/app/schemas/ai.py
++++ b/backend/app/schemas/ai.py
+@@ -40,3 +40,26 @@ class SearchAdviceOut(BaseModel):
+     locations: list[SearchAdviceLocation]
+     source: Source
+     degraded: bool
++
++
++class ChatRequest(BaseModel):
++    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
++
++
++class ChatFormPatch(BaseModel):
++    category: str | None = None
++    title: str | None = None
++    description: str | None = None
++    location_area: str | None = None
++    building_code: str | None = None
++    floor: int | None = None
++    time_occurred: datetime | None = None
++
++
++class ChatOut(BaseModel):
++    intent: str
++    reply: str
++    form_patch: ChatFormPatch | None = None
++    actions: list[str]
++    source: Source
++    degraded: bool
+diff --git a/backend/app/services/ai_service.py b/backend/app/services/ai_service.py
+index e830612..9c6b1f0 100644
+--- a/backend/app/services/ai_service.py
++++ b/backend/app/services/ai_service.py
+@@ -39,12 +39,29 @@ _FLOOR_PATTERNS = (
+ )
+ _DATE_PATTERN = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+ _FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
++_BOLD_PATTERN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
++_HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
++_LIST_BULLET_PATTERN = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+ _SYSTEM_PROMPT = (
+     "你是校园失物招领助手，只负责把用户描述整理成发布草稿，不批准认领、不确认归还。"
+     "只输出一个 JSON 对象，字段为 category、title、description、location_area、building_code、"
+     "floor、time_occurred；未知字段填 null。location_area 只能写到建筑与楼层级，"
+     "禁止输出精确位置、联系方式、认领证据或他人私密路线。"
+ )
++_CHAT_SYSTEM_PROMPT = (
++    "你是校园失物招领助手，不批准认领、不确认归还。"
++    "只输出一个 JSON 对象，字段固定为 intent、reply、form_patch、actions，不得增删字段。"
++    'intent 取 "draft"（用户在描述丢失或拾获的物品）或 "chat"（普通咨询）。'
++    "reply 是回复文本，使用纯文本，禁止使用任何 markdown 标记。"
++    "form_patch 仅在 intent 为 draft 时给出对象，字段为 category、title、description、"
++    "location_area、building_code、floor、time_occurred，未知填 null；"
++    "location_area 只能写到建筑与楼层级。其余情况 form_patch 为 null。"
++    'actions 为字符串数组，仅允许包含 "prefill_form"，无动作时为空数组。'
++    "禁止输出精确位置、联系方式、认领证据或他人私密路线。"
++)
++_CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
++_CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
++_FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
+ 
+ 
+ def _sanitize(value: str) -> str:
+@@ -166,15 +183,14 @@ def _optional_time(payload: dict) -> datetime | None:
+         return None
+ 
+ 
+-def _model_draft(db: Session, text: str) -> dict | None:
+-    content = model_client.chat_completion(_model_messages(text))
+-    if content is None:
+-        return None
+-    payload = _parse_model_json(content)
+-    if payload is None:
+-        logger.warning("模型输出无法解析，已降级")
+-        return None
++def _strip_markdown(text: str) -> str:
++    without_fence = _FENCE_PATTERN.sub("", text).strip()
++    without_bold = _BOLD_PATTERN.sub(r"\1\2", without_fence)
++    without_heading = _HEADING_PATTERN.sub("", without_bold)
++    return _LIST_BULLET_PATTERN.sub("", without_heading).strip()
+ 
++
++def _merge_draft(db: Session, text: str, payload: dict) -> dict:
+     draft = _rule_draft(db, text)
+     draft["category"] = _optional_str(payload, "category", 32) or draft["category"]
+     draft["title"] = _optional_str(payload, "title", 128) or draft["title"]
+@@ -197,6 +213,17 @@ def _model_draft(db: Session, text: str) -> dict | None:
+     return draft
+ 
+ 
++def _model_draft(db: Session, text: str) -> dict | None:
++    content = model_client.chat_completion(_model_messages(text))
++    if content is None:
++        return None
++    payload = _parse_model_json(content)
++    if payload is None:
++        logger.warning("模型输出无法解析，已降级")
++        return None
++    return _merge_draft(db, text, payload)
++
++
+ def draft_post(db: Session, text: str) -> dict:
+     cleaned = _sanitize(text.strip())
+     if model_client.is_available():
+@@ -206,5 +233,89 @@ def draft_post(db: Session, text: str) -> dict:
+     return _rule_draft(db, cleaned)
+ 
+ 
++def _chat_messages(text: str) -> list[dict[str, str]]:
++    return [
++        {"role": "system", "content": _CHAT_SYSTEM_PROMPT},
++        {"role": "user", "content": _sanitize(text)},
++    ]
++
++
++def _chat_intent(payload: dict) -> str:
++    return payload.get("intent") if payload.get("intent") in ("draft", "chat") else "draft"
++
++
++def _chat_reply(payload: dict, fallback: str) -> str:
++    value = payload.get("reply")
++    if not isinstance(value, str):
++        return fallback
++    cleaned = _sanitize(_strip_markdown(value))
++    return _clip(cleaned, 2000) if cleaned else fallback
++
++
++def _chat_actions(payload: dict) -> list[str]:
++    value = payload.get("actions")
++    if not isinstance(value, list):
++        return []
++    return [item for item in value if item == "prefill_form"]
++
++
++def _form_patch_only(draft: dict) -> dict:
++    return {key: draft.get(key) for key in _FORM_PATCH_KEYS}
++
++
++def _model_chat(db: Session, text: str, payload: dict) -> dict:
++    intent = _chat_intent(payload)
++    form_patch = None
++    if intent == "draft":
++        patch_payload = payload.get("form_patch")
++        merged = _merge_draft(db, text, patch_payload if isinstance(patch_payload, dict) else {})
++        form_patch = _form_patch_only(merged)
++    actions = _chat_actions(payload)
++    if intent == "draft" and form_patch is not None:
++        actions = list(dict.fromkeys([*actions, "prefill_form"]))
++    return {
++        "intent": intent,
++        "reply": _chat_reply(payload, "已整理出草稿，请确认或修改后发布。" if intent == "draft" else "收到。"),
++        "form_patch": form_patch,
++        "actions": actions,
++        "source": Source.model,
++        "degraded": False,
++    }
++
++
++def _rule_chat(db: Session, text: str) -> dict:
++    draft = _rule_draft(db, text)
++    has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
++    if has_item_signal:
++        return {
++            "intent": "draft",
++            "reply": _CHAT_FALLBACK_REPLY,
++            "form_patch": _form_patch_only(draft),
++            "actions": ["prefill_form"],
++            "source": Source.rule,
++            "degraded": True,
++        }
++    return {
++        "intent": "chat",
++        "reply": _CHAT_INTRO_REPLY,
++        "form_patch": None,
++        "actions": [],
++        "source": Source.rule,
++        "degraded": True,
++    }
++
++
++def chat(db: Session, message: str) -> dict:
++    cleaned = _sanitize(message.strip())
++    if model_client.is_available():
++        content = model_client.chat_completion(_chat_messages(cleaned))
++        if content is not None:
++            payload = _parse_model_json(content)
++            if payload is not None:
++                return _model_chat(db, cleaned, payload)
++            logger.warning("模型输出无法解析，已降级")
++    return _rule_chat(db, cleaned)
++
++
+ def search_advice(db: Session, user: User, body: SearchAdviceRequest) -> dict:
+     return advice_service.recommend(db, user, body)
+diff --git a/backend/tests/test_ai_chat.py b/backend/tests/test_ai_chat.py
+new file mode 100644
+index 0000000..9097f2b
+--- /dev/null
++++ b/backend/tests/test_ai_chat.py
+@@ -0,0 +1,134 @@
++import httpx
++
++from app.services import model_client
++from tests.test_acceptance import auth, register
++from tests.test_ai_draft import configure_model, install_fake_client
++from tests.test_buildings import import_config
++
++CHAT_MODEL_JSON = (
++    "```json\n"
++    '{"intent":"draft","reply":"**已整理**出草稿，请确认：\\n- 类别：雨伞\\n- 地点：图书馆3F",'
++    '"form_patch":{"category":"雨伞","title":"图书馆丢了一把蓝色雨伞","description":"蓝色折叠伞，伞柄有划痕",'
++    '"location_area":"图书馆3F","building_code":"B02","floor":3,"time_occurred":"2026-10-18T15:00:00"},'
++    '"actions":["prefill_form","hack_action"]}'
++    "\n```"
++)
++
++CHAT_MODEL_PLAIN = (
++    '{"intent":"chat","reply":"你好，我是失物招领助手，请描述你丢失或拾获的物品。","form_patch":null,"actions":[]}'
++)
++
++
++def test_chat_requires_login(client):
++    response = client.post("/api/v1/ai/chat", json={"message": "图书馆丢了一把雨伞"})
++    assert response.status_code == 401
++    assert response.json()["code"] == "UNAUTH"
++
++
++def test_chat_rejects_blank_message(client):
++    token = register(client, "chat_blank")
++    response = client.post("/api/v1/ai/chat", json={"message": "   "}, headers=auth(token))
++    assert response.status_code == 400
++    assert response.json()["code"] == "VALIDATION"
++
++
++def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_model")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "今天下午三点在图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert set(body) == {"intent", "reply", "form_patch", "actions", "source", "degraded"}
++    assert body["intent"] == "draft"
++    assert body["source"] == "model"
++    assert body["degraded"] is False
++    assert "**" not in body["reply"]
++    assert "```" not in body["reply"]
++    assert body["reply"].startswith("已整理")
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++    assert captured["timeout"] == 10
++
++
++def test_chat_plain_intent_has_no_form_patch(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN)
++    token = register(client, "chat_plain")
++
++    response = client.post("/api/v1/ai/chat", json={"message": "你好"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["actions"] == []
++    assert body["reply"].startswith("你好")
++
++
++def test_chat_degrades_on_model_timeout(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, error=httpx.ReadTimeout("timeout"))
++    token = register(client, "chat_timeout")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "图书馆3楼丢了一把雨伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++    assert body["reply"]
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++
++
++def test_chat_greeting_without_item_degrades_to_plain_chat(client):
++    token = register(client, "chat_greeting")
++    response = client.post("/api/v1/ai/chat", json={"message": "你是谁呀"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++
++
++def test_chat_request_excludes_private_fields(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_private")
++
++    client.post(
++        "/api/v1/ai/chat",
++        json={"message": "我的手机 13800138000，邮箱 student@example.com，在图书馆3楼丢了伞"},
++        headers=auth(token),
++    )
++
++    messages = captured["body"]["messages"]
++    assert [message["role"] for message in messages] == ["system", "user"]
++    sent = " ".join(message["content"] for message in messages)
++    assert "13800138000" not in sent
++    assert "student@example.com" not in sent
++    assert "[已脱敏]" in sent
+diff --git a/frontend/src/api/ai.ts b/frontend/src/api/ai.ts
+index ce01193..efda661 100644
+--- a/frontend/src/api/ai.ts
++++ b/frontend/src/api/ai.ts
+@@ -1,5 +1,5 @@
+ import client from './client'
+-import type { DraftPost, SearchAdvice } from '../types'
++import type { AiChatResult, DraftPost, SearchAdvice } from '../types'
+ import type { CircleGeometry, PolylineGeometry } from './items'
+ 
+ export interface SearchAdviceInput {
+@@ -8,6 +8,11 @@ export interface SearchAdviceInput {
+   category?: string | null
+ }
+ 
++export async function aiChat(message: string): Promise<AiChatResult> {
++  const res = await client.post<AiChatResult>('/ai/chat', { message })
++  return res.data
++}
++
+ export async function draftPost(text: string): Promise<DraftPost> {
+   const res = await client.post<DraftPost>('/ai/draft-post', { text })
+   return res.data
+diff --git a/frontend/src/components/AiChat/AiChat.module.css b/frontend/src/components/AiChat/AiChat.module.css
+index 4f02af6..3ba9a6a 100644
+--- a/frontend/src/components/AiChat/AiChat.module.css
++++ b/frontend/src/components/AiChat/AiChat.module.css
+@@ -3,6 +3,28 @@
+   gap: var(--space-3);
+ }
+ 
++.toast {
++  justify-self: center;
++  padding: var(--space-1) var(--space-3);
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++  border-radius: var(--radius-md);
++  font-size: var(--font-sm);
++  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
++  animation: toast-in 160ms ease-out;
++}
++
++@keyframes toast-in {
++  from {
++    opacity: 0;
++    transform: translateY(-4px);
++  }
++  to {
++    opacity: 1;
++    transform: translateY(0);
++  }
++}
++
+ .messages {
+   display: grid;
+   gap: var(--space-2);
+diff --git a/frontend/src/components/AiChat/AiChat.tsx b/frontend/src/components/AiChat/AiChat.tsx
+index b61833d..77a4c79 100644
+--- a/frontend/src/components/AiChat/AiChat.tsx
++++ b/frontend/src/components/AiChat/AiChat.tsx
+@@ -1,6 +1,6 @@
+ import { useEffect, useRef, useState, type FormEvent } from 'react'
+-import { draftPost } from '../../api/ai'
+-import type { DraftPost } from '../../types'
++import { aiChat } from '../../api/ai'
++import type { AiChatResult, FormPatch } from '../../types'
+ import { errorMessage } from '../../utils/error'
+ import Button from '../Button'
+ import ErrorNotice from '../ErrorNotice'
+@@ -12,7 +12,7 @@ interface ChatMessage {
+ }
+ 
+ interface AiChatProps {
+-  onDraft: (draft: DraftPost) => void
++  onPatch: (patch: FormPatch, result: AiChatResult) => void
+   /** 快捷指令注入：token 变化时把 text 填入输入框（不直接发送，用户可修改） */
+   presetText?: { text: string; token: number } | null
+ }
+@@ -22,13 +22,17 @@ const WELCOME: ChatMessage = {
+   text: '描述你丢失或拾获的物品，我会整理成发帖草稿。例如：今天下午在图书馆3楼丢了一把蓝色折叠伞。',
+ }
+ 
+-export default function AiChat({ onDraft, presetText }: AiChatProps) {
++const PREFILL_NOTICE_MS = 3000
++
++export default function AiChat({ onPatch, presetText }: AiChatProps) {
+   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME])
+   const [text, setText] = useState('')
+   const [busy, setBusy] = useState(false)
+   const [error, setError] = useState('')
++  const [notice, setNotice] = useState('')
+   const listRef = useRef<HTMLOListElement>(null)
+   const inputRef = useRef<HTMLTextAreaElement>(null)
++  const noticeTimer = useRef<number>(0)
+ 
+   useEffect(() => {
+     const list = listRef.current
+@@ -41,6 +45,12 @@ export default function AiChat({ onDraft, presetText }: AiChatProps) {
+     inputRef.current?.focus()
+   }, [presetText])
+ 
++  useEffect(() => {
++    if (!notice) return
++    noticeTimer.current = window.setTimeout(() => setNotice(''), PREFILL_NOTICE_MS)
++    return () => window.clearTimeout(noticeTimer.current)
++  }, [notice])
++
+   async function onSubmit(e: FormEvent) {
+     e.preventDefault()
+     const value = text.trim()
+@@ -50,15 +60,12 @@ export default function AiChat({ onDraft, presetText }: AiChatProps) {
+     setMessages((prev) => [...prev, { role: 'user', text: value }])
+     setBusy(true)
+     try {
+-      const draft = await draftPost(value)
+-      setMessages((prev) => [
+-        ...prev,
+-        {
+-          role: 'assistant',
+-          text: draft.degraded ? '模型暂不可用，已按规则整理出草稿，请手动补充。' : '已整理出草稿，请确认或修改后发布。',
+-        },
+-      ])
+-      onDraft(draft)
++      const result = await aiChat(value)
++      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply }])
++      if (result.form_patch) {
++        onPatch(result.form_patch, result)
++        setNotice('已帮你预填')
++      }
+     } catch (err) {
+       setError(errorMessage(err))
+     } finally {
+@@ -68,6 +75,11 @@ export default function AiChat({ onDraft, presetText }: AiChatProps) {
+ 
+   return (
+     <div className={styles.chat}>
++      {notice && (
++        <div className={styles.toast} role="status" aria-live="polite">
++          {notice}
++        </div>
++      )}
+       <ol className={styles.messages} ref={listRef} role="log" aria-live="polite">
+         {messages.map((message, index) => (
+           <li key={index} className={`${styles.message} ${styles[message.role]}`}>
+diff --git a/frontend/src/pages/AiPage.tsx b/frontend/src/pages/AiPage.tsx
+index c11a241..d961a98 100644
+--- a/frontend/src/pages/AiPage.tsx
++++ b/frontend/src/pages/AiPage.tsx
+@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
+ import { listBuildings } from '../api/buildings'
+ import { listItems } from '../api/items'
+ import { useSearchAdvice } from '../hooks/useSearchAdvice'
+-import { placeLabel, type Building, type DraftPost, type Item, type SearchAdvice } from '../types'
++import { placeLabel, type AiChatResult, type Building, type DraftPost, type FormPatch, type Item, type SearchAdvice } from '../types'
+ import AiChat from '../components/AiChat/AiChat'
+ import BlobStudio from '../components/BlobStudio/BlobStudio'
+ import Button from '../components/Button'
+@@ -52,6 +52,33 @@ export default function AiPage() {
+   const building = draft?.building_code ? buildings.find((row) => row.code === draft.building_code) : undefined
+   const buildingName = draft?.building_code ? (building?.name ?? draft.building_code) : '待补充'
+ 
++  // form_patch 只填空字段：已填内容视为用户确认过，不覆盖。
++  function applyPatch(patch: FormPatch, result: AiChatResult) {
++    setDraft((prev) => {
++      const base: DraftPost =
++        prev ?? {
++          category: null,
++          title: null,
++          description: null,
++          location_area: null,
++          building_code: null,
++          floor: null,
++          time_occurred: null,
++          source: result.source,
++          degraded: result.degraded,
++        }
++      const merged: DraftPost = { ...base }
++      for (const key of ['category', 'title', 'description', 'location_area', 'building_code'] as const) {
++        if (!base[key] && patch[key]) merged[key] = patch[key]
++      }
++      if (base.floor === null && patch.floor !== null) merged.floor = patch.floor
++      if (!base.time_occurred && patch.time_occurred) merged.time_occurred = patch.time_occurred
++      merged.source = result.source
++      merged.degraded = result.degraded
++      return merged
++    })
++  }
++
+   function goPublish() {
+     if (!draft) return
+     navigate('/publish', {
+@@ -114,7 +141,7 @@ export default function AiPage() {
+         <BlobStudio ariaLabel="可拖拽塑形的 AI 形态" />
+ 
+         <Card>
+-          <AiChat onDraft={setDraft} presetText={presetText} />
++          <AiChat onPatch={applyPatch} presetText={presetText} />
+         </Card>
+ 
+         {draft && (
+diff --git a/frontend/src/types.ts b/frontend/src/types.ts
+index d8d92e3..6007170 100644
+--- a/frontend/src/types.ts
++++ b/frontend/src/types.ts
+@@ -32,6 +32,25 @@ export interface SearchAdvice {
+   degraded: boolean
+ }
+ 
++export interface FormPatch {
++  category: string | null
++  title: string | null
++  description: string | null
++  location_area: string | null
++  building_code: string | null
++  floor: number | null
++  time_occurred: string | null
++}
++
++export interface AiChatResult {
++  intent: 'draft' | 'chat'
++  reply: string
++  form_patch: FormPatch | null
++  actions: string[]
++  source: Source
++  degraded: boolean
++}
++
+ export interface Page<T> {
+   items: T[]
+   total: number

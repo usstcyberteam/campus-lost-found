@@ -1,0 +1,15 @@
+未执行。
+
+原因：
+1. 沙箱拦截本机回环连接，无法连接数据库/运行 pytest（见 .codeartsdoer/rule/码道项目规则Rules.mdc 补充说明）。
+2. 本次会话为纯前端改动（frontend/src/pages/MapView.tsx、MapView.module.css），后端代码未修改，后端测试不适用。
+
+已执行的替代验证：
+- cd frontend && npm run lint  → 通过（eslint 无报错）
+- cd frontend && npm run build → 通过（vite 构建成功）
+
+需用户在自己的终端补跑并截图：
+- cd backend && .venv/Scripts/python -m pytest tests/ -q
+- 浏览器手动拖拽验证（步骤见 README.md）
+
+提醒：截图不得包含 .env 内容。

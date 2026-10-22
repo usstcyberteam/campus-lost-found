@@ -1,0 +1,1457 @@
+diff --git a/backend/app/api/v1/ai.py b/backend/app/api/v1/ai.py
+index 9ab203b..565d0a8 100644
+--- a/backend/app/api/v1/ai.py
++++ b/backend/app/api/v1/ai.py
+@@ -1,15 +1,41 @@
+-from fastapi import APIRouter, Depends
++from fastapi import APIRouter, Depends, Query
+ from sqlalchemy.orm import Session
+ 
+ from app.core.deps import get_current_user
+ from app.database import get_db
+ from app.models import User
+-from app.schemas.ai import DraftPostOut, DraftPostRequest, SearchAdviceOut, SearchAdviceRequest
++from app.schemas.ai import (
++    ChatOut,
++    ChatRequest,
++    DraftPostOut,
++    DraftPostRequest,
++    SearchAdviceOut,
++    SearchAdviceRequest,
++    SuggestLocationsOut,
++)
+ from app.services import ai_service
+ 
+ router = APIRouter(tags=["ai"])
+ 
+ 
++@router.post("/chat", response_model=ChatOut)
++def chat(
++    body: ChatRequest,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    return ai_service.chat(db, body.message, body.action, user)
++
++
++@router.get("/suggest-locations", response_model=SuggestLocationsOut)
++def suggest_locations(
++    keyword: str | None = Query(default=None, max_length=64),
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    return ai_service.suggest_locations(db, keyword)
++
++
+ @router.post("/draft-post", response_model=DraftPostOut)
+ def draft_post(
+     body: DraftPostRequest,
+diff --git a/backend/app/schemas/ai.py b/backend/app/schemas/ai.py
+index 3863854..2a93acf 100644
+--- a/backend/app/schemas/ai.py
++++ b/backend/app/schemas/ai.py
+@@ -1,6 +1,6 @@
+ import uuid
+ from datetime import datetime
+-from typing import Annotated
++from typing import Annotated, Literal
+ 
+ from pydantic import BaseModel, StringConstraints
+ 
+@@ -40,3 +40,32 @@ class SearchAdviceOut(BaseModel):
+     locations: list[SearchAdviceLocation]
+     source: Source
+     degraded: bool
++
++
++class ChatRequest(BaseModel):
++    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
++    page: str | None = None
++    action: Literal["draft"] | None = None
++
++
++class SuggestLocationsOut(BaseModel):
++    locations: list[str]
++
++
++class ChatFormPatch(BaseModel):
++    category: str | None = None
++    title: str | None = None
++    description: str | None = None
++    location_area: str | None = None
++    building_code: str | None = None
++    floor: int | None = None
++    time_occurred: datetime | None = None
++
++
++class ChatOut(BaseModel):
++    intent: str
++    reply: str
++    form_patch: ChatFormPatch | None = None
++    actions: list[str]
++    source: Source
++    degraded: bool
+diff --git a/backend/app/services/ai_service.py b/backend/app/services/ai_service.py
+index e830612..e81dd9f 100644
+--- a/backend/app/services/ai_service.py
++++ b/backend/app/services/ai_service.py
+@@ -3,9 +3,10 @@ import logging
+ import re
+ from datetime import datetime
+ 
++from sqlalchemy import func
+ from sqlalchemy.orm import Session
+ 
+-from app.models import Building, User
++from app.models import Building, Item, User
+ from app.models.enums import Source
+ from app.schemas.ai import SearchAdviceRequest
+ from app.services import advice_service, model_client
+@@ -39,12 +40,38 @@ _FLOOR_PATTERNS = (
+ )
+ _DATE_PATTERN = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+ _FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
++_BOLD_PATTERN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
++_HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
++_LIST_BULLET_PATTERN = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+ _SYSTEM_PROMPT = (
+     "你是校园失物招领助手，只负责把用户描述整理成发布草稿，不批准认领、不确认归还。"
+     "只输出一个 JSON 对象，字段为 category、title、description、location_area、building_code、"
+     "floor、time_occurred；未知字段填 null。location_area 只能写到建筑与楼层级，"
+     "禁止输出精确位置、联系方式、认领证据或他人私密路线。"
+ )
++_CHAT_SYSTEM_PROMPT = (
++    "你是校园失物招领智能助手，专注校园场景（图书馆、食堂、教学楼、宿舍、操场等），"
++    "职责是把用户描述整理成发帖草稿并引导补充信息，不批准认领、不确认归还。"
++    "只输出一个 JSON 对象，字段固定为 intent、reply、form_patch、actions，不得增删字段、不得输出 JSON 以外的任何文本。"
++    "reply 为纯文本，语气亲切简短（不超过 60 字），禁止任何 markdown 标记。"
++    "intent 判断：用户描述丢失或拾获物品，且除物品名称外还提到颜色样式、时间、建筑楼层中至少一项时，"
++    'intent 为 "draft"，reply 直接确认已整理好草稿；'
++    '描述模糊、只有物品名称（如只说"掉了一把伞"）时，intent 为 "chat"，'
++    "reply 用一句话引导补充颜色样式、时间、具体建筑与楼层，此时 form_patch 必须为 null，不要强行预填；"
++    '普通咨询或寒暄时，intent 为 "chat"，form_patch 为 null。'
++    "form_patch 仅在 intent 为 draft 时为对象，字段为 category、title、description、location_area、"
++    "building_code、floor、time_occurred。只填用户明确提到的信息："
++    "未提及的字段一律填 null，禁止填空字符串，禁止推断或编造；"
++    "category 从雨伞、水杯、手机、笔记本电脑、耳机、钱包、校园卡、钥匙、书包、衣物、身份证、充电宝中选取，"
++    "都不符合时填 null；title 为一句话概括（不超过 30 字）；description 摘录用户描述中的物品特征；"
++    "location_area 只能写到建筑与楼层级（如 图书馆3F）；building_code 填校园建筑编码（如图书馆为 B02），"
++    "无法确定就填 null；time_occurred 填 ISO 格式日期时间，相对时间（如今天下午3点）按当天换算，无法确定就填 null。"
++    'actions 为字符串数组，仅在 intent 为 draft 且 form_patch 至少一个字段非 null 时包含 "prefill_form"，否则为空数组。'
++    "禁止输出精确到座位、柜号的私密位置、联系方式、认领证据或他人路线。"
++)
++_CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
++_CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
++_FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
+ 
+ 
+ def _sanitize(value: str) -> str:
+@@ -166,15 +193,14 @@ def _optional_time(payload: dict) -> datetime | None:
+         return None
+ 
+ 
+-def _model_draft(db: Session, text: str) -> dict | None:
+-    content = model_client.chat_completion(_model_messages(text))
+-    if content is None:
+-        return None
+-    payload = _parse_model_json(content)
+-    if payload is None:
+-        logger.warning("模型输出无法解析，已降级")
+-        return None
++def _strip_markdown(text: str) -> str:
++    without_fence = _FENCE_PATTERN.sub("", text).strip()
++    without_bold = _BOLD_PATTERN.sub(r"\1\2", without_fence)
++    without_heading = _HEADING_PATTERN.sub("", without_bold)
++    return _LIST_BULLET_PATTERN.sub("", without_heading).strip()
++
+ 
++def _merge_draft(db: Session, text: str, payload: dict) -> dict:
+     draft = _rule_draft(db, text)
+     draft["category"] = _optional_str(payload, "category", 32) or draft["category"]
+     draft["title"] = _optional_str(payload, "title", 128) or draft["title"]
+@@ -197,6 +223,17 @@ def _model_draft(db: Session, text: str) -> dict | None:
+     return draft
+ 
+ 
++def _model_draft(db: Session, text: str) -> dict | None:
++    content = model_client.chat_completion(_model_messages(text))
++    if content is None:
++        return None
++    payload = _parse_model_json(content)
++    if payload is None:
++        logger.warning("模型输出无法解析，已降级")
++        return None
++    return _merge_draft(db, text, payload)
++
++
+ def draft_post(db: Session, text: str) -> dict:
+     cleaned = _sanitize(text.strip())
+     if model_client.is_available():
+@@ -206,5 +243,168 @@ def draft_post(db: Session, text: str) -> dict:
+     return _rule_draft(db, cleaned)
+ 
+ 
++def _chat_messages(
++    text: str, action: str | None = None, history_places: list[str] | None = None
++) -> list[dict[str, str]]:
++    # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
++    now = datetime.now().strftime("%Y-%m-%d %H:%M")
++    system = _CHAT_SYSTEM_PROMPT + f"当前时间：{now}。"
++    if action == "draft":
++        system += (
++            "用户明确要求整理草稿：无论信息是否完整，都输出 intent=draft，"
++            "把能识别到的字段全部填入 form_patch（能提取多少提取多少），不要追问。"
++        )
++    if history_places:
++        system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
++    return [
++        {"role": "system", "content": system},
++        {"role": "user", "content": _sanitize(text)},
++    ]
++
++
++def _chat_intent(payload: dict) -> str:
++    return payload.get("intent") if payload.get("intent") in ("draft", "chat") else "draft"
++
++
++def _chat_reply(payload: dict, fallback: str) -> str:
++    value = payload.get("reply")
++    if not isinstance(value, str):
++        return fallback
++    cleaned = _sanitize(_strip_markdown(value))
++    return _clip(cleaned, 2000) if cleaned else fallback
++
++
++def _chat_actions(payload: dict) -> list[str]:
++    value = payload.get("actions")
++    if not isinstance(value, list):
++        return []
++    return [item for item in value if item == "prefill_form"]
++
++
++def _form_patch_only(draft: dict) -> dict:
++    return {key: draft.get(key) for key in _FORM_PATCH_KEYS}
++
++
++def _chat_form_patch(db: Session, text: str, payload: dict) -> dict | None:
++    """只提取模型明确给出的字段，不做规则兜底填充：未提及即 null，全空则不预填。
++
++    例外：floor 允许用原文正则兜底——楼层若在原文明确写出（如"3楼"），属于用户明确提到的信息。
++    """
++    patch_payload = payload.get("form_patch")
++    if not isinstance(patch_payload, dict):
++        return None
++    patch = {
++        "category": _optional_str(patch_payload, "category", 32),
++        "title": _optional_str(patch_payload, "title", 128),
++        "description": _optional_str(patch_payload, "description", 2000),
++        "location_area": _optional_str(patch_payload, "location_area", 128),
++        "building_code": None,
++        "floor": _optional_floor(patch_payload),
++        "time_occurred": _optional_time(patch_payload),
++    }
++    if patch["floor"] is None:
++        patch["floor"] = _parse_floor(text)
++    code = _optional_str(patch_payload, "building_code", 32)
++    building = db.query(Building).filter(Building.code == code).first() if code else None
++    if building is not None:
++        patch["building_code"] = building.code
++        # 地点只保留建筑与楼层级，避免模型把楼内精确位置写进公开字段。
++        patch["location_area"] = _area_label(building, patch["floor"]) or patch["location_area"]
++    if all(value is None for value in patch.values()):
++        return None
++    return patch
++
++
++def _model_chat(db: Session, text: str, payload: dict) -> dict:
++    intent = _chat_intent(payload)
++    form_patch = _chat_form_patch(db, text, payload) if intent == "draft" else None
++    actions = _chat_actions(payload)
++    if form_patch is not None:
++        actions = list(dict.fromkeys([*actions, "prefill_form"]))
++    return {
++        "intent": intent,
++        "reply": _chat_reply(payload, "已整理出草稿，请确认或修改后发布。" if intent == "draft" else "收到。"),
++        "form_patch": form_patch,
++        "actions": actions,
++        "source": Source.model,
++        "degraded": False,
++    }
++
++
++def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
++    draft = _rule_draft(db, text)
++    has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
++    if action == "draft":
++        # 强制整理草稿：规则路径也要返回 form_patch（模糊输入时 title 兜底为原文）
++        patch = _form_patch_only(draft)
++        if patch.get("title") is None:
++            patch["title"] = _clip(text, 128) or None
++        if not any(value is not None for value in patch.values()):
++            patch["title"] = _clip(text, 128)
++        return {
++            "intent": "draft",
++            "reply": "模型暂不可用，已按规则整理出草稿，请手动补充。",
++            "form_patch": patch,
++            "actions": ["prefill_form"],
++            "source": Source.rule,
++            "degraded": True,
++        }
++    if has_item_signal:
++        return {
++            "intent": "draft",
++            "reply": _CHAT_FALLBACK_REPLY,
++            "form_patch": _form_patch_only(draft),
++            "actions": ["prefill_form"],
++            "source": Source.rule,
++            "degraded": True,
++        }
++    return {
++        "intent": "chat",
++        "reply": _CHAT_INTRO_REPLY,
++        "form_patch": None,
++        "actions": [],
++        "source": Source.rule,
++        "degraded": True,
++    }
++
++
++def _user_history_places(db: Session, user: User, limit: int = 3) -> list[str]:
++    rows = (
++        db.query(Item.location_area, func.count(Item.id).label("count"))
++        .filter(Item.owner_user_id == user.id, Item.location_area != "")
++        .group_by(Item.location_area)
++        .order_by(func.count(Item.id).desc())
++        .limit(limit)
++        .all()
++    )
++    return [row[0] for row in rows]
++
++
++def chat(db: Session, message: str, action: str | None = None, user: User | None = None) -> dict:
++    cleaned = _sanitize(message.strip())
++    history_places = _user_history_places(db, user) if user is not None else []
++    if model_client.is_available():
++        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places))
++        if content is not None:
++            payload = _parse_model_json(content)
++            if payload is not None:
++                if action == "draft":
++                    payload["intent"] = "draft"
++                return _model_chat(db, cleaned, payload)
++            logger.warning("模型输出无法解析，已降级")
++    return _rule_chat(db, cleaned, action)
++
++
++def suggest_locations(db: Session, keyword: str | None, limit: int = 5) -> dict:
++    """按历史发帖频次推荐地点：keyword 过滤（模糊输入时返回全局热门）。纯规则，不依赖模型。"""
++    query = db.query(Item.location_area, func.count(Item.id).label("count")).filter(Item.location_area != "")
++    if keyword:
++        query = query.filter(Item.location_area.contains(keyword.strip()))
++    rows = (
++        query.group_by(Item.location_area).order_by(func.count(Item.id).desc(), Item.location_area).limit(limit).all()
++    )
++    return {"locations": [row[0] for row in rows]}
++
++
+ def search_advice(db: Session, user: User, body: SearchAdviceRequest) -> dict:
+     return advice_service.recommend(db, user, body)
+diff --git a/backend/tests/test_ai_chat.py b/backend/tests/test_ai_chat.py
+new file mode 100644
+index 0000000..f725f30
+--- /dev/null
++++ b/backend/tests/test_ai_chat.py
+@@ -0,0 +1,265 @@
++import httpx
++
++from tests.test_acceptance import auth, register
++from tests.test_ai_draft import configure_model, install_fake_client
++from tests.test_buildings import import_config
++
++CHAT_MODEL_JSON = (
++    "```json\n"
++    '{"intent":"draft","reply":"**已整理**出草稿，请确认：\\n- 类别：雨伞\\n- 地点：图书馆3F",'
++    '"form_patch":{"category":"雨伞","title":"图书馆丢了一把蓝色雨伞","description":"蓝色折叠伞，伞柄有划痕",'
++    '"location_area":"图书馆3F","building_code":"B02","floor":3,"time_occurred":"2026-10-18T15:00:00"},'
++    '"actions":["prefill_form","hack_action"]}'
++    "\n```"
++)
++
++CHAT_MODEL_PLAIN = (
++    '{"intent":"chat","reply":"你好，我是失物招领助手，请描述你丢失或拾获的物品。","form_patch":null,"actions":[]}'
++)
++
++CHAT_MODEL_VAGUE = (
++    '{"intent":"chat","reply":"别着急，伞是什么颜色和样式的？大概什么时间、在哪栋楼丢的？",'
++    '"form_patch":null,"actions":[]}'
++)
++
++CHAT_MODEL_PARTIAL = (
++    '{"intent":"draft","reply":"已记录你丢的蓝色雨伞，方便的话补充下时间和地点。",'
++    '"form_patch":{"category":"雨伞","title":"蓝色雨伞","description":"蓝色雨伞"},'
++    '"actions":["prefill_form"]}'
++)
++
++
++def test_chat_requires_login(client):
++    response = client.post("/api/v1/ai/chat", json={"message": "图书馆丢了一把雨伞"})
++    assert response.status_code == 401
++    assert response.json()["code"] == "UNAUTH"
++
++
++def test_chat_rejects_blank_message(client):
++    token = register(client, "chat_blank")
++    response = client.post("/api/v1/ai/chat", json={"message": "   "}, headers=auth(token))
++    assert response.status_code == 400
++    assert response.json()["code"] == "VALIDATION"
++
++
++def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_model")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "今天下午三点在图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert set(body) == {"intent", "reply", "form_patch", "actions", "source", "degraded"}
++    assert body["intent"] == "draft"
++    assert body["source"] == "model"
++    assert body["degraded"] is False
++    assert "**" not in body["reply"]
++    assert "```" not in body["reply"]
++    assert body["reply"].startswith("已整理")
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++    assert captured["timeout"] == 10
++
++
++def test_chat_plain_intent_has_no_form_patch(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN)
++    token = register(client, "chat_plain")
++
++    response = client.post("/api/v1/ai/chat", json={"message": "你好"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["actions"] == []
++    assert body["reply"].startswith("你好")
++
++
++def test_chat_degrades_on_model_timeout(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, error=httpx.ReadTimeout("timeout"))
++    token = register(client, "chat_timeout")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "图书馆3楼丢了一把雨伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++    assert body["reply"]
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++
++
++def test_chat_greeting_without_item_degrades_to_plain_chat(client):
++    token = register(client, "chat_greeting")
++    response = client.post("/api/v1/ai/chat", json={"message": "你是谁呀"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++
++
++def test_chat_request_excludes_private_fields(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_private")
++
++    client.post(
++        "/api/v1/ai/chat",
++        json={"message": "我的手机 13800138000，邮箱 student@example.com，在图书馆3楼丢了伞"},
++        headers=auth(token),
++    )
++
++    messages = captured["body"]["messages"]
++    assert [message["role"] for message in messages] == ["system", "user"]
++    sent = " ".join(message["content"] for message in messages)
++    assert "13800138000" not in sent
++    assert "student@example.com" not in sent
++    assert "[已脱敏]" in sent
++
++
++def test_chat_vague_description_guides_instead_of_prefill(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_VAGUE)
++    token = register(client, "chat_vague")
++
++    response = client.post("/api/v1/ai/chat", json={"message": "刚才掉了一把伞"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["actions"] == []
++    assert body["source"] == "model"
++    assert "颜色" in body["reply"]
++
++
++def test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PARTIAL)
++    token = register(client, "chat_partial")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "丢了一把蓝色雨伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    patch = body["form_patch"]
++    assert patch["category"] == "雨伞"
++    assert patch["title"] == "蓝色雨伞"
++    assert patch["building_code"] is None
++    assert patch["location_area"] is None
++    assert patch["floor"] is None
++    assert patch["time_occurred"] is None
++    assert body["actions"] == ["prefill_form"]
++    assert body["source"] == "model"
++
++
++def test_chat_draft_action_forces_extraction(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PARTIAL)
++    token = register(client, "chat_draft_action")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "蓝色雨伞", "page": "ai", "action": "draft"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    assert body["source"] == "model"
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["title"] == "蓝色雨伞"
++    system = captured["body"]["messages"][0]["content"]
++    assert "整理草稿" in system
++
++
++def test_chat_draft_action_degrades_to_rule_patch(client):
++    token = register(client, "chat_draft_rule")
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "一把蓝色雨伞", "action": "draft"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++    patch = body["form_patch"]
++    assert patch is not None
++    assert patch["category"] == "雨伞"
++    assert patch["title"]
++
++
++def test_chat_rejects_unknown_action(client):
++    token = register(client, "chat_bad_action")
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "你好", "action": "hack"},
++        headers=auth(token),
++    )
++    assert response.status_code == 400
++    assert response.json()["code"] == "VALIDATION"
++
++
++def test_suggest_locations_requires_login(client):
++    response = client.get("/api/v1/ai/suggest-locations")
++    assert response.status_code == 401
++
++
++def test_suggest_locations_ranks_by_frequency(client):
++    from tests.test_item_lifecycle import create_item
++
++    token = register(client, "suggest_owner")
++    headers = auth(token)
++    for area in ("图书馆3F", "图书馆3F", "一食堂2F"):
++        create_item(client, token, location_area=area, title="雨伞", category="雨伞")
++
++    response = client.get("/api/v1/ai/suggest-locations", params={"keyword": "图书馆"}, headers=headers)
++    assert response.status_code == 200
++    body = response.json()
++    assert body["locations"] == ["图书馆3F"]
++
++    response_all = client.get("/api/v1/ai/suggest-locations", headers=headers)
++    all_locations = response_all.json()["locations"]
++    assert all_locations[0] == "图书馆3F"
++    assert "一食堂2F" in all_locations
+diff --git a/frontend/src/api/ai.ts b/frontend/src/api/ai.ts
+index ce01193..f206e9c 100644
+--- a/frontend/src/api/ai.ts
++++ b/frontend/src/api/ai.ts
+@@ -1,5 +1,5 @@
+ import client from './client'
+-import type { DraftPost, SearchAdvice } from '../types'
++import type { AiChatResult, DraftPost, SearchAdvice } from '../types'
+ import type { CircleGeometry, PolylineGeometry } from './items'
+ 
+ export interface SearchAdviceInput {
+@@ -8,6 +8,22 @@ export interface SearchAdviceInput {
+   category?: string | null
+ }
+ 
++export async function aiChat(
++  message: string,
++  page?: string,
++  action?: 'draft',
++): Promise<AiChatResult> {
++  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action })
++  return res.data
++}
++
++export async function suggestLocations(keyword?: string): Promise<string[]> {
++  const res = await client.get<{ locations: string[] }>('/ai/suggest-locations', {
++    params: keyword ? { keyword } : undefined,
++  })
++  return res.data.locations
++}
++
+ export async function draftPost(text: string): Promise<DraftPost> {
+   const res = await client.post<DraftPost>('/ai/draft-post', { text })
+   return res.data
+diff --git a/frontend/src/components/AiFloat/AiFloatWidget.module.css b/frontend/src/components/AiFloat/AiFloatWidget.module.css
+new file mode 100644
+index 0000000..c6f7d9b
+--- /dev/null
++++ b/frontend/src/components/AiFloat/AiFloatWidget.module.css
+@@ -0,0 +1,247 @@
++/* 左侧停靠条：定位走 transform（GPU 加速），吸附动画在 .barSnap */
++.bar {
++  position: fixed;
++  left: 0;
++  top: 0;
++  z-index: 9999;
++  padding: 0;
++  border: none;
++  border-radius: 0 12px 12px 0;
++  background: var(--color-bg-1);
++  box-shadow: 0 2px 12px rgb(0 0 0 / 20%);
++  cursor: grab;
++  touch-action: none;
++  transition: box-shadow 0.2s ease;
++  will-change: transform;
++}
++
++.bar:hover {
++  box-shadow: 0 4px 20px rgb(0 0 0 / 32%);
++}
++
++.bar:focus-visible {
++  outline: 2px solid var(--color-primary);
++  outline-offset: 2px;
++}
++
++.bar:active {
++  cursor: grabbing;
++}
++
++.barSnap {
++  transition:
++    box-shadow 0.2s ease,
++    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++/* 右侧停靠：圆角镜像 */
++.barRight {
++  border-radius: 12px 0 0 12px;
++}
++
++.barInner {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  gap: var(--space-1);
++  width: 100%;
++  height: 100%;
++  transition: transform 0.2s ease;
++}
++
++.bar:hover .barInner {
++  transform: scale(1.05);
++}
++
++.barInner img {
++  width: 40px;
++  height: 40px;
++  object-fit: cover;
++  border-radius: 50%;
++  pointer-events: none;
++  user-select: none;
++}
++
++.barLabel {
++  font-size: var(--font-sm);
++  font-weight: 600;
++  color: var(--color-primary);
++}
++
++/* 聊天窗锚点：0×0 定位点（transform 定位），与停靠条同步吸附 */
++.panelAnchor {
++  position: fixed;
++  left: 0;
++  top: 0;
++  z-index: 9998;
++  width: 0;
++  height: 0;
++}
++
++.anchorSnap {
++  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++.panel {
++  position: absolute;
++  left: 0;
++  top: 0;
++  display: flex;
++  flex-direction: column;
++  width: min(340px, calc(100vw - 80px));
++  height: min(460px, calc(100vh - 24px));
++  background: var(--color-bg-1);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-md);
++  box-shadow: 0 12px 32px rgb(0 0 0 / 28%);
++  opacity: 0;
++  transform: scale(0.85);
++  transform-origin: left center;
++  transition:
++    opacity 0.25s ease-out,
++    transform 0.25s ease-out;
++  pointer-events: none;
++  overflow: hidden;
++}
++
++.panelOpen {
++  opacity: 1;
++  transform: scale(1);
++  pointer-events: auto;
++}
++
++/* 右侧停靠时聊天窗朝内（左侧）弹出 */
++.panelRight {
++  transform-origin: right center;
++}
++
++/* 规则降级标签：AI 消息内的小角标 */
++.ruleTag {
++  display: inline-block;
++  margin-left: var(--space-1);
++  padding: 0 var(--space-1);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-sm, 4px);
++  color: var(--color-text-2);
++  font-size: var(--font-sm);
++  vertical-align: middle;
++}
++
++/* 整理草稿按钮 */
++.draftButton {
++  margin: 0 var(--space-2);
++  padding: var(--space-1) var(--space-2);
++  border: 1px dashed var(--color-primary);
++  border-radius: var(--radius-md);
++  background: transparent;
++  color: var(--color-primary);
++  font-size: var(--font-sm);
++  cursor: pointer;
++}
++
++.draftButton:hover:not(:disabled) {
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++}
++
++.draftButton:disabled {
++  opacity: 0.6;
++  cursor: not-allowed;
++}
++
++.notice {
++  margin: var(--space-2) var(--space-2) 0;
++  padding: var(--space-1) var(--space-2);
++  border: none;
++  border-radius: var(--radius-md);
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++  font-size: var(--font-sm);
++  text-align: center;
++  cursor: pointer;
++}
++
++.messages {
++  flex: 1;
++  display: flex;
++  flex-direction: column;
++  gap: var(--space-2);
++  margin: var(--space-2);
++  padding: var(--space-2);
++  overflow-y: auto;
++  list-style: none;
++  background: var(--color-bg-2);
++  border-radius: var(--radius-md);
++}
++
++.message {
++  max-width: 85%;
++  padding: var(--space-1) var(--space-2);
++  border-radius: var(--radius-md);
++  font-size: var(--font-base);
++  line-height: 1.5;
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++
++.messageUser {
++  align-self: flex-end;
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++}
++
++.messageAssistant {
++  align-self: flex-start;
++  background: var(--color-bg-1);
++  border: 1px solid var(--color-border);
++  color: var(--color-text-1);
++}
++
++.form {
++  display: grid;
++  grid-template-columns: 1fr auto;
++  gap: var(--space-2);
++  align-items: end;
++  padding: var(--space-2);
++}
++
++.input {
++  width: 100%;
++  min-height: 64px;
++  max-height: 120px;
++  padding: var(--space-1) var(--space-2);
++  box-sizing: border-box;
++  border: 1px solid var(--color-border-strong);
++  border-radius: var(--radius-md);
++  font: inherit;
++  font-size: var(--font-sm);
++  resize: none;
++}
++
++.input:focus-visible {
++  border-color: var(--color-primary);
++  outline: none;
++  box-shadow: 0 0 0 3px var(--color-focus-ring);
++}
++
++.send {
++  padding: var(--space-1) var(--space-2);
++  border: none;
++  border-radius: var(--radius-md);
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++  font-size: var(--font-sm);
++  cursor: pointer;
++}
++
++.send:disabled {
++  opacity: 0.6;
++  cursor: not-allowed;
++}
++
++.error {
++  margin: 0 var(--space-2) var(--space-2);
++  color: var(--color-danger);
++  font-size: var(--font-sm);
++}
+\ No newline at end of file
+diff --git a/frontend/src/components/AiFloat/AiFloatWidget.tsx b/frontend/src/components/AiFloat/AiFloatWidget.tsx
+new file mode 100644
+index 0000000..729db00
+--- /dev/null
++++ b/frontend/src/components/AiFloat/AiFloatWidget.tsx
+@@ -0,0 +1,379 @@
++import {
++  useEffect,
++  useRef,
++  useState,
++  type FormEvent,
++  type PointerEvent as ReactPointerEvent,
++} from 'react'
++import { useLocation, useNavigate } from 'react-router-dom'
++import { aiChat } from '../../api/ai'
++import type { AiChatResult, FormPatch } from '../../types'
++import { errorMessage } from '../../utils/error'
++import styles from './AiFloatWidget.module.css'
++
++const POS_KEY = 'ai-float-pos-side'
++const PREFILL_QUERY = 'ai_prefill'
++const BAR_W = 48
++const BAR_H = 132
++const PANEL_W = 340
++const PANEL_H = 460
++const DRAG_THRESHOLD = 5
++const NOTICE_MS = 6000
++const Y_MIN = 60
++
++type Side = 'left' | 'right'
++
++interface ChatMessage {
++  role: 'user' | 'assistant'
++  text: string
++  degraded?: boolean
++}
++
++interface Pos {
++  x: number
++  y: number
++}
++
++interface StoredPos {
++  side: Side
++  y: number
++}
++
++interface RouteTarget {
++  path: string
++  direction?: 'lost' | 'found'
++  patch?: FormPatch
++}
++
++const WELCOME: ChatMessage = {
++  role: 'assistant',
++  text: '你好，我是校园失物招领助手。描述你丢失或拾获的物品，我帮你整理成发帖草稿。',
++}
++
++function clampY(y: number): number {
++  const yMax = Math.max(Y_MIN, window.innerHeight - 140)
++  return Math.min(Math.max(Y_MIN, y), yMax)
++}
++
++function clampPos(pos: Pos): Pos {
++  return {
++    x: Math.min(Math.max(0, pos.x), Math.max(0, window.innerWidth - BAR_W)),
++    y: clampY(pos.y),
++  }
++}
++
++function sideX(side: Side): number {
++  return side === 'left' ? 0 : Math.max(0, window.innerWidth - BAR_W)
++}
++
++function defaultStored(): StoredPos {
++  return { side: 'left', y: clampY((window.innerHeight - BAR_H) / 2) }
++}
++
++function loadStored(): StoredPos {
++  try {
++    const raw = localStorage.getItem(POS_KEY)
++    if (!raw) return defaultStored()
++    const parsed = JSON.parse(raw) as StoredPos
++    if (typeof parsed.y !== 'number') return defaultStored()
++    return { side: parsed.side === 'right' ? 'right' : 'left', y: clampY(parsed.y) }
++  } catch {
++    return defaultStored()
++  }
++}
++
++function hasPrefillValue(patch: FormPatch): boolean {
++  return Object.values(patch).some((value) => value !== null && value !== undefined && value !== '')
++}
++
++/** 前端意图规则：丢/捡优先于地图；命中时跳发布页并带预填，或跳地图页。 */
++function routeFor(message: string): RouteTarget | null {
++  if (/(丢了|丢失|遗失)/.test(message)) return { path: '/publish', direction: 'lost' }
++  if (/(捡到|拾获|捡了)/.test(message)) return { path: '/publish', direction: 'found' }
++  if (/(地图|位置)/.test(message)) return { path: '/map' }
++  return null
++}
++
++/** 消息与 form_patch 归位为可跳转的 toast 状态（发送与"整理草稿"共用）。 */
++function applyResult(
++  result: AiChatResult,
++  sourceText: string,
++  setTarget: (t: RouteTarget | null) => void,
++  setNotice: (n: string) => void,
++  navigate: (path: string) => void,
++  closePanel: () => void,
++) {
++  const route = routeFor(sourceText)
++  if (result.form_patch && hasPrefillValue(result.form_patch)) {
++    if (route?.path === '/publish' && route.direction) {
++      setTarget({ ...route, patch: result.form_patch })
++      setNotice('已整理信息，点击跳转')
++    } else if (!route) {
++      setTarget({ path: '/publish', direction: 'lost', patch: result.form_patch })
++      setNotice('已整理草稿，点击跳转发布')
++    } else {
++      navigate('/map')
++      closePanel()
++    }
++  } else if (route?.path === '/map') {
++    navigate('/map')
++    closePanel()
++  }
++}
++
++export default function AiFloatWidget() {
++  const location = useLocation()
++  const navigate = useNavigate()
++  const [open, setOpen] = useState(false)
++  const [dragging, setDragging] = useState(false)
++  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME])
++  const [text, setText] = useState('')
++  const [busy, setBusy] = useState(false)
++  const [draftBusy, setDraftBusy] = useState(false)
++  const [error, setError] = useState('')
++  const [notice, setNotice] = useState('')
++  const [target, setTarget] = useState<RouteTarget | null>(null)
++  const [side, setSide] = useState<Side>(() => loadStored().side)
++  const [pos, setPos] = useState<Pos>(() => {
++    const stored = loadStored()
++    return { x: sideX(stored.side), y: stored.y }
++  })
++  const drag = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0, distance: 0 })
++  const posRef = useRef(pos)
++  const listRef = useRef<HTMLOListElement>(null)
++  const noticeTimer = useRef(0)
++
++  posRef.current = pos
++
++  const hidden = /^\/(login|register|admin)/.test(location.pathname)
++
++  useEffect(() => {
++    const list = listRef.current
++    if (list) list.scrollTop = list.scrollHeight
++  }, [messages, open])
++
++  useEffect(() => {
++    if (!notice) return
++    noticeTimer.current = window.setTimeout(() => {
++      setNotice('')
++      setTarget(null)
++    }, NOTICE_MS)
++    return () => window.clearTimeout(noticeTimer.current)
++  }, [notice])
++
++  useEffect(() => {
++    function onResize() {
++      setPos((prev) => clampPos({ ...prev, x: sideX(side) }))
++    }
++    window.addEventListener('resize', onResize)
++    return () => window.removeEventListener('resize', onResize)
++  }, [side])
++
++  function onPointerDown(e: ReactPointerEvent<HTMLButtonElement>) {
++    e.currentTarget.setPointerCapture(e.pointerId)
++    drag.current = {
++      active: true,
++      startX: e.clientX,
++      startY: e.clientY,
++      origX: posRef.current.x,
++      origY: posRef.current.y,
++      distance: 0,
++    }
++    setDragging(true)
++  }
++
++  function onPointerMove(e: ReactPointerEvent<HTMLButtonElement>) {
++    if (!drag.current.active) return
++    const dx = e.clientX - drag.current.startX
++    const dy = e.clientY - drag.current.startY
++    drag.current.distance = Math.max(Math.abs(dx), Math.abs(dy))
++    setPos(clampPos({ x: drag.current.origX + dx, y: drag.current.origY + dy }))
++  }
++
++  function onPointerUp() {
++    if (!drag.current.active) return
++    drag.current.active = false
++    setDragging(false)
++    if (drag.current.distance < DRAG_THRESHOLD) {
++      setOpen((value) => !value)
++      return
++    }
++    // 按松手时中心点 x 判断吸附侧，吸附并持久化 {side, y}
++    const centerX = posRef.current.x + BAR_W / 2
++    const snappedSide: Side = centerX < window.innerWidth / 2 ? 'left' : 'right'
++    const snapped = clampPos({ x: sideX(snappedSide), y: posRef.current.y })
++    setSide(snappedSide)
++    setPos(snapped)
++    posRef.current = snapped
++    localStorage.setItem(POS_KEY, JSON.stringify({ side: snappedSide, y: snapped.y } satisfies StoredPos))
++  }
++
++  async function onSubmit(e: FormEvent) {
++    e.preventDefault()
++    const value = text.trim()
++    if (!value || busy) return
++    setText('')
++    setError('')
++    setNotice('')
++    setTarget(null)
++    setMessages((prev) => [...prev, { role: 'user', text: value }])
++    setBusy(true)
++    try {
++      const result: AiChatResult = await aiChat(value, location.pathname)
++      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
++      applyResult(
++        result,
++        value,
++        setTarget,
++        setNotice,
++        navigate,
++        () => setOpen(false),
++      )
++    } catch (err) {
++      setError(errorMessage(err))
++    } finally {
++      setBusy(false)
++    }
++  }
++
++  /** P2：把最近一条用户消息强制整理为发布草稿（action=draft，后端强制提取）。 */
++  async function onDraftClick() {
++    if (draftBusy || busy) return
++    const lastUser = [...messages].reverse().find((message) => message.role === 'user')
++    if (!lastUser) {
++      setError('先在下方输入物品描述，再点整理草稿。')
++      return
++    }
++    setError('')
++    setNotice('')
++    setTarget(null)
++    setDraftBusy(true)
++    try {
++      const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft')
++      setMessages((prev) => [
++        ...prev,
++        { role: 'assistant', text: result.reply, degraded: result.degraded },
++      ])
++      if (result.form_patch && hasPrefillValue(result.form_patch)) {
++        const route = routeFor(lastUser.text)
++        setTarget({
++          path: '/publish',
++          direction: route?.direction ?? 'lost',
++          patch: result.form_patch,
++        })
++        setNotice('已整理草稿，点击跳转发布')
++      } else {
++        setError('未能从对话中提取到发布信息，请补充描述。')
++      }
++    } catch (err) {
++      setError(errorMessage(err))
++    } finally {
++      setDraftBusy(false)
++    }
++  }
++
++  function onNoticeClick() {
++    if (target?.path === '/publish' && target.direction && target.patch) {
++      const payload = { ...target.patch, direction: target.direction }
++      console.log('[AiFloat] navigating with prefill:', {
++        title: payload.title,
++        category: payload.category,
++        location_area: payload.location_area,
++        direction: payload.direction,
++      })
++      navigate(`${target.path}?${PREFILL_QUERY}=${encodeURIComponent(JSON.stringify(payload))}`)
++      setOpen(false)
++    }
++    setNotice('')
++    setTarget(null)
++  }
++
++  if (hidden) return null
++
++  const panelH = Math.min(PANEL_H, window.innerHeight - 24)
++  const panelW = Math.min(PANEL_W, window.innerWidth - BAR_W - 24)
++  const panelX = side === 'left' ? BAR_W + 16 : Math.max(8, pos.x - panelW - 16)
++  const panelY = Math.min(
++    Math.max(8, pos.y + BAR_H / 2 - panelH / 2),
++    Math.max(8, window.innerHeight - panelH - 8),
++  )
++
++  return (
++    <>
++      <div
++        className={`${styles.panelAnchor} ${dragging ? '' : styles.anchorSnap}`}
++        style={{ transform: `translate(${panelX}px, ${panelY}px)` }}
++      >
++        <section
++          className={`${styles.panel} ${side === 'right' ? styles.panelRight : ''} ${
++            open ? styles.panelOpen : ''
++          }`}
++          aria-hidden={!open}
++        >
++          {notice && (
++            <button type="button" className={styles.notice} onClick={onNoticeClick}>
++              {notice} →
++            </button>
++          )}
++          <ol className={styles.messages} ref={listRef}>
++            {messages.map((message, index) => (
++              <li
++                key={index}
++                className={`${styles.message} ${
++                  message.role === 'user' ? styles.messageUser : styles.messageAssistant
++                }`}
++              >
++                {message.text}
++                {message.role === 'assistant' && message.degraded && (
++                  <span className={styles.ruleTag}>（规则模式）</span>
++                )}
++              </li>
++            ))}
++          </ol>
++          <button
++            type="button"
++            className={styles.draftButton}
++            onClick={onDraftClick}
++            disabled={draftBusy || busy}
++          >
++            {draftBusy ? '整理中…' : '📝 整理为发布草稿'}
++          </button>
++          <form className={styles.form} onSubmit={onSubmit}>
++            <textarea
++              className={styles.input}
++              value={text}
++              onChange={(e) => setText(e.target.value)}
++              placeholder="例如：今天在图书馆3楼丢了蓝色折叠伞"
++              maxLength={2000}
++              disabled={busy}
++              aria-label="发给 AI 助手的消息"
++            />
++            <button type="submit" className={styles.send} disabled={busy || !text.trim()}>
++              发送
++            </button>
++          </form>
++          {error && <p className={styles.error}>{error}</p>}
++        </section>
++      </div>
++      <button
++        type="button"
++        className={`${styles.bar} ${side === 'right' ? styles.barRight : ''} ${
++          dragging ? '' : styles.barSnap
++        }`}
++        style={{ transform: `translate(${pos.x}px, ${pos.y}px)`, width: BAR_W, height: BAR_H }}
++        onPointerDown={onPointerDown}
++        onPointerMove={onPointerMove}
++        onPointerUp={onPointerUp}
++        onPointerCancel={onPointerUp}
++        aria-label="AI 助手"
++        aria-expanded={open}
++        title="AI 助手（可拖动）"
++      >
++        <span className={styles.barInner}>
++          <img src="/ai-float.png" alt="" draggable={false} />
++          <span className={styles.barLabel}>AI</span>
++        </span>
++      </button>
++    </>
++  )
++}
+\ No newline at end of file
+diff --git a/frontend/src/pages/ItemForm.tsx b/frontend/src/pages/ItemForm.tsx
+index 3068a9b..6dd4a61 100644
+--- a/frontend/src/pages/ItemForm.tsx
++++ b/frontend/src/pages/ItemForm.tsx
+@@ -11,6 +11,7 @@ import {
+   type PolylineGeometry,
+ } from '../api/items'
+ import { useAsync } from '../hooks/useAsync'
++import { suggestLocations } from '../api/ai'
+ import { directionLabels, type Direction, type Item, type Photo, type RouteKind, type Visibility } from '../types'
+ import Button from '../components/Button'
+ import ErrorNotice from '../components/ErrorNotice'
+@@ -44,6 +45,29 @@ interface FormErrors {
+   title?: string
+ }
+ 
++interface AiPrefill {
++  direction?: 'lost' | 'found'
++  category?: string | null
++  title?: string | null
++  description?: string | null
++  location_area?: string | null
++  time_occurred?: string | null
++  floor?: number | null
++}
++
++/** 解析 URL query 中的 AI 预填数据（悬浮窗助手跳转带入）。数据源由调用方传入。 */
++function parseAiPrefill(search: string): AiPrefill | null {
++  try {
++    const raw = new URLSearchParams(search).get('ai_prefill')
++    if (!raw) return null
++    const parsed = JSON.parse(raw) as AiPrefill
++    if (parsed && typeof parsed === 'object') return parsed
++    return null
++  } catch {
++    return null
++  }
++}
++
+ const CATEGORY_OPTIONS = ['雨伞', '水杯', '手机', '笔记本电脑', '耳机', '钱包', '校园卡', '钥匙', '书包', '其他']
+ 
+ export default function ItemForm() {
+@@ -53,6 +77,8 @@ export default function ItemForm() {
+   const editing = Boolean(id)
+   // 地图/AI 带入的预置数据仅在新建时生效，编辑时以服务端记录为准
+   const preset = editing ? null : ((location.state as MapPublishState | null) ?? null)
++  // 悬浮窗助手跳转带入的预填（URL query）；仅填空字段，不覆盖用户已手写内容
++  const [aiExtra, setAiExtra] = useState<AiPrefill | null>(null)
+   const geometry = preset?.geometry ?? null
+   const routeKind = preset?.route_kind ?? null
+   const { data: loaded, loading, error: loadError } = useAsync<Item | null>(
+@@ -72,6 +98,19 @@ export default function ItemForm() {
+   const [errors, setErrors] = useState<FormErrors>({})
+   const [templateHint, setTemplateHint] = useState('')
+   const [busy, setBusy] = useState(false)
++  const [suggestions, setSuggestions] = useState<string[]>([])
++
++  // 地点输入框聚焦时按历史频次推荐：当前有输入则按关键词过滤，否则给全局热门
++  async function onLocationFocus() {
++    if (suggestions.length > 0 || editing) return
++    try {
++      const keyword = locationArea.trim() || undefined
++      const locations = await suggestLocations(keyword)
++      setSuggestions(locations.slice(0, 5))
++    } catch {
++      setSuggestions([])
++    }
++  }
+ 
+   useEffect(() => {
+     if (!editing || !loaded) return
+@@ -83,6 +122,33 @@ export default function ItemForm() {
+     setPreciseLocation(loaded.precise_location ?? '')
+   }, [editing, loaded])
+ 
++  // 悬浮窗助手预填：挂载或 query 变化时生效（同路径二次跳转组件不重挂，靠 search 变化触发）。
++  // 数据源必须用 react-router 的 location.search（而非 window.location.search）：
++  // StrictMode 双挂载时第一次 effect 的 replaceState 会清空地址栏，window 读源在第二次挂载
++  // 读到空导致预填丢失；router 状态不受 replaceState 影响，两次挂载均能解析（填充幂等）。
++  // 只填空字段：字段已有内容（用户手写或地图带入）一律不覆盖。
++  useEffect(() => {
++    if (editing) return
++    const parsed = parseAiPrefill(location.search)
++    if (!parsed) return
++    console.log('[AiPrefill] parsing prefill from query:', location.search.slice(0, 80))
++    console.log(
++      '[AiPrefill] filled fields:',
++      (Object.keys(parsed) as (keyof AiPrefill)[]).filter((key) => parsed[key]),
++    )
++    // 类型仅在与地图带入数据不冲突且表单仍空白时同步，避免覆盖用户已选内容
++    const blank = !category && !title && !locationArea
++    if (blank && parsed.direction === 'found' && !preset) setDirection('found')
++    if (!category && parsed.category) setCategory(parsed.category)
++    if (!title && parsed.title) setTitle(parsed.title)
++    if (!description && parsed.description) setDescription(parsed.description)
++    if (!locationArea && parsed.location_area) setLocationArea(parsed.location_area)
++    setAiExtra(parsed)
++    // 只清地址栏显示（防刷新/分享重复预填）；router 状态保持，effect 不因 deps 变化重跑
++    window.history.replaceState(null, '', window.location.pathname)
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [editing, location.search])
++
+   function applyTemplate(kind: 'short' | 'long' | 'place') {
+     if (kind === 'short') {
+       if (!description) setDescription('简要描述物品特征，以及丢失/拾获的时间与经过。')
+@@ -133,9 +199,9 @@ export default function ItemForm() {
+         description,
+         location_area: locationArea,
+         precise_location: preciseLocation || null,
+-        time_occurred: preset?.time_occurred ?? null,
++        time_occurred: preset?.time_occurred ?? aiExtra?.time_occurred ?? null,
+         building_id: preset?.building_id ?? null,
+-        floor: preset?.floor ?? null,
++        floor: preset?.floor ?? aiExtra?.floor ?? null,
+         photo_ids: photos.map((photo) => photo.id),
+       })
+       setCreatedId(item.id)
+@@ -186,7 +252,7 @@ export default function ItemForm() {
+       <PageHeader title={editing ? '编辑' : '发布'} backTo={editing && id ? `/hall/${id}` : '/hall'} />
+       {editing ? (
+         <p className={styles.notice}>正在编辑这条记录，修改后保存。状态与已上传照片不受影响。</p>
+-      ) : preset?.from_ai ? (
++      ) : preset?.from_ai || aiExtra ? (
+         <p className={styles.notice}>已带入 AI 整理草稿，请确认或修改后发布。</p>
+       ) : (
+         preset && (
+@@ -300,7 +366,27 @@ export default function ItemForm() {
+                 placeholder="地点（楼层级，如 图书馆2F）"
+                 value={locationArea}
+                 onChange={(e) => setLocationArea(e.target.value)}
++                onFocus={onLocationFocus}
+               />
++              {suggestions.length > 0 && (
++                <div className={styles.locationSuggestions} role="listbox" aria-label="推荐地点">
++                  {suggestions.map((area) => (
++                    <button
++                      key={area}
++                      type="button"
++                      className={styles.locationChip}
++                      role="option"
++                      aria-selected={area === locationArea}
++                      onClick={() => {
++                        setLocationArea(area)
++                        setSuggestions([])
++                      }}
++                    >
++                      {area}
++                    </button>
++                  ))}
++                </div>
++              )}
+             </Field>
+             <Field label="精确位置" htmlFor="item-precise">
+               <input
