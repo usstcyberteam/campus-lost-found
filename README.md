@@ -1,92 +1,190 @@
 # 校园寻物局
 
-校园失物协作平台基础版：学生发布寻物/拾获、查看规则候选、提交私密证据；工作人员审核申请并确认归还，或通过协助工单记录核查结果。
+<p>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white" alt="Node 18+">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white" alt="React 18">
+  <img src="https://img.shields.io/badge/FastAPI-0.142-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/tests-184%20passed%20%2F%201%20skipped-brightgreen" alt="tests">
+</p>
 
-技术栈：React 18 + TypeScript + Vite + Leaflet、FastAPI、PostgreSQL、Docker Compose。SQLite 仅用于本地基础演示和非并发测试。
+校园失物招领协作平台（参赛项目）：学生与工作人员协作完成「发布寻物/拾获 → 候选推荐 → 私密认领证据 → 工作人员核验 → 确认归还」全流程，集成 AI 智能助手，支持自然语言发帖、表单预填与历史地点推荐。
 
-## 当前能力与边界
+## ✨ 功能特性
 
-- 已实现：登录注册、发布与筛选、规则候选、认领、私密证据、工作人员审核归还、工单接单授权与反馈、我的委托。
-- 地图：一个室外底图与两个室内图层元数据，支持切换、坐标查看和工作人员模拟点位。室内尚未提供底图。
-- 尚未实现：图片上传与理解、真实模型调用、特征确认、语义匹配、委托地图标记、范围与路线绘制、完整游戏化视觉。
-- 推荐当前明确标为规则；特征提取适配器明确返回手动降级。排序不代表找回概率，AI 不决定所有权。
-- 工作人员必须由管理员创建；公开接口不返回认领证据或联系方式。路线须由本人授权且工单分配后才供处理人员访问。
+- **失物/拾获发布与浏览**：分类筛选、关键词搜索、物品详情、编辑与删除
+- **地图可视化**：Leaflet 图片地图展示失物位置，室内外图层切换、坐标查看、工作人员模拟点位
+- **认领与核验流程**：私密认领证据提交（不进入公共接口）、工作人员审核、事务 + 行锁保证同一物品仅完成一次归还
+- **协助工单**：无候选时转协助工单，接单授权、处理反馈闭环
+- **社区互动**：评论（含审核）、点赞、表扬墙、积分体系
+- **运营管理**：数据统计、用户管理、公告发布、工作人员账号管理（仅管理员创建）
+- **全局 AI 悬浮助手**
+  - 自然语言描述自动提取信息（标题、分类、地点、楼层、时间等）
+  - 智能跳转 + 表单预填（只填空字段，绝不覆盖用户手写）
+  - 一句话整理为发布草稿
+  - 历史地点推荐（频次 top5）
+  - 模型不可用时自动降级为规则模式，不阻断手动发布
+- **用户认证与权限管理**：JWT 鉴权，学生/工作人员/管理员三角色，权限全部在后端执行
+- **响应式设计**：适配桌面与移动端
 
-本次修订内容及实际检查见[评估与修订记录](docs/基础版评估与修订记录.md)。完整参赛目标见[规划入口](competition-plan/README.md)；规格和任务文档是设计资料，不代表所有功能均已完成。
+## 🛠 技术栈
 
-## 本地运行（Windows PowerShell）
+### 前端
 
-需要 Python 3.13 和 Node.js 22.12+；仓库不包含实际密钥、数据库、用户记录或运行日志。
+- React 18 + TypeScript 5.6
+- React Router 7
+- CSS Modules
+- Vite 7
+- Leaflet（图片地图）
+- Axios
 
-在项目根目录生成本地配置，保留已有配置且不打印凭据：
+### 后端
 
-```powershell
-python scripts/configure_local.py
-```
+- FastAPI 0.142（Python，`app/api/v1` 分层路由）
+- SQLAlchemy 2.1 + Alembic（迁移）
+- Pydantic 2.13 + pydantic-settings（`.env` 环境变量注入）
+- Uvicorn
+- PostgreSQL（生产）/ SQLite（本地演示）
+- PyJWT + bcrypt
 
-脚本生成根目录 `.env`（Compose）及 `backend/.env`（本地 SQLite）。管理员用户名为 `admin`；对应密码在各环境文件的 `ADMIN_PASSWORD` 中。本地与 Docker 环境各用自己的数据库与配置。
+### AI
 
-后端：
+- OpenAI 兼容 API（通过学校代理接入 DeepSeek-V4-Flash）
+- 规则降级引擎（模型不可用时兜底，结果以 `source`/`degraded` 字段标识来源）
 
-```powershell
+## 🚀 快速开始
+
+### 前置要求
+
+- Python 3.11+
+- Node.js 18+
+- Git
+
+### 配置环境变量
+
+复制 `backend/.env.example` 为 `backend/.env`，填写以下必填项：
+
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| DATABASE_URL | 数据库连接 | `sqlite:///./app.db`（本地）/ `postgresql+psycopg://campus:campus@localhost:5432/campus` |
+| JWT_SECRET | JWT 签名密钥（至少 32 字符） | 随机字符串 |
+| ADMIN_PASSWORD | 管理员初始密码 | 自行设置 |
+| MODEL_BASE_URL | 模型 API 地址（OpenAI 兼容，填到 `/v1`） | `https://aiapi.usst.edu.cn/v1` |
+| MODEL_NAME | 模型名称 | `deepseek-v4-flash` |
+| MODEL_API_KEY | 模型 API 密钥 | 从平台获取 |
+| MODEL_DISABLED | 是否禁用模型（禁用则走规则降级） | `false` |
+| MODEL_TIMEOUT_SECONDS | 模型超时（秒） | `10` |
+| CORS_ORIGINS | 跨域白名单 | `["http://localhost:5173"]` |
+
+> ⚠️ `.env` 已在 `.gitignore` 中排除，**请勿提交到版本控制**；密钥不得进入日志、截图或文档。
+
+也可在根目录运行 `python scripts/configure_local.py` 自动生成根目录 `.env`（Compose）与 `backend/.env`（本地 SQLite），脚本保留已有配置且不打印凭据。
+
+### 后端启动
+
+```bash
 cd backend
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements-dev.txt
-.venv/Scripts/python -m alembic upgrade head
-.venv/Scripts/python seed.py
-.venv/Scripts/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # Linux/macOS
+pip install -r requirements.txt
+.venv/Scripts/python -m alembic upgrade head   # 建表
+.venv/Scripts/python seed.py                    # 初始化管理员与图层
+.venv/Scripts/uvicorn app.main:app --reload --port 8000
 ```
 
-另一终端启动前端：
+### 前端启动
 
-```powershell
+```bash
 cd frontend
-npm ci
-npm run dev -- --host 127.0.0.1
+npm install
+npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。首次初始化创建管理员与三个图层；重复初始化不会覆盖已有管理员密码。
+打开 `http://127.0.0.1:5173`。学生可在网页注册；管理员用户名 `admin`（密码为 `ADMIN_PASSWORD` 配置值）；工作人员须由管理员通过 `POST /api/v1/admin/staff` 创建。
 
-创建工作人员：打开 `http://127.0.0.1:8000/docs`，调用 `POST /api/v1/auth/login` 登录管理员，将返回的令牌填入 Swagger 的 Authorize，再调用 `POST /api/v1/admin/staff`，提供用户名、昵称及自行设置的密码。学生可在网页注册。工作人员登录后进入“认领审核”。
+### Docker Compose（可选）
 
-JWT 密钥至少 32 字符；用户密码至少 6 字符且 UTF-8 编码最多 72 字节。环境配置不提交，密钥不得进入日志、截图或开发记录。
-
-## Docker Compose
-
-Docker 引擎运行后，在根目录执行：
-
-```powershell
+```bash
 python scripts/configure_local.py
 docker compose up --build
 ```
 
-前端端口 `5173`，后端端口 `8000`，PostgreSQL 端口 `5432`。前端代理使用 `http://backend:8000`；本地默认 `http://localhost:8000`，可用 `API_PROXY_TARGET` 覆盖。
+前端 `5173`、后端 `8000`、PostgreSQL `5432`，数据保存在命名卷。
 
-PostgreSQL 数据保存在命名卷。本配置供本地开发与演示使用，尚不是公网部署方案。
+## 📖 AI 助手使用说明
 
-## 验证命令
+1. 登录后任意页面左侧（或右侧）可见 AI 助手停靠条，可上下拖动，松手自动吸附到较近一侧边缘，位置刷新保留
+2. 点击停靠条展开聊天框，输入物品描述（如「今天在图书馆 3 楼丢了蓝色折叠伞」）
+3. AI 自动提取关键信息（标题、分类、地点、楼层、时间），信息不足时引导补充，不强行预填
+4. 信息完整时 AI 提示跳转发布页，点击跳转后表单自动预填（只填空字段，不覆盖手写内容），确认即可提交
+5. 也可使用「📝 整理为发布草稿」按钮，一句话一键生成结构化草稿
+6. 发布页地点输入框聚焦时，展示历史高频地点推荐，点击即可填入
+7. 模型不可用时 AI 回复自动附带「规则模式」标识，功能不中断
 
-```powershell
+核心数据流：用户输入 → `POST /api/v1/ai/chat` → `form_patch`（结构化字段）→ URL query 跳转 → `ItemForm` 解析预填 → 读取后自动清除 query。
+
+## 🧪 测试
+
+```bash
 cd backend
-.venv/Scripts/python -m ruff check .
-.venv/Scripts/python -m ruff format --check .
 .venv/Scripts/python -m pytest tests/ -q
+.venv/Scripts/python -m ruff check .
 ```
 
-SQLite 默认跳过 PostgreSQL 并发用例。验证并发时，先创建**以 `_test` 结尾的专用 PostgreSQL 数据库**，然后设置 `TEST_DATABASE_URL` 再运行测试；测试会清空该数据库内本项目的表，不能指向应用数据库。
-
-```powershell
+```bash
 cd frontend
 npm run lint
 npm run build
-npm audit
 ```
 
-当前验证：18 项后端测试通过，1 项 PostgreSQL 并发测试跳过；前端构建、依赖审计、Compose 配置语法和浏览器归还流程通过。Docker 引擎无法连接，容器运行、PostgreSQL 并发及全新环境安装未验证。
+当前验证（2026-10-22）：后端 **184 passed / 1 skipped**（SQLite 默认跳过 PostgreSQL 并发用例）；前端 lint 与生产构建通过。并发用例需创建以 `_test` 结尾的专用 PostgreSQL 数据库并通过 `TEST_DATABASE_URL` 指定。
 
-## 工程说明
+## 📁 项目结构
 
-- 认领写操作在 PostgreSQL 使用事务级 advisory lock 串行化，并锁定关联物品，再条件更新归还状态。此方案优先保证基础版正确性，尚未针对高并发优化。
-- 不新增数据库字段；已有示例库中的重复候选历史记录不会自动清理，新的候选查询不再写入重复记录。
-- 已建立 Alembic 迁移基线，新环境由 `alembic upgrade head` 建表，`seed.py` 只写入管理员与图层数据。
-- 本轮修复使用 Codex，不能作为华为云码道使用证明。参赛材料中的码道证据必须来自团队真实任务记录。
+```
+backend/                  FastAPI 应用
+  app/api/v1/             路由层（auth、items、claims、tickets、ai、admin 等 19 个模块）
+  app/services/           业务层（认领、匹配、工单、AI、统计、积分等）
+  app/models/             SQLAlchemy 实体与枚举
+  app/schemas/            Pydantic 请求/响应模型
+  app/core/               鉴权、配置、安全
+  alembic/                数据库迁移
+  tests/                  验收测试（含 AI chat 用例）
+frontend/                 React 前端
+  src/pages/              页面（大厅、地图、发布、AI、我的、表扬墙、管理等）
+  src/components/         组件（AiFloat 全局悬浮助手、AiChat、CampusMap 等）
+  src/api/                Axios 接口封装
+  src/auth/               鉴权上下文
+scripts/                  本地配置生成脚本
+docs/                     开发文档与部署检查清单
+competition-plan/         参赛规划与需求资料
+```
+
+## 📝 开发分支
+
+- 主分支：`main`
+- AI 功能分支：`feature/ai-assistant-global-v1`（全局悬浮 AI 助手完整功能，含交接文档）
+
+## 🔒 安全设计要点
+
+- 权限全部在后端执行；工作人员不能自行注册，仅管理员创建
+- 认领证据与联系方式不进入公共接口；路线仅本人授权且工单分配后可访问
+- 归还唯一性：事务 + advisory lock + 行锁 + 条件更新
+- AI 只做提取与推荐，不批准认领、不确认归还；结果来源明确标识
+- 未标定比例尺的地图不输出实际米数；不接入真实监控
+
+## 📄 许可证
+
+待定（参赛项目）。
+
+## 👥 贡献者
+
+校园寻物局开发团队（AI 模块 / 地图与 UI / 后端流程）。
+
+## 🔗 相关链接
+
+- [评估与修订记录](docs/基础版评估与修订记录.md)
+- [部署检查清单](docs/部署检查清单.md)
+- [参赛规划入口](competition-plan/README.md)
