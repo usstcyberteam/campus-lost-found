@@ -3,9 +3,10 @@ import logging
 import re
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Building, User
+from app.models import Building, Item, User
 from app.models.enums import Source
 from app.schemas.ai import SearchAdviceRequest
 from app.services import advice_service, model_client
@@ -39,12 +40,38 @@ _FLOOR_PATTERNS = (
 )
 _DATE_PATTERN = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 _FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+_BOLD_PATTERN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
+_HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
+_LIST_BULLET_PATTERN = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
 _SYSTEM_PROMPT = (
     "你是校园失物招领助手，只负责把用户描述整理成发布草稿，不批准认领、不确认归还。"
     "只输出一个 JSON 对象，字段为 category、title、description、location_area、building_code、"
     "floor、time_occurred；未知字段填 null。location_area 只能写到建筑与楼层级，"
     "禁止输出精确位置、联系方式、认领证据或他人私密路线。"
 )
+_CHAT_SYSTEM_PROMPT = (
+    "你是校园失物招领智能助手，专注校园场景（图书馆、食堂、教学楼、宿舍、操场等），"
+    "职责是把用户描述整理成发帖草稿并引导补充信息，不批准认领、不确认归还。"
+    "只输出一个 JSON 对象，字段固定为 intent、reply、form_patch、actions，不得增删字段、不得输出 JSON 以外的任何文本。"
+    "reply 为纯文本，语气亲切简短（不超过 60 字），禁止任何 markdown 标记。"
+    "intent 判断：用户描述丢失或拾获物品，且除物品名称外还提到颜色样式、时间、建筑楼层中至少一项时，"
+    'intent 为 "draft"，reply 直接确认已整理好草稿；'
+    '描述模糊、只有物品名称（如只说"掉了一把伞"）时，intent 为 "chat"，'
+    "reply 用一句话引导补充颜色样式、时间、具体建筑与楼层，此时 form_patch 必须为 null，不要强行预填；"
+    '普通咨询或寒暄时，intent 为 "chat"，form_patch 为 null。'
+    "form_patch 仅在 intent 为 draft 时为对象，字段为 category、title、description、location_area、"
+    "building_code、floor、time_occurred。只填用户明确提到的信息："
+    "未提及的字段一律填 null，禁止填空字符串，禁止推断或编造；"
+    "category 从雨伞、水杯、手机、笔记本电脑、耳机、钱包、校园卡、钥匙、书包、衣物、身份证、充电宝中选取，"
+    "都不符合时填 null；title 为一句话概括（不超过 30 字）；description 摘录用户描述中的物品特征；"
+    "location_area 只能写到建筑与楼层级（如 图书馆3F）；building_code 填校园建筑编码（如图书馆为 B02），"
+    "无法确定就填 null；time_occurred 填 ISO 格式日期时间，相对时间（如今天下午3点）按当天换算，无法确定就填 null。"
+    'actions 为字符串数组，仅在 intent 为 draft 且 form_patch 至少一个字段非 null 时包含 "prefill_form"，否则为空数组。'
+    "禁止输出精确到座位、柜号的私密位置、联系方式、认领证据或他人路线。"
+)
+_CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
+_CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
+_FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
 
 
 def _sanitize(value: str) -> str:
@@ -166,15 +193,14 @@ def _optional_time(payload: dict) -> datetime | None:
         return None
 
 
-def _model_draft(db: Session, text: str) -> dict | None:
-    content = model_client.chat_completion(_model_messages(text))
-    if content is None:
-        return None
-    payload = _parse_model_json(content)
-    if payload is None:
-        logger.warning("模型输出无法解析，已降级")
-        return None
+def _strip_markdown(text: str) -> str:
+    without_fence = _FENCE_PATTERN.sub("", text).strip()
+    without_bold = _BOLD_PATTERN.sub(r"\1\2", without_fence)
+    without_heading = _HEADING_PATTERN.sub("", without_bold)
+    return _LIST_BULLET_PATTERN.sub("", without_heading).strip()
 
+
+def _merge_draft(db: Session, text: str, payload: dict) -> dict:
     draft = _rule_draft(db, text)
     draft["category"] = _optional_str(payload, "category", 32) or draft["category"]
     draft["title"] = _optional_str(payload, "title", 128) or draft["title"]
@@ -197,6 +223,17 @@ def _model_draft(db: Session, text: str) -> dict | None:
     return draft
 
 
+def _model_draft(db: Session, text: str) -> dict | None:
+    content = model_client.chat_completion(_model_messages(text))
+    if content is None:
+        return None
+    payload = _parse_model_json(content)
+    if payload is None:
+        logger.warning("模型输出无法解析，已降级")
+        return None
+    return _merge_draft(db, text, payload)
+
+
 def draft_post(db: Session, text: str) -> dict:
     cleaned = _sanitize(text.strip())
     if model_client.is_available():
@@ -204,6 +241,169 @@ def draft_post(db: Session, text: str) -> dict:
         if draft is not None:
             return draft
     return _rule_draft(db, cleaned)
+
+
+def _chat_messages(
+    text: str, action: str | None = None, history_places: list[str] | None = None
+) -> list[dict[str, str]]:
+    # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    system = _CHAT_SYSTEM_PROMPT + f"当前时间：{now}。"
+    if action == "draft":
+        system += (
+            "用户明确要求整理草稿：无论信息是否完整，都输出 intent=draft，"
+            "把能识别到的字段全部填入 form_patch（能提取多少提取多少），不要追问。"
+        )
+    if history_places:
+        system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _sanitize(text)},
+    ]
+
+
+def _chat_intent(payload: dict) -> str:
+    return payload.get("intent") if payload.get("intent") in ("draft", "chat") else "draft"
+
+
+def _chat_reply(payload: dict, fallback: str) -> str:
+    value = payload.get("reply")
+    if not isinstance(value, str):
+        return fallback
+    cleaned = _sanitize(_strip_markdown(value))
+    return _clip(cleaned, 2000) if cleaned else fallback
+
+
+def _chat_actions(payload: dict) -> list[str]:
+    value = payload.get("actions")
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if item == "prefill_form"]
+
+
+def _form_patch_only(draft: dict) -> dict:
+    return {key: draft.get(key) for key in _FORM_PATCH_KEYS}
+
+
+def _chat_form_patch(db: Session, text: str, payload: dict) -> dict | None:
+    """只提取模型明确给出的字段，不做规则兜底填充：未提及即 null，全空则不预填。
+
+    例外：floor 允许用原文正则兜底——楼层若在原文明确写出（如"3楼"），属于用户明确提到的信息。
+    """
+    patch_payload = payload.get("form_patch")
+    if not isinstance(patch_payload, dict):
+        return None
+    patch = {
+        "category": _optional_str(patch_payload, "category", 32),
+        "title": _optional_str(patch_payload, "title", 128),
+        "description": _optional_str(patch_payload, "description", 2000),
+        "location_area": _optional_str(patch_payload, "location_area", 128),
+        "building_code": None,
+        "floor": _optional_floor(patch_payload),
+        "time_occurred": _optional_time(patch_payload),
+    }
+    if patch["floor"] is None:
+        patch["floor"] = _parse_floor(text)
+    code = _optional_str(patch_payload, "building_code", 32)
+    building = db.query(Building).filter(Building.code == code).first() if code else None
+    if building is not None:
+        patch["building_code"] = building.code
+        # 地点只保留建筑与楼层级，避免模型把楼内精确位置写进公开字段。
+        patch["location_area"] = _area_label(building, patch["floor"]) or patch["location_area"]
+    if all(value is None for value in patch.values()):
+        return None
+    return patch
+
+
+def _model_chat(db: Session, text: str, payload: dict) -> dict:
+    intent = _chat_intent(payload)
+    form_patch = _chat_form_patch(db, text, payload) if intent == "draft" else None
+    actions = _chat_actions(payload)
+    if form_patch is not None:
+        actions = list(dict.fromkeys([*actions, "prefill_form"]))
+    return {
+        "intent": intent,
+        "reply": _chat_reply(payload, "已整理出草稿，请确认或修改后发布。" if intent == "draft" else "收到。"),
+        "form_patch": form_patch,
+        "actions": actions,
+        "source": Source.model,
+        "degraded": False,
+    }
+
+
+def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
+    draft = _rule_draft(db, text)
+    has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
+    if action == "draft":
+        # 强制整理草稿：规则路径也要返回 form_patch（模糊输入时 title 兜底为原文）
+        patch = _form_patch_only(draft)
+        if patch.get("title") is None:
+            patch["title"] = _clip(text, 128) or None
+        if not any(value is not None for value in patch.values()):
+            patch["title"] = _clip(text, 128)
+        return {
+            "intent": "draft",
+            "reply": "模型暂不可用，已按规则整理出草稿，请手动补充。",
+            "form_patch": patch,
+            "actions": ["prefill_form"],
+            "source": Source.rule,
+            "degraded": True,
+        }
+    if has_item_signal:
+        return {
+            "intent": "draft",
+            "reply": _CHAT_FALLBACK_REPLY,
+            "form_patch": _form_patch_only(draft),
+            "actions": ["prefill_form"],
+            "source": Source.rule,
+            "degraded": True,
+        }
+    return {
+        "intent": "chat",
+        "reply": _CHAT_INTRO_REPLY,
+        "form_patch": None,
+        "actions": [],
+        "source": Source.rule,
+        "degraded": True,
+    }
+
+
+def _user_history_places(db: Session, user: User, limit: int = 3) -> list[str]:
+    rows = (
+        db.query(Item.location_area, func.count(Item.id).label("count"))
+        .filter(Item.owner_user_id == user.id, Item.location_area != "")
+        .group_by(Item.location_area)
+        .order_by(func.count(Item.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [row[0] for row in rows]
+
+
+def chat(db: Session, message: str, action: str | None = None, user: User | None = None) -> dict:
+    cleaned = _sanitize(message.strip())
+    history_places = _user_history_places(db, user) if user is not None else []
+    if model_client.is_available():
+        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places))
+        if content is not None:
+            payload = _parse_model_json(content)
+            if payload is not None:
+                if action == "draft":
+                    payload["intent"] = "draft"
+                return _model_chat(db, cleaned, payload)
+            logger.warning("模型输出无法解析，已降级")
+    return _rule_chat(db, cleaned, action)
+
+
+def suggest_locations(db: Session, keyword: str | None, limit: int = 5) -> dict:
+    """按历史发帖频次推荐地点：keyword 过滤（模糊输入时返回全局热门）。纯规则，不依赖模型。"""
+    query = db.query(Item.location_area, func.count(Item.id).label("count")).filter(Item.location_area != "")
+    if keyword:
+        query = query.filter(Item.location_area.contains(keyword.strip()))
+    rows = (
+        query.group_by(Item.location_area).order_by(func.count(Item.id).desc(), Item.location_area).limit(limit).all()
+    )
+    return {"locations": [row[0] for row in rows]}
 
 
 def search_advice(db: Session, user: User, body: SearchAdviceRequest) -> dict:
