@@ -24,6 +24,17 @@ def clean_db():
     yield
 
 
+@pytest.fixture(autouse=True)
+def disable_model(monkeypatch):
+    """测试默认禁用真实模型：隔离外部依赖，避免 .env 配置了可用模型时测试行为不确定。
+
+    需要"模型可用"的测试在函数内用 monkeypatch 显式覆盖（如 tests.test_ai_draft.configure_model）。
+    """
+    from app.services import model_client
+
+    monkeypatch.setattr(model_client.settings, "model_disabled", True)
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
