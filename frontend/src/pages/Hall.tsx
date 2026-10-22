@@ -1,0 +1,228 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { listBuildings } from '../api/buildings'
+import { listItems } from '../api/items'
+import { useDebounce } from '../hooks/useDebounce'
+import { useAuth } from '../auth/AuthContext'
+import { errorMessage } from '../utils/error'
+import { statusLabels, type Building, type Direction, type Item, type ItemStatus } from '../types'
+import Button from '../components/Button'
+import ErrorNotice from '../components/ErrorNotice'
+import ItemCard from '../components/ItemCard/ItemCard'
+import PageContainer from '../components/PageContainer'
+import PageHeader from '../components/AppShell/PageHeader'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import Spinner from '../components/Spinner'
+import styles from './Hall.module.css'
+
+const PAGE_SIZE = 20
+const QUICK_CATEGORIES = ['雨伞', '水杯', '手机', '校园卡', '钥匙']
+
+function greeting(): string {
+  const hour = new Date().getHours()
+  if (hour < 6) return '夜深了'
+  if (hour < 11) return '早上好'
+  if (hour < 14) return '中午好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+}
+
+export default function Hall() {
+  const navigate = useNavigate()
+  const { displayName } = useAuth()
+  const [direction, setDirection] = useState<Direction | ''>('')
+  const [category, setCategory] = useState('')
+  const [status, setStatus] = useState<ItemStatus | ''>('')
+  const [buildingId, setBuildingId] = useState('')
+  const [q, setQ] = useState('')
+  const [buildings, setBuildings] = useState<Building[]>([])
+  const [items, setItems] = useState<Item[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState('')
+  const seqRef = useRef(0)
+  const debouncedQ = useDebounce(q, 300)
+  const debouncedCategory = useDebounce(category, 300)
+
+  useEffect(() => {
+    listBuildings({ limit: 100 })
+      .then((page) => setBuildings(page.items))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const seq = ++seqRef.current
+    setLoading(true)
+    setError('')
+    listItems({
+      direction: direction || null,
+      category: debouncedCategory || null,
+      status: status || null,
+      q: debouncedQ || null,
+      building_id: buildingId || null,
+      limit: PAGE_SIZE,
+      offset: 0,
+    })
+      .then((page) => {
+        if (seq !== seqRef.current) return
+        setItems(page.items)
+        setTotal(page.total)
+      })
+      .catch((e) => {
+        if (seq === seqRef.current) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (seq === seqRef.current) setLoading(false)
+      })
+  }, [direction, debouncedCategory, status, debouncedQ, buildingId])
+
+  async function loadMore() {
+    if (loadingMore) return
+    setLoadingMore(true)
+    setError('')
+    try {
+      const page = await listItems({
+        direction: direction || null,
+        category: debouncedCategory || null,
+        status: status || null,
+        q: debouncedQ || null,
+        building_id: buildingId || null,
+        limit: PAGE_SIZE,
+        offset: items.length,
+      })
+      setItems((current) => {
+        const seen = new Set(current.map((item) => item.id))
+        return [...current, ...page.items.filter((item) => !seen.has(item.id))]
+      })
+      setTotal(page.total)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // 逻辑分组：按寻物 / 失物招领分隔，避免一条无边界的信息流
+  const groups = useMemo(() => {
+    const lost = items.filter((item) => item.direction === 'lost')
+    const found = items.filter((item) => item.direction === 'found')
+    return [
+      { key: 'lost', title: '寻物启事', items: lost },
+      { key: 'found', title: '失物招领', items: found },
+    ].filter((group) => group.items.length > 0)
+  }, [items])
+
+  return (
+    <PageContainer>
+      <PageHeader title="大厅" />
+
+      <section className={styles.hero} aria-label="问候">
+        <h2 className={styles.heroTitle}>
+          {greeting()}，{displayName || '同学'}
+        </h2>
+        <p className={styles.heroSub}>看看大家都在找什么、捡到了什么</p>
+      </section>
+
+      <div className={styles.searchBar}>
+        <Input
+          aria-label="搜索关键词"
+          placeholder="搜索标题、描述、类别"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className={styles.chipsRow} role="group" aria-label="快速入口">
+          {[
+            { key: '', label: '全部类型' },
+            { key: 'lost', label: '寻物' },
+            { key: 'found', label: '拾获' },
+          ].map((chip) => (
+            <button
+              key={chip.key || 'all'}
+              type="button"
+              className={`${styles.chip} ${direction === chip.key ? styles.chipActive : ''}`}
+              aria-pressed={direction === chip.key}
+              onClick={() => setDirection(chip.key as Direction | '')}
+            >
+              {chip.label}
+            </button>
+          ))}
+          <span className={styles.chipDivider} aria-hidden="true" />
+          {QUICK_CATEGORIES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={`${styles.chip} ${category === option ? styles.chipActive : ''}`}
+              aria-pressed={category === option}
+              onClick={() => setCategory(category === option ? '' : option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        <div className={styles.filters}>
+          <Input aria-label="类别" placeholder="类别" value={category} onChange={(e) => setCategory(e.target.value)} />
+          <Select aria-label="状态" value={status} onChange={(e) => setStatus(e.target.value as ItemStatus | '')}>
+            <option value="">全部状态</option>
+            {Object.entries(statusLabels)
+              .filter(([k]) => k !== 'deleted')
+              .map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+          </Select>
+          <Select aria-label="建筑" value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+            <option value="">全部建筑</option>
+            {buildings.map((building) => (
+              <option key={building.id} value={building.id}>
+                {building.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      {error && <ErrorNotice message={error} />}
+      {loading && <Spinner />}
+      {!loading && !error && items.length === 0 && (
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>没有符合条件的记录，换个筛选试试，或者主动发起一条。</p>
+          <div className={styles.emptyActions}>
+            <Button onClick={() => navigate('/publish')}>发布第一条</Button>
+            <Button variant="secondary" onClick={() => navigate('/map')}>
+              去地图看看
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!loading &&
+        groups.map((group) => (
+          <section key={group.key} className={styles.group} aria-label={group.title}>
+            <h2 className={styles.groupTitle}>
+              {group.title}
+              <span className={styles.groupCount}>{group.items.length}</span>
+            </h2>
+            <ul className={styles.list}>
+              {group.items.map((item) => (
+                <li key={item.id} className={styles.item}>
+                  <ItemCard item={item} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+
+      {!loading && items.length < total && (
+        <div className={styles.more}>
+          <Button variant="secondary" loading={loadingMore} onClick={loadMore}>
+            {loadingMore ? '加载中…' : '加载更多'}
+          </Button>
+        </div>
+      )}
+      {!loading && items.length > 0 && <p className={styles.footNote}>已显示 {items.length} / {total} 条</p>}
+    </PageContainer>
+  )
+}

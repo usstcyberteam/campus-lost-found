@@ -1,0 +1,15 @@
+.shell {
+  min-height: 100vh;
+}
+
+.main {
+  /* 为底部导航与中央凸起按钮预留空间 */
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .main {
+    margin-left: 232px;
+    padding-bottom: var(--space-5);
+  }
+}

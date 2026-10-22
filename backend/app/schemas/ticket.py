@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict, StringConstraints
 from typing import Annotated
 
-from app.models.enums import TicketStatus
+from pydantic import BaseModel, ConfigDict, StringConstraints
+
+from app.models.enums import RouteKind, TicketStatus, Visibility
 
 
 class TicketCreate(BaseModel):
@@ -26,3 +26,11 @@ class TicketOut(BaseModel):
 
 class FeedbackRequest(BaseModel):
     result: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
+
+
+class TicketRouteOut(BaseModel):
+    id: uuid.UUID
+    kind: RouteKind
+    geometry: dict | None
+    floor_segments: list | None
+    visibility: Visibility

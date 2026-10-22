@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [".venv", "alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# 把 (str, Enum) 改为 StrEnum 会改变枚举转字符串的结果，属于行为变更，本项目不做
+ignore = ["UP042"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 的 Depends/Query/Body 等作为函数默认参数是标准写法，不是缺陷
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Path",
+    "fastapi.File",
+    "fastapi.Form",
+    # require_role 是项目自定义的依赖工厂，与 Depends 同类的 FastAPI 标准写法，B008 对它的报错是误报
+    "app.core.deps.require_role",
+]

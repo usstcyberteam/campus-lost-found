@@ -15,7 +15,9 @@ def auth(token: str) -> dict[str, str]:
 
 
 def register(client, username: str) -> str:
-    r = client.post("/api/v1/auth/register", json={"username": username, "password": "secret123", "display_name": username})
+    r = client.post(
+        "/api/v1/auth/register", json={"username": username, "password": "secret123", "display_name": username}
+    )
     assert r.status_code == 200
     return r.json()["token"]
 
@@ -33,30 +35,51 @@ def test_register_defaults_to_student(client):
     assert r.json()["role"] == "student"
 
 
-def test_self_register_cannot_become_staff(client):
-    r = client.post("/api/v1/auth/register", json={"username": "selfreg", "password": "secret123", "display_name": "X", "role": "staff"})
+def test_self_register_staff_stays_student_until_approved(client):
+    r = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "selfreg",
+            "password": "secret123",
+            "display_name": "X",
+            "role": "staff",
+            "staff_no": "T0001",
+        },
+    )
     assert r.status_code == 200
     assert r.json()["role"] == "student"
+    me = client.get("/api/v1/auth/me", headers=auth(r.json()["token"])).json()
+    assert me["staff_status"] == "pending"
 
 
 def test_private_fields_not_in_public_list(client):
     token = register(client, "owner")
-    r = client.post("/api/v1/items", json={"direction": "found", "category": "雨伞", "title": "黑伞", "precise_location": "图书馆3楼角落"}, headers=auth(token))
+    r = client.post(
+        "/api/v1/items",
+        json={"direction": "found", "category": "雨伞", "title": "黑伞", "precise_location": "图书馆3楼角落"},
+        headers=auth(token),
+    )
     assert r.status_code == 200
     other = register(client, "viewer")
     r = client.get("/api/v1/items", headers=auth(other))
-    item = r.json()[0]
+    item = r.json()["items"][0]
     assert "precise_location" not in item
 
 
 def test_student_cannot_review(client):
     create_user("staff1", "staff123", Role.staff)
-    t_staff = login(client, "staff1", "staff123")
+    login(client, "staff1", "staff123")
     t_founder = register(client, "founder")
-    r = client.post("/api/v1/items", json={"direction": "found", "category": "雨伞", "title": "黑伞"}, headers=auth(t_founder))
+    r = client.post(
+        "/api/v1/items", json={"direction": "found", "category": "雨伞", "title": "黑伞"}, headers=auth(t_founder)
+    )
     found_id = r.json()["id"]
     t_owner = register(client, "owner")
-    r = client.post("/api/v1/claims", json={"found_item_id": found_id, "evidence": [{"kind": "text", "content": "划痕"}], "idempotency_key": "k1"}, headers=auth(t_owner))
+    r = client.post(
+        "/api/v1/claims",
+        json={"found_item_id": found_id, "evidence": [{"kind": "text", "content": "划痕"}], "idempotency_key": "k1"},
+        headers=auth(t_owner),
+    )
     claim_id = r.json()["id"]
     r = client.post(f"/api/v1/claims/{claim_id}/review", json={"approve": True}, headers=auth(t_owner))
     assert r.status_code == 403
@@ -66,13 +89,26 @@ def test_return_once_and_conflict(client):
     create_user("staff1", "staff123", Role.staff)
     t_staff = login(client, "staff1", "staff123")
     t_founder = register(client, "founder")
-    r = client.post("/api/v1/items", json={"direction": "found", "category": "雨伞", "title": "黑伞"}, headers=auth(t_founder))
+    r = client.post(
+        "/api/v1/items", json={"direction": "found", "category": "雨伞", "title": "黑伞"}, headers=auth(t_founder)
+    )
     found_id = r.json()["id"]
     t_owner = register(client, "owner")
-    r = client.post("/api/v1/items", json={"direction": "lost", "category": "雨伞", "title": "丢伞"}, headers=auth(t_owner))
+    r = client.post(
+        "/api/v1/items", json={"direction": "lost", "category": "雨伞", "title": "丢伞"}, headers=auth(t_owner)
+    )
     lost_id = r.json()["id"]
 
-    r = client.post("/api/v1/claims", json={"found_item_id": found_id, "lost_item_id": lost_id, "evidence": [{"kind": "text", "content": "划痕"}], "idempotency_key": "k1"}, headers=auth(t_owner))
+    r = client.post(
+        "/api/v1/claims",
+        json={
+            "found_item_id": found_id,
+            "lost_item_id": lost_id,
+            "evidence": [{"kind": "text", "content": "划痕"}],
+            "idempotency_key": "k1",
+        },
+        headers=auth(t_owner),
+    )
     claim_id = r.json()["id"]
 
     r = client.post(f"/api/v1/claims/{claim_id}/review", json={"approve": True}, headers=auth(t_staff))
@@ -89,7 +125,9 @@ def test_ticket_visibility_and_route_authorization(client):
     t_owner = register(client, "owner")
     t_other = register(client, "other")
 
-    r = client.post("/api/v1/items", json={"direction": "lost", "category": "卡", "title": "校园卡"}, headers=auth(t_owner))
+    r = client.post(
+        "/api/v1/items", json={"direction": "lost", "category": "卡", "title": "校园卡"}, headers=auth(t_owner)
+    )
     lost_id = r.json()["id"]
 
     r = client.post("/api/v1/tickets", json={"item_id": lost_id}, headers=auth(t_other))

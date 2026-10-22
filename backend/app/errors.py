@@ -43,8 +43,11 @@ def register_exception_handlers(app) -> None:
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         return JSONResponse(
             status_code=400,
-            content={"code": "VALIDATION", "message": "参数校验失败", "details": [
-                {"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
-                for error in exc.errors()
-            ]},
+            content={
+                "code": "VALIDATION",
+                "message": "参数校验失败",
+                "details": [
+                    {"type": error["type"], "loc": error["loc"], "msg": error["msg"]} for error in exc.errors()
+                ],
+            },
         )

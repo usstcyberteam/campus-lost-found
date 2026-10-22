@@ -1,30 +1,48 @@
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_role
-from app.core.security import hash_password
 from app.database import get_db
-from app.errors import ApiError
 from app.models import Role, User
-from app.schemas.auth import UserOut
+from app.schemas.auth import AdminUserOut, AdminUserUpdate, UserOut
+from app.schemas.common import Page
 from app.schemas.staff import StaffCreateRequest
+from app.schemas.stats import StatsOut
+from app.services import stats_service, user_service
 
 router = APIRouter(tags=["admin"])
 
 
 @router.post("/staff", response_model=UserOut)
 def create_staff(body: StaffCreateRequest, db: Session = Depends(get_db), _: User = Depends(require_role(Role.admin))):
-    exists = db.query(User).filter(User.username == body.username).first()
-    if exists is not None:
-        raise ApiError(409, "STATE_CONFLICT", "用户名已存在")
-    user = User(
-        username=body.username,
-        password_hash=hash_password(body.password),
-        display_name=body.display_name,
-        contact=body.contact,
-        role=Role.staff,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    return user_service.create_user(db, body.username, body.password, body.display_name, body.contact, Role.staff)
+
+
+@router.get("/users", response_model=Page[AdminUserOut])
+def list_users(
+    q: str | None = None,
+    role: Role | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(Role.admin)),
+):
+    users, total = user_service.list_users(db, q, role, limit, offset)
+    return Page(items=users, total=total, limit=limit, offset=offset)
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserOut)
+def update_user(
+    user_id: uuid.UUID,
+    body: AdminUserUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_role(Role.admin)),
+):
+    return user_service.update_user(db, admin, user_id, body)
+
+
+@router.get("/stats", response_model=StatsOut)
+def stats(db: Session = Depends(get_db), _: User = Depends(require_role(Role.admin))):
+    return stats_service.overview(db)

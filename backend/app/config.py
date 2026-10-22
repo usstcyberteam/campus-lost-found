@@ -1,7 +1,7 @@
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,10 +13,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    model_base_url: str = ""
+    model_name: str = ""
     model_api_key: str = ""
     model_disabled: bool = True
-    model_timeout_seconds: int = 5
+    model_timeout_seconds: int = 10
     file_storage_dir: str = "./storage"
+    storage_backend: str = "local"
 
 
 @lru_cache

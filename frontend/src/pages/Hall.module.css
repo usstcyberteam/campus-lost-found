@@ -1,0 +1,137 @@
+.hero {
+  margin-top: var(--space-2);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: var(--font-xl);
+}
+
+.heroSub {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}
+
+/* 顶部固定搜索/快捷入口区 */
+.searchBar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) calc(var(--space-4) * -1) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chipsRow {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.chipActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.chipDivider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: var(--space-1) var(--space-1);
+  background: var(--color-border);
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+}
+
+/* 分组卡片流 */
+.group {
+  margin-bottom: var(--space-5);
+}
+
+.groupTitle {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-md);
+}
+
+.groupCount {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  font-weight: 400;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  margin-bottom: var(--space-3);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-3) 0;
+}
+
+.footNote {
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+/* 空状态：给出下一步动作，而不是死胡同 */
+.empty {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  margin-top: var(--space-5);
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  text-align: center;
+}
+
+.emptyText {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+}

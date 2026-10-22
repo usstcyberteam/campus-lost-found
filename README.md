@@ -32,6 +32,7 @@ python scripts/configure_local.py
 cd backend
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt
+.venv/Scripts/python -m alembic upgrade head
 .venv/Scripts/python seed.py
 .venv/Scripts/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -67,6 +68,8 @@ PostgreSQL 数据保存在命名卷。本配置供本地开发与演示使用，
 
 ```powershell
 cd backend
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m ruff format --check .
 .venv/Scripts/python -m pytest tests/ -q
 ```
 
@@ -74,6 +77,7 @@ SQLite 默认跳过 PostgreSQL 并发用例。验证并发时，先创建**以 `
 
 ```powershell
 cd frontend
+npm run lint
 npm run build
 npm audit
 ```
@@ -84,5 +88,5 @@ npm audit
 
 - 认领写操作在 PostgreSQL 使用事务级 advisory lock 串行化，并锁定关联物品，再条件更新归还状态。此方案优先保证基础版正确性，尚未针对高并发优化。
 - 不新增数据库字段；已有示例库中的重复候选历史记录不会自动清理，新的候选查询不再写入重复记录。
-- 当前新环境由 `seed.py` 建表；尚无正式 Alembic 版本迁移，不宣称支持生产升级。
+- 已建立 Alembic 迁移基线，新环境由 `alembic upgrade head` 建表，`seed.py` 只写入管理员与图层数据。
 - 本轮修复使用 Codex，不能作为华为云码道使用证明。参赛材料中的码道证据必须来自团队真实任务记录。

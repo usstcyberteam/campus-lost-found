@@ -1,0 +1,61 @@
+.pinWrap {
+  background: transparent;
+  border: 0;
+}
+
+.pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.lost {
+  background: var(--color-primary);
+}
+
+.found {
+  background: var(--color-success);
+}
+
+.cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.popupItem {
+  min-height: 44px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-1);
+  font-size: var(--font-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.popupItem:hover {
+  background: var(--color-bg-2);
+}

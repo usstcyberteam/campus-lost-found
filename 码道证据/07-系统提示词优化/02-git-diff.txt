@@ -1,0 +1,396 @@
+diff --git a/backend/app/services/ai_service.py b/backend/app/services/ai_service.py
+index e830612..1cf80be 100644
+--- a/backend/app/services/ai_service.py
++++ b/backend/app/services/ai_service.py
+@@ -39,12 +39,38 @@ _FLOOR_PATTERNS = (
+ )
+ _DATE_PATTERN = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+ _FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
++_BOLD_PATTERN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
++_HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
++_LIST_BULLET_PATTERN = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+ _SYSTEM_PROMPT = (
+     "你是校园失物招领助手，只负责把用户描述整理成发布草稿，不批准认领、不确认归还。"
+     "只输出一个 JSON 对象，字段为 category、title、description、location_area、building_code、"
+     "floor、time_occurred；未知字段填 null。location_area 只能写到建筑与楼层级，"
+     "禁止输出精确位置、联系方式、认领证据或他人私密路线。"
+ )
++_CHAT_SYSTEM_PROMPT = (
++    "你是校园失物招领智能助手，专注校园场景（图书馆、食堂、教学楼、宿舍、操场等），"
++    "职责是把用户描述整理成发帖草稿并引导补充信息，不批准认领、不确认归还。"
++    "只输出一个 JSON 对象，字段固定为 intent、reply、form_patch、actions，不得增删字段、不得输出 JSON 以外的任何文本。"
++    "reply 为纯文本，语气亲切简短（不超过 60 字），禁止任何 markdown 标记。"
++    "intent 判断：用户描述丢失或拾获物品，且除物品名称外还提到颜色样式、时间、建筑楼层中至少一项时，"
++    'intent 为 "draft"，reply 直接确认已整理好草稿；'
++    '描述模糊、只有物品名称（如只说"掉了一把伞"）时，intent 为 "chat"，'
++    "reply 用一句话引导补充颜色样式、时间、具体建筑与楼层，此时 form_patch 必须为 null，不要强行预填；"
++    '普通咨询或寒暄时，intent 为 "chat"，form_patch 为 null。'
++    "form_patch 仅在 intent 为 draft 时为对象，字段为 category、title、description、location_area、"
++    "building_code、floor、time_occurred。只填用户明确提到的信息："
++    "未提及的字段一律填 null，禁止填空字符串，禁止推断或编造；"
++    "category 从雨伞、水杯、手机、笔记本电脑、耳机、钱包、校园卡、钥匙、书包、衣物、身份证、充电宝中选取，"
++    "都不符合时填 null；title 为一句话概括（不超过 30 字）；description 摘录用户描述中的物品特征；"
++    "location_area 只能写到建筑与楼层级（如 图书馆3F）；building_code 填校园建筑编码（如图书馆为 B02），"
++    "无法确定就填 null；time_occurred 填 ISO 格式日期时间，相对时间（如今天下午3点）按当天换算，无法确定就填 null。"
++    'actions 为字符串数组，仅在 intent 为 draft 且 form_patch 至少一个字段非 null 时包含 "prefill_form"，否则为空数组。'
++    "禁止输出精确到座位、柜号的私密位置、联系方式、认领证据或他人路线。"
++)
++_CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
++_CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
++_FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
+ 
+ 
+ def _sanitize(value: str) -> str:
+@@ -166,15 +192,14 @@ def _optional_time(payload: dict) -> datetime | None:
+         return None
+ 
+ 
+-def _model_draft(db: Session, text: str) -> dict | None:
+-    content = model_client.chat_completion(_model_messages(text))
+-    if content is None:
+-        return None
+-    payload = _parse_model_json(content)
+-    if payload is None:
+-        logger.warning("模型输出无法解析，已降级")
+-        return None
++def _strip_markdown(text: str) -> str:
++    without_fence = _FENCE_PATTERN.sub("", text).strip()
++    without_bold = _BOLD_PATTERN.sub(r"\1\2", without_fence)
++    without_heading = _HEADING_PATTERN.sub("", without_bold)
++    return _LIST_BULLET_PATTERN.sub("", without_heading).strip()
+ 
++
++def _merge_draft(db: Session, text: str, payload: dict) -> dict:
+     draft = _rule_draft(db, text)
+     draft["category"] = _optional_str(payload, "category", 32) or draft["category"]
+     draft["title"] = _optional_str(payload, "title", 128) or draft["title"]
+@@ -197,6 +222,17 @@ def _model_draft(db: Session, text: str) -> dict | None:
+     return draft
+ 
+ 
++def _model_draft(db: Session, text: str) -> dict | None:
++    content = model_client.chat_completion(_model_messages(text))
++    if content is None:
++        return None
++    payload = _parse_model_json(content)
++    if payload is None:
++        logger.warning("模型输出无法解析，已降级")
++        return None
++    return _merge_draft(db, text, payload)
++
++
+ def draft_post(db: Session, text: str) -> dict:
+     cleaned = _sanitize(text.strip())
+     if model_client.is_available():
+@@ -206,5 +242,117 @@ def draft_post(db: Session, text: str) -> dict:
+     return _rule_draft(db, cleaned)
+ 
+ 
++def _chat_messages(text: str) -> list[dict[str, str]]:
++    # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
++    now = datetime.now().strftime("%Y-%m-%d %H:%M")
++    return [
++        {"role": "system", "content": _CHAT_SYSTEM_PROMPT + f"当前时间：{now}。"},
++        {"role": "user", "content": _sanitize(text)},
++    ]
++
++
++def _chat_intent(payload: dict) -> str:
++    return payload.get("intent") if payload.get("intent") in ("draft", "chat") else "draft"
++
++
++def _chat_reply(payload: dict, fallback: str) -> str:
++    value = payload.get("reply")
++    if not isinstance(value, str):
++        return fallback
++    cleaned = _sanitize(_strip_markdown(value))
++    return _clip(cleaned, 2000) if cleaned else fallback
++
++
++def _chat_actions(payload: dict) -> list[str]:
++    value = payload.get("actions")
++    if not isinstance(value, list):
++        return []
++    return [item for item in value if item == "prefill_form"]
++
++
++def _form_patch_only(draft: dict) -> dict:
++    return {key: draft.get(key) for key in _FORM_PATCH_KEYS}
++
++
++def _chat_form_patch(db: Session, text: str, payload: dict) -> dict | None:
++    """只提取模型明确给出的字段，不做规则兜底填充：未提及即 null，全空则不预填。
++
++    例外：floor 允许用原文正则兜底——楼层若在原文明确写出（如"3楼"），属于用户明确提到的信息。
++    """
++    patch_payload = payload.get("form_patch")
++    if not isinstance(patch_payload, dict):
++        return None
++    patch = {
++        "category": _optional_str(patch_payload, "category", 32),
++        "title": _optional_str(patch_payload, "title", 128),
++        "description": _optional_str(patch_payload, "description", 2000),
++        "location_area": _optional_str(patch_payload, "location_area", 128),
++        "building_code": None,
++        "floor": _optional_floor(patch_payload),
++        "time_occurred": _optional_time(patch_payload),
++    }
++    if patch["floor"] is None:
++        patch["floor"] = _parse_floor(text)
++    code = _optional_str(patch_payload, "building_code", 32)
++    building = db.query(Building).filter(Building.code == code).first() if code else None
++    if building is not None:
++        patch["building_code"] = building.code
++        # 地点只保留建筑与楼层级，避免模型把楼内精确位置写进公开字段。
++        patch["location_area"] = _area_label(building, patch["floor"]) or patch["location_area"]
++    if all(value is None for value in patch.values()):
++        return None
++    return patch
++
++
++def _model_chat(db: Session, text: str, payload: dict) -> dict:
++    intent = _chat_intent(payload)
++    form_patch = _chat_form_patch(db, text, payload) if intent == "draft" else None
++    actions = _chat_actions(payload)
++    if form_patch is not None:
++        actions = list(dict.fromkeys([*actions, "prefill_form"]))
++    return {
++        "intent": intent,
++        "reply": _chat_reply(payload, "已整理出草稿，请确认或修改后发布。" if intent == "draft" else "收到。"),
++        "form_patch": form_patch,
++        "actions": actions,
++        "source": Source.model,
++        "degraded": False,
++    }
++
++
++def _rule_chat(db: Session, text: str) -> dict:
++    draft = _rule_draft(db, text)
++    has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
++    if has_item_signal:
++        return {
++            "intent": "draft",
++            "reply": _CHAT_FALLBACK_REPLY,
++            "form_patch": _form_patch_only(draft),
++            "actions": ["prefill_form"],
++            "source": Source.rule,
++            "degraded": True,
++        }
++    return {
++        "intent": "chat",
++        "reply": _CHAT_INTRO_REPLY,
++        "form_patch": None,
++        "actions": [],
++        "source": Source.rule,
++        "degraded": True,
++    }
++
++
++def chat(db: Session, message: str) -> dict:
++    cleaned = _sanitize(message.strip())
++    if model_client.is_available():
++        content = model_client.chat_completion(_chat_messages(cleaned))
++        if content is not None:
++            payload = _parse_model_json(content)
++            if payload is not None:
++                return _model_chat(db, cleaned, payload)
++            logger.warning("模型输出无法解析，已降级")
++    return _rule_chat(db, cleaned)
++
++
+ def search_advice(db: Session, user: User, body: SearchAdviceRequest) -> dict:
+     return advice_service.recommend(db, user, body)
+diff --git a/backend/tests/test_ai_chat.py b/backend/tests/test_ai_chat.py
+new file mode 100644
+index 0000000..0e4fb40
+--- /dev/null
++++ b/backend/tests/test_ai_chat.py
+@@ -0,0 +1,188 @@
++import httpx
++
++from tests.test_acceptance import auth, register
++from tests.test_ai_draft import configure_model, install_fake_client
++from tests.test_buildings import import_config
++
++CHAT_MODEL_JSON = (
++    "```json\n"
++    '{"intent":"draft","reply":"**已整理**出草稿，请确认：\\n- 类别：雨伞\\n- 地点：图书馆3F",'
++    '"form_patch":{"category":"雨伞","title":"图书馆丢了一把蓝色雨伞","description":"蓝色折叠伞，伞柄有划痕",'
++    '"location_area":"图书馆3F","building_code":"B02","floor":3,"time_occurred":"2026-10-18T15:00:00"},'
++    '"actions":["prefill_form","hack_action"]}'
++    "\n```"
++)
++
++CHAT_MODEL_PLAIN = (
++    '{"intent":"chat","reply":"你好，我是失物招领助手，请描述你丢失或拾获的物品。","form_patch":null,"actions":[]}'
++)
++
++CHAT_MODEL_VAGUE = (
++    '{"intent":"chat","reply":"别着急，伞是什么颜色和样式的？大概什么时间、在哪栋楼丢的？",'
++    '"form_patch":null,"actions":[]}'
++)
++
++CHAT_MODEL_PARTIAL = (
++    '{"intent":"draft","reply":"已记录你丢的蓝色雨伞，方便的话补充下时间和地点。",'
++    '"form_patch":{"category":"雨伞","title":"蓝色雨伞","description":"蓝色雨伞"},'
++    '"actions":["prefill_form"]}'
++)
++
++
++def test_chat_requires_login(client):
++    response = client.post("/api/v1/ai/chat", json={"message": "图书馆丢了一把雨伞"})
++    assert response.status_code == 401
++    assert response.json()["code"] == "UNAUTH"
++
++
++def test_chat_rejects_blank_message(client):
++    token = register(client, "chat_blank")
++    response = client.post("/api/v1/ai/chat", json={"message": "   "}, headers=auth(token))
++    assert response.status_code == 400
++    assert response.json()["code"] == "VALIDATION"
++
++
++def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_model")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "今天下午三点在图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert set(body) == {"intent", "reply", "form_patch", "actions", "source", "degraded"}
++    assert body["intent"] == "draft"
++    assert body["source"] == "model"
++    assert body["degraded"] is False
++    assert "**" not in body["reply"]
++    assert "```" not in body["reply"]
++    assert body["reply"].startswith("已整理")
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++    assert captured["timeout"] == 10
++
++
++def test_chat_plain_intent_has_no_form_patch(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN)
++    token = register(client, "chat_plain")
++
++    response = client.post("/api/v1/ai/chat", json={"message": "你好"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["actions"] == []
++    assert body["reply"].startswith("你好")
++
++
++def test_chat_degrades_on_model_timeout(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, error=httpx.ReadTimeout("timeout"))
++    token = register(client, "chat_timeout")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "图书馆3楼丢了一把雨伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++    assert body["reply"]
++    assert body["form_patch"]["category"] == "雨伞"
++    assert body["form_patch"]["building_code"] == "B02"
++    assert body["form_patch"]["floor"] == 3
++    assert body["actions"] == ["prefill_form"]
++
++
++def test_chat_greeting_without_item_degrades_to_plain_chat(client):
++    token = register(client, "chat_greeting")
++    response = client.post("/api/v1/ai/chat", json={"message": "你是谁呀"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++
++
++def test_chat_request_excludes_private_fields(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_private")
++
++    client.post(
++        "/api/v1/ai/chat",
++        json={"message": "我的手机 13800138000，邮箱 student@example.com，在图书馆3楼丢了伞"},
++        headers=auth(token),
++    )
++
++    messages = captured["body"]["messages"]
++    assert [message["role"] for message in messages] == ["system", "user"]
++    sent = " ".join(message["content"] for message in messages)
++    assert "13800138000" not in sent
++    assert "student@example.com" not in sent
++    assert "[已脱敏]" in sent
++
++
++def test_chat_vague_description_guides_instead_of_prefill(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_VAGUE)
++    token = register(client, "chat_vague")
++
++    response = client.post("/api/v1/ai/chat", json={"message": "刚才掉了一把伞"}, headers=auth(token))
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "chat"
++    assert body["form_patch"] is None
++    assert body["actions"] == []
++    assert body["source"] == "model"
++    assert "颜色" in body["reply"]
++
++
++def test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch):
++    import_config()
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PARTIAL)
++    token = register(client, "chat_partial")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "丢了一把蓝色雨伞"},
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["intent"] == "draft"
++    patch = body["form_patch"]
++    assert patch["category"] == "雨伞"
++    assert patch["title"] == "蓝色雨伞"
++    assert patch["building_code"] is None
++    assert patch["location_area"] is None
++    assert patch["floor"] is None
++    assert patch["time_occurred"] is None
++    assert body["actions"] == ["prefill_form"]
++    assert body["source"] == "model"

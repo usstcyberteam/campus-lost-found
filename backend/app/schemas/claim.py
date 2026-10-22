@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-from typing import Annotated
 
 from app.models.enums import ClaimStatus, EvidenceKind
 
@@ -33,8 +33,13 @@ class ClaimOut(BaseModel):
 
 class ReviewRequest(BaseModel):
     approve: bool
-    reason: str | None = None
+    reason: Annotated[str, StringConstraints(max_length=500)] | None = None
 
 
 class ClaimDetail(ClaimOut):
     evidence: list[EvidenceIn]
+    review_reason: str | None = None
+
+
+class MyClaimOut(ClaimOut):
+    item_title: str

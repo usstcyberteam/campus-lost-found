@@ -1,210 +1,116 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.database import get_db
-from app.errors import ApiError
-from app.models import Direction, Item, ItemFeature, ItemStatus, Route, Source, User
-from app.schemas.item import ItemCreate, ItemPublic
-from app.schemas.layer import MapAnchorRequest, RouteCreate
-from app.services.model import extract_features
+from app.models import Direction, ItemStatus, User
+from app.schemas.common import Page
+from app.schemas.item import (
+    CandidateOut,
+    FeatureExtractionOut,
+    FeatureExtractRequest,
+    ItemCreate,
+    ItemDetail,
+    ItemPublic,
+    ItemUpdate,
+)
+from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
+from app.schemas.upload import PhotoBindRequest
+from app.services import item_service
 
 router = APIRouter(tags=["items"])
 
 
 @router.post("", response_model=ItemPublic)
 def create_item(body: ItemCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    status = ItemStatus.searching if body.direction == Direction.lost else ItemStatus.pending
-    item = Item(
-        direction=body.direction,
-        category=body.category,
-        title=body.title,
-        description=body.description,
-        location_area=body.location_area,
-        precise_location=body.precise_location,
-        time_occurred=body.time_occurred,
-        status=status,
-        owner_user_id=user.id,
-        is_simulated=body.is_simulated,
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
+    return item_service.create_item(db, user, body)
 
 
-@router.get("", response_model=list[ItemPublic])
+@router.patch("/{item_id}", response_model=ItemDetail)
+def update_item(
+    item_id: uuid.UUID, body: ItemUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return item_service.update_item(db, user, item_id, body)
+
+
+@router.delete("/{item_id}", response_model=ItemPublic)
+def delete_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.delete_item(db, user, item_id)
+
+
+@router.get("", response_model=Page[ItemPublic])
 def list_items(
     direction: Direction | None = None,
     category: str | None = None,
     location_area: str | None = None,
     status: ItemStatus | None = None,
+    q: str | None = None,
+    building_id: uuid.UUID | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(Item)
-    if direction is not None:
-        query = query.filter(Item.direction == direction)
-    if category:
-        query = query.filter(Item.category == category)
-    if location_area:
-        query = query.filter(Item.location_area.ilike(f"%{location_area}%"))
-    if status is not None:
-        query = query.filter(Item.status == status)
-    return query.order_by(Item.created_at.desc()).all()
+    items, total = item_service.list_items(
+        db, user, direction, category, location_area, status, q, building_id, limit, offset
+    )
+    return Page(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.get("/{item_id}")
+@router.get("/{item_id}", response_model=ItemDetail)
 def get_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    return {
-        "id": item.id,
-        "is_owner": item.owner_user_id == user.id,
-        "direction": item.direction,
-        "category": item.category,
-        "title": item.title,
-        "description": item.description,
-        "location_area": item.location_area,
-        "time_occurred": item.time_occurred,
-        "status": item.status,
-        "is_simulated": item.is_simulated,
-        "source": item.source,
-        "created_at": item.created_at,
-        "norm_x": item.norm_x,
-        "norm_y": item.norm_y,
-        "layer_id": item.layer_id,
-        "precise_location": item.precise_location if item.owner_user_id == user.id else None,
-    }
+    return item_service.get_item_detail(db, user, item_id)
 
 
-@router.post("/{item_id}/map-anchor")
-def set_map_anchor(item_id: uuid.UUID, body: MapAnchorRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    if item.owner_user_id != user.id:
-        raise ApiError(403, "FORBIDDEN", "只能给自己的记录标点")
-    if not (0 <= body.norm_x <= 1 and 0 <= body.norm_y <= 1):
-        raise ApiError(400, "VALIDATION", "坐标须在 0 到 1 之间")
-    item.layer_id = body.layer_id
-    item.norm_x = body.norm_x
-    item.norm_y = body.norm_y
-    item.is_simulated = body.is_simulated
-    db.commit()
-    db.refresh(item)
-    return {"ok": True}
+@router.post("/{item_id}/withdraw", response_model=ItemPublic)
+def withdraw_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.withdraw_item(db, user, item_id)
 
 
-@router.post("/{item_id}/route")
-def create_route(item_id: uuid.UUID, body: RouteCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    if item.owner_user_id != user.id:
-        raise ApiError(403, "FORBIDDEN", "只能给自己的记录添加路线")
-    route = Route(
-        item_id=item_id,
-        layer_id=body.layer_id,
-        kind=body.kind,
-        geometry=body.geometry,
-        floor_segments=body.floor_segments,
-        is_private=True,
-        authorized=False,
-    )
-    db.add(route)
-    db.commit()
-    db.refresh(route)
-    return {"id": route.id, "kind": route.kind.value, "is_private": route.is_private}
+@router.post("/{item_id}/mark-found", response_model=ItemPublic)
+def mark_found(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return item_service.mark_found(db, user, item_id)
 
 
-@router.get("/{item_id}/route")
+@router.post("/{item_id}/photos", response_model=ItemDetail)
+def bind_photos(
+    item_id: uuid.UUID, body: PhotoBindRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    item_service.bind_photos(db, user, item_id, body.photo_ids)
+    return item_service.get_item_detail(db, user, item_id)
+
+
+@router.post("/{item_id}/map-anchor", response_model=MapAnchorOut)
+def set_map_anchor(
+    item_id: uuid.UUID, body: MapAnchorRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return item_service.set_map_anchor(db, user, item_id, body)
+
+
+@router.post("/{item_id}/route", response_model=RouteOut)
+def create_route(
+    item_id: uuid.UUID, body: RouteCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return item_service.create_route(db, user, item_id, body)
+
+
+@router.get("/{item_id}/route", response_model=list[RouteDetail])
 def get_route(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    if item.owner_user_id != user.id:
-        raise ApiError(403, "FORBIDDEN", "路线默认私密")
-    routes = db.query(Route).filter(Route.item_id == item_id).all()
-    return [
-        {
-            "id": r.id,
-            "kind": r.kind.value,
-            "geometry": r.geometry,
-            "floor_segments": r.floor_segments,
-            "is_private": r.is_private,
-            "authorized": r.authorized,
-        }
-        for r in routes
-    ]
+    return item_service.list_routes(db, user, item_id)
 
 
-@router.post("/{item_id}/extract")
-def extract(item_id: uuid.UUID, text: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    if item.owner_user_id != user.id:
-        raise ApiError(403, "FORBIDDEN", "只能提取自己记录的特征")
-    result = extract_features(text)
-    feature = ItemFeature(
-        item_id=item_id,
-        labels=result["labels"],
-        extracted_text=result["extracted_text"],
-        source=Source.model if not result["degraded"] else Source.manual,
-        confirmed=False,
-        confidence=result["confidence"],
-    )
-    db.add(feature)
-    db.commit()
-    return result
+@router.post("/{item_id}/extract", response_model=FeatureExtractionOut)
+def extract(
+    item_id: uuid.UUID,
+    body: FeatureExtractRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return item_service.extract_item_features(db, user, item_id, body.text)
 
 
-@router.get("/{item_id}/candidates")
+@router.get("/{item_id}/candidates", response_model=list[CandidateOut])
 def get_candidates(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    item = db.get(Item, item_id)
-    if item is None:
-        raise ApiError(404, "NOT_FOUND", "记录不存在")
-    if item.owner_user_id != user.id:
-        raise ApiError(403, "FORBIDDEN", "只能查看自己记录的候选")
-    if item.direction != Direction.lost:
-        return []
-
-    found_items = (
-        db.query(Item)
-        .filter(Item.direction == Direction.found, Item.status.in_([ItemStatus.pending, ItemStatus.reviewing]))
-        .all()
-    )
-    scored: list[tuple[Item, float, list[str]]] = []
-    for found in found_items:
-        if found.id == item.id:
-            continue
-        score = 0.0
-        reasons: list[str] = []
-        if found.category == item.category:
-            score += 1.0
-            reasons.append("类别一致")
-        if item.location_area and found.location_area == item.location_area:
-            score += 0.5
-            reasons.append("地点一致")
-        if score > 0:
-            scored.append((found, score, reasons))
-
-    scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:3]
-
-    return [
-        {
-            "found_item_id": str(found.id),
-            "score": score,
-            "explanation": "；".join(reasons),
-            "source": "rule",
-            "title": found.title,
-            "category": found.category,
-            "location_area": found.location_area,
-        }
-        for found, score, reasons in top
-    ]
+    return item_service.get_candidates(db, user, item_id)

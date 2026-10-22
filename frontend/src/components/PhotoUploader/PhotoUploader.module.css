@@ -1,0 +1,80 @@
+.uploader {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-2);
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 44px;
+  color: var(--color-text-2);
+  font-size: var(--font-base);
+  cursor: pointer;
+}
+
+.input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-bottom-left-radius: var(--radius-md);
+  background: var(--color-overlay);
+  color: var(--color-text-inverse);
+  font-size: var(--font-lg);
+}
+
+.hint,
+.error {
+  margin: 0;
+  font-size: var(--font-sm);
+}
+
+.hint {
+  color: var(--color-text-2);
+}
+
+.error {
+  color: var(--color-danger);
+}
