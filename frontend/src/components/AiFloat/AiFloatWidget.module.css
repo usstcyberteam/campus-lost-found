@@ -1,0 +1,247 @@
+/* 左侧停靠条：定位走 transform（GPU 加速），吸附动画在 .barSnap */
+.bar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  padding: 0;
+  border: none;
+  border-radius: 0 12px 12px 0;
+  background: var(--color-bg-1);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 20%);
+  cursor: grab;
+  touch-action: none;
+  transition: box-shadow 0.2s ease;
+  will-change: transform;
+}
+
+.bar:hover {
+  box-shadow: 0 4px 20px rgb(0 0 0 / 32%);
+}
+
+.bar:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.bar:active {
+  cursor: grabbing;
+}
+
+.barSnap {
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 右侧停靠：圆角镜像 */
+.barRight {
+  border-radius: 12px 0 0 12px;
+}
+
+.barInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: 100%;
+  transition: transform 0.2s ease;
+}
+
+.bar:hover .barInner {
+  transform: scale(1.05);
+}
+
+.barInner img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+  user-select: none;
+}
+
+.barLabel {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* 聊天窗锚点：0×0 定位点（transform 定位），与停靠条同步吸附 */
+.panelAnchor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9998;
+  width: 0;
+  height: 0;
+}
+
+.anchorSnap {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 80px));
+  height: min(460px, calc(100vh - 24px));
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 28%);
+  opacity: 0;
+  transform: scale(0.85);
+  transform-origin: left center;
+  transition:
+    opacity 0.25s ease-out,
+    transform 0.25s ease-out;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.panelOpen {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+/* 右侧停靠时聊天窗朝内（左侧）弹出 */
+.panelRight {
+  transform-origin: right center;
+}
+
+/* 规则降级标签：AI 消息内的小角标 */
+.ruleTag {
+  display: inline-block;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  vertical-align: middle;
+}
+
+/* 整理草稿按钮 */
+.draftButton {
+  margin: 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.draftButton:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.draftButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.notice {
+  margin: var(--space-2) var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+  text-align: center;
+  cursor: pointer;
+}
+
+.messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2);
+  padding: var(--space-2);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--color-bg-2);
+  border-radius: var(--radius-md);
+}
+
+.message {
+  max-width: 85%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-base);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.messageUser {
+  align-self: flex-end;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.messageAssistant {
+  align-self: flex-start;
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-1);
+}
+
+.form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: end;
+  padding: var(--space-2);
+}
+
+.input {
+  width: 100%;
+  min-height: 64px;
+  max-height: 120px;
+  padding: var(--space-1) var(--space-2);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-sm);
+  resize: none;
+}
+
+.input:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.send {
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.send:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  margin: 0 var(--space-2) var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-sm);
+}

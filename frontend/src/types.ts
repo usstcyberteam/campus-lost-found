@@ -32,6 +32,25 @@ export interface SearchAdvice {
   degraded: boolean
 }
 
+export interface FormPatch {
+  category: string | null
+  title: string | null
+  description: string | null
+  location_area: string | null
+  building_code: string | null
+  floor: number | null
+  time_occurred: string | null
+}
+
+export interface AiChatResult {
+  intent: 'draft' | 'chat'
+  reply: string
+  form_patch: FormPatch | null
+  actions: string[]
+  source: Source
+  degraded: boolean
+}
+
 export interface Page<T> {
   items: T[]
   total: number

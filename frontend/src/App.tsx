@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import AppShell from './components/AppShell/AppShell'
+import AiFloatWidget from './components/AiFloat/AiFloatWidget'
 import RequireAuth from './components/RequireAuth'
 import AdminAnnouncements from './pages/AdminAnnouncements'
 import AdminStats from './pages/AdminStats'
@@ -30,7 +31,8 @@ function LegacyItemRedirect() {
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route
@@ -65,6 +67,8 @@ export default function App() {
       <Route path="/items/:id" element={<LegacyItemRedirect />} />
       <Route path="/tickets" element={<Navigate to="/staff/tickets" replace />} />
       <Route path="*" element={<Navigate to="/hall" replace />} />
-    </Routes>
+      </Routes>
+      <AiFloatWidget />
+    </>
   )
 }
