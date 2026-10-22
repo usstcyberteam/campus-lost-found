@@ -26,6 +26,7 @@ class ItemStatus(str, Enum):
     withdrawn = "withdrawn"
     pending = "pending"
     returned = "returned"
+    deleted = "deleted"
 
 
 class ClaimStatus(str, Enum):

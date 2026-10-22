@@ -48,6 +48,7 @@ def _serialize(comment: Comment, author: User | None, images: list[Attachment]) 
         "content": "" if comment.is_deleted else comment.content,
         "parent_id": comment.parent_id,
         "is_deleted": comment.is_deleted,
+        "is_hidden": comment.is_hidden,
         "images": [] if comment.is_deleted else [upload_service.to_upload_out(image) for image in images],
         "created_at": comment.created_at,
         "replies": [],
@@ -57,7 +58,10 @@ def _serialize(comment: Comment, author: User | None, images: list[Attachment]) 
 def list_comments(db: Session, item_id: uuid.UUID, limit: int = 20, offset: int = 0) -> tuple[list[dict], int]:
     if db.get(Item, item_id) is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")
-    query = db.query(Comment).filter(Comment.item_id == item_id, Comment.parent_id.is_(None))
+    # 被工作人员隐藏的评论对访客不可见
+    query = db.query(Comment).filter(
+        Comment.item_id == item_id, Comment.parent_id.is_(None), Comment.is_hidden.is_(False)
+    )
     total = query.count()
     parents = query.order_by(Comment.created_at.asc(), Comment.id.asc()).offset(offset).limit(limit).all()
     parent_ids = [parent.id for parent in parents]
@@ -65,7 +69,7 @@ def list_comments(db: Session, item_id: uuid.UUID, limit: int = 20, offset: int 
     if parent_ids:
         replies = (
             db.query(Comment)
-            .filter(Comment.parent_id.in_(parent_ids))
+            .filter(Comment.parent_id.in_(parent_ids), Comment.is_hidden.is_(False))
             .order_by(Comment.created_at.asc(), Comment.id.asc())
             .all()
         )
@@ -116,6 +120,39 @@ def list_my_comments(db: Session, user: User, limit: int, offset: int) -> tuple[
     return items, total
 
 
+def list_for_moderation(
+    db: Session, only_hidden: bool | None, limit: int, offset: int
+) -> tuple[list[dict], int]:
+    """工作人员评论审核列表：仅未删除评论，可按“仅隐藏”过滤。"""
+    query = (
+        db.query(Comment, Item.title)
+        .join(Item, Item.id == Comment.item_id)
+        .filter(Comment.is_deleted.is_(False))
+    )
+    if only_hidden:
+        query = query.filter(Comment.is_hidden.is_(True))
+    total = query.count()
+    rows = query.order_by(Comment.created_at.desc(), Comment.id.desc()).offset(offset).limit(limit).all()
+    authors = _author_map(db, {comment.author_user_id for comment, _ in rows})
+    items = [
+        {
+            "id": comment.id,
+            "item_id": comment.item_id,
+            "item_title": item_title,
+            "author_id": comment.author_user_id,
+            "author_name": authors[comment.author_user_id].display_name
+            if comment.author_user_id in authors
+            else "已注销用户",
+            "content": comment.content,
+            "is_hidden": comment.is_hidden,
+            "is_deleted": comment.is_deleted,
+            "created_at": comment.created_at,
+        }
+        for comment, item_title in rows
+    ]
+    return items, total
+
+
 def create_comment(db: Session, user: User, item_id: uuid.UUID, body: CommentCreate) -> dict:
     if db.get(Item, item_id) is None:
         raise ApiError(404, "NOT_FOUND", "记录不存在")
@@ -127,6 +164,8 @@ def create_comment(db: Session, user: User, item_id: uuid.UUID, body: CommentCre
             raise ApiError(409, "STATE_CONFLICT", "仅支持一层回复")
         if parent.is_deleted:
             raise ApiError(409, "STATE_CONFLICT", "父评论已删除")
+        if parent.is_hidden:
+            raise ApiError(409, "STATE_CONFLICT", "父评论已被隐藏")
     comment = Comment(
         item_id=item_id,
         author_user_id=user.id,
@@ -154,3 +193,15 @@ def delete_comment(db: Session, user: User, comment_id: uuid.UUID) -> dict:
     comment.is_deleted = True
     db.commit()
     return {"id": comment.id, "is_deleted": True}
+
+
+def set_hidden(db: Session, comment_id: uuid.UUID, hidden: bool) -> dict:
+    comment = db.get(Comment, comment_id)
+    if comment is None:
+        raise ApiError(404, "NOT_FOUND", "评论不存在")
+    if comment.is_deleted:
+        raise ApiError(409, "STATE_CONFLICT", "评论已删除")
+    if comment.is_hidden != hidden:
+        comment.is_hidden = hidden
+        db.commit()
+    return {"id": comment.id, "is_hidden": comment.is_hidden}

@@ -13,6 +13,7 @@ const STATUS_TONES: Record<ItemStatus, TagTone> = {
   found: 'success',
   returned: 'success',
   withdrawn: 'neutral',
+  deleted: 'neutral',
 }
 
 function Thumb({ url }: { url: string }) {

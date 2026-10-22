@@ -1,3 +1,4 @@
+from app.models.announcement import Announcement, AnnouncementFavorite
 from app.models.building import Building
 from app.models.claim import Claim, ClaimEvidence
 from app.models.comment import Comment
@@ -23,10 +24,13 @@ from app.models.item_helper import ItemHelper
 from app.models.item_like import ItemLike
 from app.models.layer import Layer, SimulatedPoint
 from app.models.point_record import PointRecord
+from app.models.praise import Praise
 from app.models.ticket import Ticket
 from app.models.user import Badge, User
 
 __all__ = [
+    "Announcement",
+    "AnnouncementFavorite",
     "Building",
     "Claim",
     "ClaimEvidence",
@@ -53,6 +57,7 @@ __all__ = [
     "ItemHelper",
     "ItemLike",
     "PointRecord",
+    "Praise",
     "Route",
     "Layer",
     "SimulatedPoint",

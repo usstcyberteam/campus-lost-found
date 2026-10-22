@@ -16,4 +16,6 @@ class Comment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 工作人员审核后隐藏：隐藏的评论对普通用户不可见，作者与工作人员仍可见
+    is_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

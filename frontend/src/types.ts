@@ -1,5 +1,5 @@
 export type Direction = 'lost' | 'found'
-export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned'
+export type ItemStatus = 'searching' | 'reviewing' | 'found' | 'withdrawn' | 'pending' | 'returned' | 'deleted'
 export type Source = 'manual' | 'rule' | 'cache' | 'model'
 export type Role = 'student' | 'staff' | 'admin'
 export type StaffStatus = 'none' | 'pending' | 'approved' | 'rejected'
@@ -104,6 +104,7 @@ export const statusLabels: Record<ItemStatus, string> = {
   withdrawn: '已撤销',
   pending: '待认领',
   returned: '已归还',
+  deleted: '已删除',
 }
 
 export const directionLabels: Record<Direction, string> = {
@@ -126,6 +127,40 @@ export interface User {
   staff_no: string | null
   department: string | null
   staff_reject_reason: string | null
+  contact?: string | null
+}
+
+export interface AdminUser {
+  id: string
+  username: string
+  display_name: string
+  role: Role
+  staff_status: StaffStatus
+  is_banned: boolean
+  created_at: string
+}
+
+export interface StatCount {
+  key: string
+  name: string
+  count: number
+}
+
+export interface AdminStats {
+  total_items: number
+  lost_count: number
+  found_count: number
+  active_count: number
+  returned_count: number
+  claim_total: number
+  claim_pending: number
+  claim_approved: number
+  claim_completed: number
+  recovery_rate: number
+  avg_handling_hours: number | null
+  by_building: StatCount[]
+  by_category: StatCount[]
+  by_status: StatCount[]
 }
 
 export const staffStatusLabels: Record<StaffStatus, string> = {
@@ -256,6 +291,7 @@ export interface Comment {
   content: string
   parent_id: string | null
   is_deleted: boolean
+  is_hidden?: boolean
   images: Photo[]
   created_at: string
   replies: Comment[]
@@ -308,4 +344,48 @@ export function pointProgress(total: number, nextThreshold: number | null): numb
   if (nextThreshold == null) return 1
   const ratio = total / nextThreshold
   return Math.min(Math.max(ratio, 0), 1)
+}
+
+export interface Announcement {
+  id: string
+  title: string
+  content: string
+  is_pinned: boolean
+  author_name: string | null
+  created_at: string
+  updated_at: string
+  favorite_count: number
+  is_favorited: boolean
+}
+
+export interface AnnouncementFavorite {
+  id: string
+  title: string
+  created_at: string
+  favorited_at: string
+}
+
+export interface Praise {
+  id: string
+  content: string
+  item_id: string | null
+  item_title: string | null
+  from_user_id: string
+  from_name: string
+  to_user_id: string
+  to_name: string
+  created_at: string
+  can_edit: boolean
+}
+
+export interface ModerationComment {
+  id: string
+  item_id: string
+  item_title: string
+  author_id: string
+  author_name: string
+  content: string
+  is_hidden: boolean
+  is_deleted: boolean
+  created_at: string
 }
