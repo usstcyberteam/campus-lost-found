@@ -50,9 +50,37 @@ class UserOut(BaseModel):
     staff_no: str | None
     department: str | None
     staff_reject_reason: str | None
+    contact: str | None = None
 
 
 class BadgeOut(BaseModel):
     id: uuid.UUID
     kind: str
     awarded_at: datetime
+
+
+class ProfileUpdate(BaseModel):
+    display_name: DisplayName | None = None
+    contact: Annotated[str, StringConstraints(max_length=100)] | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    old_password: Password
+    new_password: Password
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    username: str
+    display_name: str
+    role: Role
+    staff_status: StaffStatus
+    is_banned: bool
+    created_at: datetime
+
+
+class AdminUserUpdate(BaseModel):
+    role: Role | None = None
+    is_banned: bool | None = None

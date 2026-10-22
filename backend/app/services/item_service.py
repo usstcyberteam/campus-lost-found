@@ -22,11 +22,14 @@ from app.models import (
     User,
     Visibility,
 )
-from app.schemas.item import ItemCreate
+from app.schemas.item import ItemCreate, ItemUpdate
 from app.schemas.layer import MapAnchorRequest, RouteCreate
 from app.services import helper_service, reaction_service, upload_service
 from app.services.matching_service import find_candidates
 from app.services.model import extract_features
+
+# 可编辑状态：仅进行中的记录允许修改，已找回/已撤销/已归还/已删除不可编辑
+_EDITABLE_STATUSES = (ItemStatus.searching, ItemStatus.pending, ItemStatus.reviewing)
 
 
 def _get_owned_item(db: Session, user: User, item_id: uuid.UUID, forbidden_message: str) -> Item:
@@ -159,7 +162,8 @@ def list_items(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    query = db.query(Item)
+    # 软删除的记录不再出现在任何公开/后台列表中（等同于下架）
+    query = db.query(Item).filter(Item.status != ItemStatus.deleted)
     if direction is not None:
         query = query.filter(Item.direction == direction)
     if q:
@@ -181,7 +185,7 @@ def list_items(
 
 
 def list_my_items(db: Session, user: User, limit: int, offset: int) -> tuple[list[dict], int]:
-    query = db.query(Item).filter(Item.owner_user_id == user.id)
+    query = db.query(Item).filter(Item.owner_user_id == user.id, Item.status != ItemStatus.deleted)
     total = query.count()
     items = query.order_by(Item.created_at.desc()).offset(offset).limit(limit).all()
     return serialize_items(db, items, user), total
@@ -229,6 +233,40 @@ def get_item_detail(db: Session, user: User, item_id: uuid.UUID) -> dict:
     }
 
 
+def update_item(db: Session, user: User, item_id: uuid.UUID, body: ItemUpdate) -> dict:
+    item = _get_owned_item(db, user, item_id, "只能编辑自己发布的记录")
+    if item.status not in _EDITABLE_STATUSES:
+        raise ApiError(409, "STATE_CONFLICT", "当前状态不可编辑")
+    if item.status == ItemStatus.reviewing and _approved_claim_exists(db, item.id):
+        raise ApiError(409, "STATE_CONFLICT", "已有通过的认领，请走归还流程")
+    data = body.model_dump(exclude_unset=True)
+    building_id = data.get("building_id")
+    if building_id is not None and db.get(Building, building_id) is None:
+        raise ApiError(404, "NOT_FOUND", "建筑不存在")
+    for field, value in data.items():
+        setattr(item, field, value)
+    db.commit()
+    db.refresh(item)
+    return get_item_detail(db, user, item.id)
+
+
+def delete_item(db: Session, user: User, item_id: uuid.UUID) -> dict:
+    item = db.get(Item, item_id)
+    if item is None:
+        raise ApiError(404, "NOT_FOUND", "记录不存在")
+    is_moderator = user.role in (Role.staff, Role.admin)
+    if item.owner_user_id != user.id and not is_moderator:
+        raise ApiError(403, "FORBIDDEN", "只能删除自己发布的记录")
+    if item.status == ItemStatus.deleted:
+        raise ApiError(409, "STATE_CONFLICT", "记录已删除")
+    if _approved_claim_exists(db, item.id):
+        raise ApiError(409, "STATE_CONFLICT", "已有通过的认领，请走归还流程")
+    item.status = ItemStatus.deleted
+    db.commit()
+    db.refresh(item)
+    return serialize_items(db, [item], user)[0]
+
+
 def bind_photos(db: Session, user: User, item_id: uuid.UUID, photo_ids: list[uuid.UUID]) -> Item:
     item = _get_owned_item(db, user, item_id, "只能给自己的记录添加照片")
     upload_service.bind_photos_to_item(db, user, item, photo_ids)
@@ -239,7 +277,7 @@ def bind_photos(db: Session, user: User, item_id: uuid.UUID, photo_ids: list[uui
 
 def withdraw_item(db: Session, user: User, item_id: uuid.UUID) -> dict:
     item = _get_owned_item(db, user, item_id, "只能撤销自己发布的记录")
-    if item.status in (ItemStatus.withdrawn, ItemStatus.found, ItemStatus.returned):
+    if item.status in (ItemStatus.withdrawn, ItemStatus.found, ItemStatus.returned, ItemStatus.deleted):
         raise ApiError(409, "STATE_CONFLICT", "当前状态不可撤销")
     if item.status == ItemStatus.reviewing and _approved_claim_exists(db, item.id):
         raise ApiError(409, "STATE_CONFLICT", "已有通过的认领，请走归还流程")

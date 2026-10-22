@@ -1,6 +1,5 @@
 .map {
-  height: 560px;
-  margin-top: var(--space-3);
-  border: 1px solid var(--color-border-strong);
+  height: 100%;
+  min-height: 320px;
   background: var(--color-map-bg);
 }

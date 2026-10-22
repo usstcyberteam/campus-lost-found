@@ -3,6 +3,56 @@
   gap: var(--space-4);
 }
 
+/* 首屏欢迎区：不留白，用能力提示 + 快捷指令给抓手 */
+.welcome {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 70%);
+  box-shadow: var(--shadow-sm);
+}
+
+.welcomeTitle {
+  margin: 0;
+  font-size: var(--font-lg);
+}
+
+.capabilities {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+}
+
+.chip:disabled {
+  border-color: var(--color-border);
+  color: var(--color-text-3);
+}
+
 .draft {
   display: grid;
   gap: var(--space-3);
@@ -49,11 +99,19 @@
   word-break: break-word;
 }
 
+/* 结果操作：查看 / 应用 / 调整 */
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .note {
   margin: 0;
   color: var(--color-text-2);
   font-size: var(--font-sm);
 }
+
 .selectLabel {
   display: grid;
   gap: var(--space-2);

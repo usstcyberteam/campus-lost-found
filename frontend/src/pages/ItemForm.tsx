@@ -1,19 +1,24 @@
-import { useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { errorMessage } from '../utils/error'
 import {
   createItem,
   createRoute,
+  getItem,
   setMapAnchor,
+  updateItem,
   type CircleGeometry,
   type PolylineGeometry,
 } from '../api/items'
-import type { Direction, Photo, RouteKind, Visibility } from '../types'
+import { useAsync } from '../hooks/useAsync'
+import { directionLabels, type Direction, type Item, type Photo, type RouteKind, type Visibility } from '../types'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
 import Field from '../components/Field'
 import PageHeader from '../components/AppShell/PageHeader'
 import PhotoUploader from '../components/PhotoUploader/PhotoUploader'
+import Spinner from '../components/Spinner'
+import Tag from '../components/Tag'
 import styles from './ItemForm.module.css'
 
 interface MapPublishState {
@@ -34,12 +39,26 @@ interface MapPublishState {
   visibility?: Visibility
 }
 
+interface FormErrors {
+  category?: string
+  title?: string
+}
+
+const CATEGORY_OPTIONS = ['雨伞', '水杯', '手机', '笔记本电脑', '耳机', '钱包', '校园卡', '钥匙', '书包', '其他']
+
 export default function ItemForm() {
   const navigate = useNavigate()
   const location = useLocation()
-  const preset = (location.state as MapPublishState | null) ?? null
+  const { id } = useParams()
+  const editing = Boolean(id)
+  // 地图/AI 带入的预置数据仅在新建时生效，编辑时以服务端记录为准
+  const preset = editing ? null : ((location.state as MapPublishState | null) ?? null)
   const geometry = preset?.geometry ?? null
   const routeKind = preset?.route_kind ?? null
+  const { data: loaded, loading, error: loadError } = useAsync<Item | null>(
+    () => (id ? getItem(id) : Promise.resolve(null)),
+    [id],
+  )
   const [direction, setDirection] = useState<Direction>('lost')
   const [category, setCategory] = useState(preset?.category ?? '')
   const [title, setTitle] = useState(preset?.title ?? '')
@@ -50,7 +69,40 @@ export default function ItemForm() {
   const [visibility, setVisibility] = useState<Visibility>(preset?.visibility ?? 'private')
   const [createdId, setCreatedId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [errors, setErrors] = useState<FormErrors>({})
+  const [templateHint, setTemplateHint] = useState('')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!editing || !loaded) return
+    setDirection(loaded.direction)
+    setCategory(loaded.category)
+    setTitle(loaded.title)
+    setDescription(loaded.description ?? '')
+    setLocationArea(loaded.location_area ?? '')
+    setPreciseLocation(loaded.precise_location ?? '')
+  }, [editing, loaded])
+
+  function applyTemplate(kind: 'short' | 'long' | 'place') {
+    if (kind === 'short') {
+      if (!description) setDescription('简要描述物品特征，以及丢失/拾获的时间与经过。')
+      setTemplateHint('已套用「短动态」模板')
+    } else if (kind === 'long') {
+      if (!description) setDescription('物品特征：\n时间地点：\n其他线索：')
+      setTemplateHint('已套用「长文」模板')
+    } else {
+      if (!locationArea) setLocationArea('图书馆2F')
+      setTemplateHint('已套用「带地点」模板')
+    }
+  }
+
+  function validate(): boolean {
+    const next: FormErrors = {}
+    if (!category.trim()) next.category = '请填写或选择类别'
+    if (!title.trim()) next.title = '请填写标题'
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -59,9 +111,21 @@ export default function ItemForm() {
       navigate('/hall')
       return
     }
+    if (!validate()) return
     setBusy(true)
     setError('')
     try {
+      if (editing && id) {
+        await updateItem(id, {
+          category,
+          title,
+          description,
+          location_area: locationArea,
+          precise_location: preciseLocation || null,
+        })
+        navigate(`/hall/${id}`)
+        return
+      }
       const item = await createItem({
         direction,
         category,
@@ -98,10 +162,31 @@ export default function ItemForm() {
     }
   }
 
+  if (editing && loading) {
+    return (
+      <div className={styles.container}>
+        <PageHeader title="编辑" backTo={id ? `/hall/${id}` : '/hall'} />
+        <Spinner />
+      </div>
+    )
+  }
+  if (editing && loadError) {
+    return (
+      <div className={styles.container}>
+        <PageHeader title="编辑" backTo={id ? `/hall/${id}` : '/hall'} />
+        <ErrorNotice message={loadError} />
+      </div>
+    )
+  }
+
+  const previewLocation = locationArea.trim() || preset?.location_area || '未指定地点'
+
   return (
     <div className={styles.container}>
-      <PageHeader title="发布" backTo="/hall" />
-      {preset?.from_ai ? (
+      <PageHeader title={editing ? '编辑' : '发布'} backTo={editing && id ? `/hall/${id}` : '/hall'} />
+      {editing ? (
+        <p className={styles.notice}>正在编辑这条记录，修改后保存。状态与已上传照片不受影响。</p>
+      ) : preset?.from_ai ? (
         <p className={styles.notice}>已带入 AI 整理草稿，请确认或修改后发布。</p>
       ) : (
         preset && (
@@ -111,56 +196,169 @@ export default function ItemForm() {
           </p>
         )
       )}
-      <form onSubmit={onSubmit} className={styles.form}>
-        <Field label="类型">
-          <select value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
-            <option value="lost">寻物</option>
-            <option value="found">拾获</option>
-          </select>
-        </Field>
-        <Field label="类别">
-          <input
-            placeholder="类别（如 雨伞）"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            required
-          />
-        </Field>
-        <Field label="标题">
-          <input placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} required />
-        </Field>
-        <Field label="描述">
-          <textarea placeholder="描述" value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <Field label="地点">
-          <input
-            placeholder="地点（楼层级，如 图书馆2F）"
-            value={locationArea}
-            onChange={(e) => setLocationArea(e.target.value)}
-          />
-        </Field>
-        <Field label="精确位置">
-          <input
-            placeholder="精确位置（仅自己可见）"
-            value={preciseLocation}
-            onChange={(e) => setPreciseLocation(e.target.value)}
-          />
-        </Field>
-        {geometry && routeKind && (
-          <Field label="路线可见性">
-            <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
-              <option value="private">私密（仅自己与已授权处理人员）</option>
-              <option value="public">公开</option>
-            </select>
-            <span className={styles.note}>圈选默认公开，路径默认私密</span>
-          </Field>
-        )}
-        {error && <ErrorNotice message={error} />}
-        <PhotoUploader photos={photos} onChange={setPhotos} disabled={busy} />
-        <Button type="submit" loading={busy}>
-          {createdId ? '前往大厅' : busy ? '发布中…' : '提交'}
+
+      <div className={styles.layout}>
+        <form id="item-form" className={styles.form} onSubmit={onSubmit}>
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>基本信息</h2>
+            <Field label="类型">
+              <div className={styles.chips} role="group" aria-label="类型">
+                <button
+                  type="button"
+                  className={`${styles.chip} ${direction === 'lost' ? styles.chipActive : ''}`}
+                  aria-pressed={direction === 'lost'}
+                  disabled={editing}
+                  onClick={() => setDirection('lost')}
+                >
+                  寻物
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${direction === 'found' ? styles.chipActive : ''}`}
+                  aria-pressed={direction === 'found'}
+                  disabled={editing}
+                  onClick={() => setDirection('found')}
+                >
+                  拾获
+                </button>
+              </div>
+            </Field>
+            <Field label="类别" htmlFor="item-category" required error={errors.category}>
+              <div className={styles.chips} role="group" aria-label="常用类别">
+                {CATEGORY_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`${styles.chip} ${category === option ? styles.chipActive : ''}`}
+                    aria-pressed={category === option}
+                    onClick={() => {
+                      setCategory(option)
+                      setErrors((current) => ({ ...current, category: undefined }))
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <input
+                id="item-category"
+                aria-label="类别"
+                placeholder="或自定义类别"
+                value={category}
+                onChange={(e) => {
+                  setCategory(e.target.value)
+                  setErrors((current) => ({ ...current, category: undefined }))
+                }}
+              />
+            </Field>
+            <Field label="标题" htmlFor="item-title" required error={errors.title}>
+              <input
+                id="item-title"
+                aria-label="标题"
+                placeholder="标题"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value)
+                  setErrors((current) => ({ ...current, title: undefined }))
+                }}
+              />
+            </Field>
+            <Field label="描述" htmlFor="item-description">
+              <textarea
+                id="item-description"
+                aria-label="描述"
+                placeholder="描述"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </Field>
+            {!editing && (
+              <div className={styles.templates}>
+                <span className={styles.templatesLabel}>快捷模板</span>
+                <div className={styles.chips}>
+                  <button type="button" className={styles.chip} onClick={() => applyTemplate('short')}>
+                    短动态
+                  </button>
+                  <button type="button" className={styles.chip} onClick={() => applyTemplate('long')}>
+                    长文
+                  </button>
+                  <button type="button" className={styles.chip} onClick={() => applyTemplate('place')}>
+                    带地点
+                  </button>
+                </div>
+                {templateHint && <span className={styles.note}>{templateHint}</span>}
+              </div>
+            )}
+          </section>
+
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>地点与时间</h2>
+            <Field label="地点" htmlFor="item-location">
+              <input
+                id="item-location"
+                aria-label="地点"
+                placeholder="地点（楼层级，如 图书馆2F）"
+                value={locationArea}
+                onChange={(e) => setLocationArea(e.target.value)}
+              />
+            </Field>
+            <Field label="精确位置" htmlFor="item-precise">
+              <input
+                id="item-precise"
+                aria-label="精确位置"
+                placeholder="精确位置（仅自己可见）"
+                value={preciseLocation}
+                onChange={(e) => setPreciseLocation(e.target.value)}
+              />
+            </Field>
+          </section>
+
+          {!editing && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>照片</h2>
+              <PhotoUploader photos={photos} onChange={setPhotos} disabled={busy} />
+            </section>
+          )}
+
+          {!editing && geometry && routeKind && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>隐私</h2>
+              <Field label="路线可见性">
+                <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
+                  <option value="private">私密（仅自己与已授权处理人员）</option>
+                  <option value="public">公开</option>
+                </select>
+                <span className={styles.note}>圈选默认公开，路径默认私密</span>
+              </Field>
+            </section>
+          )}
+
+          {error && <ErrorNotice message={error} />}
+        </form>
+
+        <aside className={styles.preview} aria-label="实时预览">
+          <h2 className={styles.previewTitle}>实时预览</h2>
+          <article className={styles.previewCard}>
+            <div className={styles.previewTags}>
+              <Tag tone={direction === 'lost' ? 'primary' : 'success'}>{directionLabels[direction]}</Tag>
+              <span className={styles.previewCategory}>{category || '未填写类别'}</span>
+            </div>
+            <h3 className={styles.previewHeading}>{title || '未填写标题'}</h3>
+            <p className={styles.previewDesc}>{description || '暂无描述'}</p>
+            <p className={styles.previewMeta}>地点：{previewLocation}</p>
+            {!editing && geometry && routeKind && (
+              <p className={styles.previewMeta}>路线可见性：{visibility === 'public' ? '公开' : '私密'}</p>
+            )}
+          </article>
+          <p className={styles.note}>发布前即可确认他人看到的内容。</p>
+        </aside>
+      </div>
+
+      <div className={styles.footer}>
+        <Button type="submit" form="item-form" loading={busy}>
+          {editing ? (busy ? '保存中…' : '保存修改') : createdId ? '前往大厅' : busy ? '发布中…' : '发布'}
         </Button>
-      </form>
+      </div>
     </div>
   )
 }

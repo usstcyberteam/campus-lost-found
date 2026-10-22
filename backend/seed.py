@@ -9,7 +9,7 @@ from app.schemas.validation import Password
 from app.services import building_service
 
 _LAYER_SPECS = [
-    {"name": "校园 2.5D 底图", "image_path": "campus-2.5d.jpg", "width": 1280, "height": 2276},
+    {"name": "校园 2.5D 底图", "image_path": "outdoor.jpg", "width": 1280, "height": 2276},
     {"name": "综合楼 1F", "image_path": None, "width": 1280, "height": 900, "building_code": "B05", "floor": 1},
     {"name": "综合楼 2F", "image_path": None, "width": 1280, "height": 900, "building_code": "B05", "floor": 2},
     {"name": "图书馆 1F", "image_path": None, "width": 1280, "height": 900, "building_code": "B02", "floor": 1},

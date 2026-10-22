@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.database import get_db
 from app.models import Badge, Item, ItemHelper, User
-from app.schemas.auth import BadgeOut, UserOut
+from app.schemas.auth import BadgeOut, PasswordChangeRequest, ProfileUpdate, UserOut
 from app.schemas.claim import ClaimOut, MyClaimOut
 from app.schemas.comment import MyCommentOut
 from app.schemas.common import Page
@@ -21,9 +21,28 @@ from app.services import (
     reaction_service,
     staff_application_service,
     ticket_service,
+    user_service,
 )
 
 router = APIRouter(tags=["me"])
+
+
+@router.patch("", response_model=UserOut)
+def update_me(
+    body: ProfileUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return user_service.update_profile(db, user, body)
+
+
+@router.post("/password", response_model=UserOut)
+def change_password(
+    body: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return user_service.change_password(db, user, body)
 
 
 def _merge_helping(db: Session, user: User, rows: list[tuple[ItemHelper, Item]]) -> list[dict]:
