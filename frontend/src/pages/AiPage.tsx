@@ -5,6 +5,7 @@ import { listItems } from '../api/items'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
 import { placeLabel, type Building, type DraftPost, type Item, type SearchAdvice } from '../types'
 import AiChat from '../components/AiChat/AiChat'
+import BlobStudio from '../components/BlobStudio/BlobStudio'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import ErrorNotice from '../components/ErrorNotice'
@@ -109,6 +110,8 @@ export default function AiPage() {
             </button>
           </div>
         </section>
+
+        <BlobStudio ariaLabel="可拖拽塑形的 AI 形态" />
 
         <Card>
           <AiChat onDraft={setDraft} presetText={presetText} />
