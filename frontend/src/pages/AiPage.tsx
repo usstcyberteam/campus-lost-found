@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { listBuildings } from '../api/buildings'
 import { listItems } from '../api/items'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
-import { placeLabel, type Building, type DraftPost, type Item, type SearchAdvice } from '../types'
+import { placeLabel, type AiChatResult, type Building, type DraftPost, type FormPatch, type Item, type SearchAdvice } from '../types'
 import AiChat from '../components/AiChat/AiChat'
 import BlobStudio from '../components/BlobStudio/BlobStudio'
 import Button from '../components/Button'
@@ -51,6 +51,33 @@ export default function AiPage() {
 
   const building = draft?.building_code ? buildings.find((row) => row.code === draft.building_code) : undefined
   const buildingName = draft?.building_code ? (building?.name ?? draft.building_code) : '待补充'
+
+  // form_patch 只填空字段：已填内容视为用户确认过，不覆盖。
+  function applyPatch(patch: FormPatch, result: AiChatResult) {
+    setDraft((prev) => {
+      const base: DraftPost =
+        prev ?? {
+          category: null,
+          title: null,
+          description: null,
+          location_area: null,
+          building_code: null,
+          floor: null,
+          time_occurred: null,
+          source: result.source,
+          degraded: result.degraded,
+        }
+      const merged: DraftPost = { ...base }
+      for (const key of ['category', 'title', 'description', 'location_area', 'building_code'] as const) {
+        if (!base[key] && patch[key]) merged[key] = patch[key]
+      }
+      if (base.floor === null && patch.floor !== null) merged.floor = patch.floor
+      if (!base.time_occurred && patch.time_occurred) merged.time_occurred = patch.time_occurred
+      merged.source = result.source
+      merged.degraded = result.degraded
+      return merged
+    })
+  }
 
   function goPublish() {
     if (!draft) return
@@ -114,7 +141,7 @@ export default function AiPage() {
         <BlobStudio ariaLabel="可拖拽塑形的 AI 形态" />
 
         <Card>
-          <AiChat onDraft={setDraft} presetText={presetText} />
+          <AiChat onPatch={applyPatch} presetText={presetText} />
         </Card>
 
         {draft && (
