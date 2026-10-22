@@ -11,6 +11,7 @@ import {
   type PolylineGeometry,
 } from '../api/items'
 import { useAsync } from '../hooks/useAsync'
+import { suggestLocations } from '../api/ai'
 import { directionLabels, type Direction, type Item, type Photo, type RouteKind, type Visibility } from '../types'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
@@ -44,6 +45,29 @@ interface FormErrors {
   title?: string
 }
 
+interface AiPrefill {
+  direction?: 'lost' | 'found'
+  category?: string | null
+  title?: string | null
+  description?: string | null
+  location_area?: string | null
+  time_occurred?: string | null
+  floor?: number | null
+}
+
+/** 解析 URL query 中的 AI 预填数据（悬浮窗助手跳转带入）。数据源由调用方传入。 */
+function parseAiPrefill(search: string): AiPrefill | null {
+  try {
+    const raw = new URLSearchParams(search).get('ai_prefill')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AiPrefill
+    if (parsed && typeof parsed === 'object') return parsed
+    return null
+  } catch {
+    return null
+  }
+}
+
 const CATEGORY_OPTIONS = ['雨伞', '水杯', '手机', '笔记本电脑', '耳机', '钱包', '校园卡', '钥匙', '书包', '其他']
 
 export default function ItemForm() {
@@ -53,6 +77,8 @@ export default function ItemForm() {
   const editing = Boolean(id)
   // 地图/AI 带入的预置数据仅在新建时生效，编辑时以服务端记录为准
   const preset = editing ? null : ((location.state as MapPublishState | null) ?? null)
+  // 悬浮窗助手跳转带入的预填（URL query）；仅填空字段，不覆盖用户已手写内容
+  const [aiExtra, setAiExtra] = useState<AiPrefill | null>(null)
   const geometry = preset?.geometry ?? null
   const routeKind = preset?.route_kind ?? null
   const { data: loaded, loading, error: loadError } = useAsync<Item | null>(
@@ -72,6 +98,19 @@ export default function ItemForm() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [templateHint, setTemplateHint] = useState('')
   const [busy, setBusy] = useState(false)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+
+  // 地点输入框聚焦时按历史频次推荐：当前有输入则按关键词过滤，否则给全局热门
+  async function onLocationFocus() {
+    if (suggestions.length > 0 || editing) return
+    try {
+      const keyword = locationArea.trim() || undefined
+      const locations = await suggestLocations(keyword)
+      setSuggestions(locations.slice(0, 5))
+    } catch {
+      setSuggestions([])
+    }
+  }
 
   useEffect(() => {
     if (!editing || !loaded) return
@@ -82,6 +121,33 @@ export default function ItemForm() {
     setLocationArea(loaded.location_area ?? '')
     setPreciseLocation(loaded.precise_location ?? '')
   }, [editing, loaded])
+
+  // 悬浮窗助手预填：挂载或 query 变化时生效（同路径二次跳转组件不重挂，靠 search 变化触发）。
+  // 数据源必须用 react-router 的 location.search（而非 window.location.search）：
+  // StrictMode 双挂载时第一次 effect 的 replaceState 会清空地址栏，window 读源在第二次挂载
+  // 读到空导致预填丢失；router 状态不受 replaceState 影响，两次挂载均能解析（填充幂等）。
+  // 只填空字段：字段已有内容（用户手写或地图带入）一律不覆盖。
+  useEffect(() => {
+    if (editing) return
+    const parsed = parseAiPrefill(location.search)
+    if (!parsed) return
+    console.log('[AiPrefill] parsing prefill from query:', location.search.slice(0, 80))
+    console.log(
+      '[AiPrefill] filled fields:',
+      (Object.keys(parsed) as (keyof AiPrefill)[]).filter((key) => parsed[key]),
+    )
+    // 类型仅在与地图带入数据不冲突且表单仍空白时同步，避免覆盖用户已选内容
+    const blank = !category && !title && !locationArea
+    if (blank && parsed.direction === 'found' && !preset) setDirection('found')
+    if (!category && parsed.category) setCategory(parsed.category)
+    if (!title && parsed.title) setTitle(parsed.title)
+    if (!description && parsed.description) setDescription(parsed.description)
+    if (!locationArea && parsed.location_area) setLocationArea(parsed.location_area)
+    setAiExtra(parsed)
+    // 只清地址栏显示（防刷新/分享重复预填）；router 状态保持，effect 不因 deps 变化重跑
+    window.history.replaceState(null, '', window.location.pathname)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, location.search])
 
   function applyTemplate(kind: 'short' | 'long' | 'place') {
     if (kind === 'short') {
@@ -133,9 +199,9 @@ export default function ItemForm() {
         description,
         location_area: locationArea,
         precise_location: preciseLocation || null,
-        time_occurred: preset?.time_occurred ?? null,
+        time_occurred: preset?.time_occurred ?? aiExtra?.time_occurred ?? null,
         building_id: preset?.building_id ?? null,
-        floor: preset?.floor ?? null,
+        floor: preset?.floor ?? aiExtra?.floor ?? null,
         photo_ids: photos.map((photo) => photo.id),
       })
       setCreatedId(item.id)
@@ -186,7 +252,7 @@ export default function ItemForm() {
       <PageHeader title={editing ? '编辑' : '发布'} backTo={editing && id ? `/hall/${id}` : '/hall'} />
       {editing ? (
         <p className={styles.notice}>正在编辑这条记录，修改后保存。状态与已上传照片不受影响。</p>
-      ) : preset?.from_ai ? (
+      ) : preset?.from_ai || aiExtra ? (
         <p className={styles.notice}>已带入 AI 整理草稿，请确认或修改后发布。</p>
       ) : (
         preset && (
@@ -300,7 +366,27 @@ export default function ItemForm() {
                 placeholder="地点（楼层级，如 图书馆2F）"
                 value={locationArea}
                 onChange={(e) => setLocationArea(e.target.value)}
+                onFocus={onLocationFocus}
               />
+              {suggestions.length > 0 && (
+                <div className={styles.locationSuggestions} role="listbox" aria-label="推荐地点">
+                  {suggestions.map((area) => (
+                    <button
+                      key={area}
+                      type="button"
+                      className={styles.locationChip}
+                      role="option"
+                      aria-selected={area === locationArea}
+                      onClick={() => {
+                        setLocationArea(area)
+                        setSuggestions([])
+                      }}
+                    >
+                      {area}
+                    </button>
+                  ))}
+                </div>
+              )}
             </Field>
             <Field label="精确位置" htmlFor="item-precise">
               <input

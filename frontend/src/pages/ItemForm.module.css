@@ -177,3 +177,26 @@
     top: var(--space-4);
   }
 }
+/* 地点推荐：输入框聚焦时按历史频次展示，点击即选中（用户主动点击视为确认） */
+.locationSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.locationChip {
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.locationChip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
