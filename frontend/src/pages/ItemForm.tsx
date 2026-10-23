@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { errorMessage } from '../utils/error'
 import {
@@ -81,10 +81,11 @@ export default function ItemForm() {
   const [aiExtra, setAiExtra] = useState<AiPrefill | null>(null)
   const geometry = preset?.geometry ?? null
   const routeKind = preset?.route_kind ?? null
-  const { data: loaded, loading, error: loadError } = useAsync<Item | null>(
-    () => (id ? getItem(id) : Promise.resolve(null)),
-    [id],
-  )
+  const {
+    data: loaded,
+    loading,
+    error: loadError,
+  } = useAsync<Item | null>(() => (id ? getItem(id) : Promise.resolve(null)), [id])
   const [direction, setDirection] = useState<Direction>('lost')
   const [category, setCategory] = useState(preset?.category ?? '')
   const [title, setTitle] = useState(preset?.title ?? '')
@@ -99,6 +100,13 @@ export default function ItemForm() {
   const [templateHint, setTemplateHint] = useState('')
   const [busy, setBusy] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
+  // AI 预填交互：实际填入的字段 key（用于高亮）、顶部提示条可见性
+  const [prefilledKeys, setPrefilledKeys] = useState<string[]>([])
+  const [aiToastVisible, setAiToastVisible] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
+  const scrollRaf = useRef(0)
+  const highlightTimer = useRef(0)
+  const toastTimer = useRef(0)
 
   // 地点输入框聚焦时按历史频次推荐：当前有输入则按关键词过滤，否则给全局热门
   async function onLocationFocus() {
@@ -132,20 +140,50 @@ export default function ItemForm() {
     const parsed = parseAiPrefill(location.search)
     if (!parsed) return
     console.log('[AiPrefill] parsing prefill from query:', location.search.slice(0, 80))
-    console.log(
-      '[AiPrefill] filled fields:',
-      (Object.keys(parsed) as (keyof AiPrefill)[]).filter((key) => parsed[key]),
-    )
     // 类型仅在与地图带入数据不冲突且表单仍空白时同步，避免覆盖用户已选内容
     const blank = !category && !title && !locationArea
-    if (blank && parsed.direction === 'found' && !preset) setDirection('found')
-    if (!category && parsed.category) setCategory(parsed.category)
-    if (!title && parsed.title) setTitle(parsed.title)
-    if (!description && parsed.description) setDescription(parsed.description)
-    if (!locationArea && parsed.location_area) setLocationArea(parsed.location_area)
+    // 逐字段记录"本次实际写入"的 key，只高亮 AI 真正填入的字段
+    const filled: string[] = []
+    if (blank && parsed.direction === 'found' && !preset) {
+      setDirection('found')
+      filled.push('direction')
+    }
+    if (!category && parsed.category) {
+      setCategory(parsed.category)
+      filled.push('category')
+    }
+    if (!title && parsed.title) {
+      setTitle(parsed.title)
+      filled.push('title')
+    }
+    if (!description && parsed.description) {
+      setDescription(parsed.description)
+      filled.push('description')
+    }
+    if (!locationArea && parsed.location_area) {
+      setLocationArea(parsed.location_area)
+      filled.push('locationArea')
+    }
     setAiExtra(parsed)
+    console.log('[AiPrefill] filled fields:', filled)
     // 只清地址栏显示（防刷新/分享重复预填）；router 状态保持，effect 不因 deps 变化重跑
     window.history.replaceState(null, '', window.location.pathname)
+    if (filled.length === 0) return
+    // 预填生效：高亮 2.5s 渐隐 + 顶部提示条 3s 自动消失 + 平滑滚动到表单区
+    setPrefilledKeys(filled)
+    setAiToastVisible(true)
+    scrollRaf.current = window.requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    window.clearTimeout(highlightTimer.current)
+    highlightTimer.current = window.setTimeout(() => setPrefilledKeys([]), 2500)
+    window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setAiToastVisible(false), 3000)
+    return () => {
+      window.cancelAnimationFrame(scrollRaf.current)
+      window.clearTimeout(highlightTimer.current)
+      window.clearTimeout(toastTimer.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, location.search])
 
@@ -246,10 +284,24 @@ export default function ItemForm() {
   }
 
   const previewLocation = locationArea.trim() || preset?.location_area || '未指定地点'
+  const isPrefilled = (key: string) => prefilledKeys.includes(key)
 
   return (
     <div className={styles.container}>
       <PageHeader title={editing ? '编辑' : '发布'} backTo={editing && id ? `/hall/${id}` : '/hall'} />
+      {!editing && aiToastVisible && (
+        <div className={styles.aiToast} role="status">
+          <span>✨ AI 已为你预填信息，确认后提交即可</span>
+          <button
+            type="button"
+            className={styles.aiToastClose}
+            aria-label="关闭提示"
+            onClick={() => setAiToastVisible(false)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {editing ? (
         <p className={styles.notice}>正在编辑这条记录，修改后保存。状态与已上传照片不受影响。</p>
       ) : preset?.from_ai || aiExtra ? (
@@ -264,80 +316,88 @@ export default function ItemForm() {
       )}
 
       <div className={styles.layout}>
-        <form id="item-form" className={styles.form} onSubmit={onSubmit}>
+        <form id="item-form" className={styles.form} onSubmit={onSubmit} ref={formRef}>
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>基本信息</h2>
-            <Field label="类型">
-              <div className={styles.chips} role="group" aria-label="类型">
-                <button
-                  type="button"
-                  className={`${styles.chip} ${direction === 'lost' ? styles.chipActive : ''}`}
-                  aria-pressed={direction === 'lost'}
-                  disabled={editing}
-                  onClick={() => setDirection('lost')}
-                >
-                  寻物
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${direction === 'found' ? styles.chipActive : ''}`}
-                  aria-pressed={direction === 'found'}
-                  disabled={editing}
-                  onClick={() => setDirection('found')}
-                >
-                  拾获
-                </button>
-              </div>
-            </Field>
-            <Field label="类别" htmlFor="item-category" required error={errors.category}>
-              <div className={styles.chips} role="group" aria-label="常用类别">
-                {CATEGORY_OPTIONS.map((option) => (
+            <div className={isPrefilled('direction') ? styles.fieldPrefilled : undefined}>
+              <Field label="类型">
+                <div className={styles.chips} role="group" aria-label="类型">
                   <button
-                    key={option}
                     type="button"
-                    className={`${styles.chip} ${category === option ? styles.chipActive : ''}`}
-                    aria-pressed={category === option}
-                    onClick={() => {
-                      setCategory(option)
-                      setErrors((current) => ({ ...current, category: undefined }))
-                    }}
+                    className={`${styles.chip} ${direction === 'lost' ? styles.chipActive : ''}`}
+                    aria-pressed={direction === 'lost'}
+                    disabled={editing}
+                    onClick={() => setDirection('lost')}
                   >
-                    {option}
+                    寻物
                   </button>
-                ))}
-              </div>
-              <input
-                id="item-category"
-                aria-label="类别"
-                placeholder="或自定义类别"
-                value={category}
-                onChange={(e) => {
-                  setCategory(e.target.value)
-                  setErrors((current) => ({ ...current, category: undefined }))
-                }}
-              />
-            </Field>
-            <Field label="标题" htmlFor="item-title" required error={errors.title}>
-              <input
-                id="item-title"
-                aria-label="标题"
-                placeholder="标题"
-                value={title}
-                onChange={(e) => {
-                  setTitle(e.target.value)
-                  setErrors((current) => ({ ...current, title: undefined }))
-                }}
-              />
-            </Field>
-            <Field label="描述" htmlFor="item-description">
-              <textarea
-                id="item-description"
-                aria-label="描述"
-                placeholder="描述"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </Field>
+                  <button
+                    type="button"
+                    className={`${styles.chip} ${direction === 'found' ? styles.chipActive : ''}`}
+                    aria-pressed={direction === 'found'}
+                    disabled={editing}
+                    onClick={() => setDirection('found')}
+                  >
+                    拾获
+                  </button>
+                </div>
+              </Field>
+            </div>
+            <div className={isPrefilled('category') ? styles.fieldPrefilled : undefined}>
+              <Field label="类别" htmlFor="item-category" required error={errors.category}>
+                <div className={styles.chips} role="group" aria-label="常用类别">
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={`${styles.chip} ${category === option ? styles.chipActive : ''}`}
+                      aria-pressed={category === option}
+                      onClick={() => {
+                        setCategory(option)
+                        setErrors((current) => ({ ...current, category: undefined }))
+                      }}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="item-category"
+                  aria-label="类别"
+                  placeholder="或自定义类别"
+                  value={category}
+                  onChange={(e) => {
+                    setCategory(e.target.value)
+                    setErrors((current) => ({ ...current, category: undefined }))
+                  }}
+                />
+              </Field>
+            </div>
+            <div className={isPrefilled('title') ? styles.fieldPrefilled : undefined}>
+              <Field label="标题" htmlFor="item-title" required error={errors.title}>
+                <input
+                  id="item-title"
+                  aria-label="标题"
+                  placeholder="标题"
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value)
+                    setErrors((current) => ({ ...current, title: undefined }))
+                  }}
+                />
+              </Field>
+            </div>
+            <div className={isPrefilled('description') ? styles.fieldPrefilled : undefined}>
+              <Field label="描述" htmlFor="item-description">
+                <textarea
+                  id="item-description"
+                  aria-label="描述"
+                  placeholder="描述"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </Field>
+            </div>
             {!editing && (
               <div className={styles.templates}>
                 <span className={styles.templatesLabel}>快捷模板</span>
@@ -359,35 +419,37 @@ export default function ItemForm() {
 
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>地点与时间</h2>
-            <Field label="地点" htmlFor="item-location">
-              <input
-                id="item-location"
-                aria-label="地点"
-                placeholder="地点（楼层级，如 图书馆2F）"
-                value={locationArea}
-                onChange={(e) => setLocationArea(e.target.value)}
-                onFocus={onLocationFocus}
-              />
-              {suggestions.length > 0 && (
-                <div className={styles.locationSuggestions} role="listbox" aria-label="推荐地点">
-                  {suggestions.map((area) => (
-                    <button
-                      key={area}
-                      type="button"
-                      className={styles.locationChip}
-                      role="option"
-                      aria-selected={area === locationArea}
-                      onClick={() => {
-                        setLocationArea(area)
-                        setSuggestions([])
-                      }}
-                    >
-                      {area}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Field>
+            <div className={isPrefilled('locationArea') ? styles.fieldPrefilled : undefined}>
+              <Field label="地点" htmlFor="item-location">
+                <input
+                  id="item-location"
+                  aria-label="地点"
+                  placeholder="地点（楼层级，如 图书馆2F）"
+                  value={locationArea}
+                  onChange={(e) => setLocationArea(e.target.value)}
+                  onFocus={onLocationFocus}
+                />
+                {suggestions.length > 0 && (
+                  <div className={styles.locationSuggestions} role="listbox" aria-label="推荐地点">
+                    {suggestions.map((area) => (
+                      <button
+                        key={area}
+                        type="button"
+                        className={styles.locationChip}
+                        role="option"
+                        aria-selected={area === locationArea}
+                        onClick={() => {
+                          setLocationArea(area)
+                          setSuggestions([])
+                        }}
+                      >
+                        {area}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Field>
+            </div>
             <Field label="精确位置" htmlFor="item-precise">
               <input
                 id="item-precise"

@@ -7,6 +7,8 @@
 .form {
   display: grid;
   gap: var(--space-4);
+  /* 平滑滚动落点余量：自动滚动到表单时标题不被顶部内容贴住 */
+  scroll-margin-top: var(--space-4);
 }
 
 /* 漏斗式单页：每个 section 一个清晰小标题 */
@@ -33,6 +35,71 @@
   background: var(--color-primary-soft);
   color: var(--color-text-1);
   font-size: var(--font-sm);
+}
+
+/* AI 预填顶部提示条：3s 自动消失或点 × 关闭；移动端吸顶避开顶部安全区 */
+.aiToast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+}
+
+.aiToastClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: calc(var(--space-1) * -1) calc(var(--space-1) * -1) calc(var(--space-1) * -1) 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-lg);
+  cursor: pointer;
+}
+
+.aiToastClose:hover {
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+}
+
+@media (max-width: 767.98px) {
+  .aiToast {
+    position: sticky;
+    top: calc(env(safe-area-inset-top) + var(--space-2));
+    z-index: var(--z-sticky);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* AI 预填字段高亮：浅蓝底 + 左侧蓝竖条，2.5s 内渐隐回透明（class 由 JS 到期移除） */
+.fieldPrefilled {
+  border-radius: var(--radius-md);
+  animation: prefillFade 2.5s ease-in-out forwards;
+}
+
+@keyframes prefillFade {
+  0%,
+  30% {
+    background: var(--color-primary-soft);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
 }
 
 /* 分类/类型 chips：已选项直接可见、可一键切换 */
