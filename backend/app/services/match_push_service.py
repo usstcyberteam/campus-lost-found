@@ -139,3 +139,22 @@ def list_notifications(db: Session, user_id: uuid.UUID, limit: int, offset: int)
     total = query.count()
     rows = query.order_by(Notification.created_at.desc()).offset(offset).limit(limit).all()
     return rows, total
+
+
+def mark_notification_read(db: Session, user_id: uuid.UUID, notification_id: uuid.UUID) -> Notification | None:
+    """标记自己的通知为已读；不属于该用户或不存在返回 None（幂等：已读直接返回）。"""
+    notification = (
+        db.query(Notification)
+        .filter(Notification.id == notification_id, Notification.user_id == user_id)
+        .first()
+    )
+    if notification is None or notification.read:
+        return notification
+    notification.read = True
+    db.commit()
+    db.refresh(notification)
+    return notification
+
+
+def unread_count(db: Session, user_id: uuid.UUID) -> int:
+    return db.query(Notification).filter(Notification.user_id == user_id, Notification.read.is_(False)).count()

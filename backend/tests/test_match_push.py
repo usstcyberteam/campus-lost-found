@@ -174,3 +174,52 @@ def test_direction_pairing_is_opposite_only(client):
     post_item(client, token_b, "lost", title="蓝色折叠伞又丢了")
 
     assert my_notifications(client, token_a)["total"] == 0
+
+def get_unread_count(client, token: str) -> int:
+    r = client.get("/api/v1/me/notifications/unread-count", headers=auth(token))
+    assert r.status_code == 200, r.text
+    return r.json()["count"]
+
+
+def test_read_notification_marks_unread_to_read(client):
+    token_lost = register(client, "read_lost")
+    post_item(client, token_lost, "lost")
+    token_found = register(client, "read_found")
+    post_item(client, token_found, "found", title="捡到蓝色折叠伞")
+
+    assert get_unread_count(client, token_lost) == 1
+    notice = my_notifications(client, token_lost)["items"][0]
+    assert notice["read"] is False
+
+    r = client.post(f"/api/v1/me/notifications/{notice['id']}/read", headers=auth(token_lost))
+    assert r.status_code == 200
+    assert r.json()["read"] is True
+    assert get_unread_count(client, token_lost) == 0
+
+    # 幂等：重复标记仍返回 200 且 read=True
+    r = client.post(f"/api/v1/me/notifications/{notice['id']}/read", headers=auth(token_lost))
+    assert r.status_code == 200
+    assert r.json()["read"] is True
+
+
+def test_read_others_notification_returns_404(client):
+    token_lost = register(client, "own_lost")
+    post_item(client, token_lost, "lost")
+    token_found = register(client, "own_found")
+    post_item(client, token_found, "found", title="捡到蓝色折叠伞")
+    stranger = register(client, "own_other")
+
+    notice = my_notifications(client, token_lost)["items"][0]
+    r = client.post(f"/api/v1/me/notifications/{notice['id']}/read", headers=auth(stranger))
+    assert r.status_code == 404
+    assert get_unread_count(client, token_lost) == 1
+
+
+def test_read_notification_requires_login(client):
+    r = client.post("/api/v1/me/notifications/00000000-0000-0000-0000-000000000000/read")
+    assert r.status_code == 401
+
+
+def test_unread_count_requires_login(client):
+    r = client.get("/api/v1/me/notifications/unread-count")
+    assert r.status_code == 401

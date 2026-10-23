@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listMyNotifications } from '../api/notifications'
+import { listMyNotifications, markNotificationRead } from '../api/notifications'
 import { useAsync } from '../hooks/useAsync'
 import { errorMessage } from '../utils/error'
 import { notificationKindLabels, type NotificationItem } from '../types'
@@ -27,6 +27,8 @@ export default function Notifications() {
   const [extra, setExtra] = useState<NotificationItem[]>([])
   const [busy, setBusy] = useState(false)
   const [moreError, setMoreError] = useState('')
+  // 已读覆盖表：点击通知后乐观置 true，避免整页重拉
+  const [readOverrides, setReadOverrides] = useState<Record<string, boolean>>({})
   const page = useAsync(() => listMyNotifications({ limit: PAGE_SIZE, offset: 0 }), [])
   const items = [...(page.data?.items ?? []), ...extra]
   const total = page.data?.total ?? 0
@@ -46,6 +48,13 @@ export default function Notifications() {
     }
   }
 
+  function onNoticeClick(row: NotificationItem) {
+    if (row.read || readOverrides[row.id]) return
+    setReadOverrides((current) => ({ ...current, [row.id]: true }))
+    // 标记失败静默：下次进页面仍是未读，无损
+    markNotificationRead(row.id).catch(() => {})
+  }
+
   return (
     <PageContainer>
       <PageHeader title="我的通知" backTo="/me" />
@@ -55,17 +64,24 @@ export default function Notifications() {
         <EmptyState text="还没有通知，发布寻物或拾获后匹配到相似帖子会提醒你" />
       )}
       <ul className={styles.list}>
-        {items.map((row) => (
-          <li key={row.id} className={styles.item}>
-            {row.link ? (
-              <Link className={styles.row} to={row.link}>
-                {renderNotice(row)}
-              </Link>
-            ) : (
-              <div className={styles.row}>{renderNotice(row)}</div>
-            )}
-          </li>
-        ))}
+        {items.map((row) => {
+          const read = row.read || readOverrides[row.id]
+          return (
+            <li key={row.id} className={styles.item}>
+              {row.link ? (
+                <Link
+                  className={`${styles.row} ${read ? '' : styles.unread}`}
+                  to={row.link}
+                  onClick={() => onNoticeClick(row)}
+                >
+                  {renderNotice(row, read)}
+                </Link>
+              ) : (
+                <div className={styles.row}>{renderNotice(row, read)}</div>
+              )}
+            </li>
+          )
+        })}
       </ul>
       {items.length < total && (
         <div className={styles.more}>
@@ -79,12 +95,15 @@ export default function Notifications() {
   )
 }
 
-function renderNotice(row: NotificationItem) {
+function renderNotice(row: NotificationItem, read: boolean) {
   return (
     <>
       <div className={styles.rowHead}>
-        <Tag tone="primary">{kindLabel(row.kind)}</Tag>
-        <span className={styles.rowMeta}>{formatDate(row.created_at)}</span>
+        <Tag tone={read ? 'neutral' : 'primary'}>{kindLabel(row.kind)}</Tag>
+        <span className={styles.rowMeta}>
+          {read ? '' : '未读 · '}
+          {formatDate(row.created_at)}
+        </span>
       </div>
       <p className={styles.rowText}>{row.content}</p>
     </>

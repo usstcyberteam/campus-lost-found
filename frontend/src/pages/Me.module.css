@@ -172,6 +172,26 @@
   border-color: var(--color-border-strong);
 }
 
+/* 未读徽标：主色圆角数字块，贴在入口文字右侧 */
+.entryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.badge {
+  flex-shrink: 0;
+  min-width: calc(var(--space-5) + var(--space-1));
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+  line-height: calc(var(--space-5) + var(--space-1));
+  text-align: center;
+}
+
 /* ---------- 提示与教职工申请 ---------- */
 .notice {
   margin: var(--space-3) 0 0;

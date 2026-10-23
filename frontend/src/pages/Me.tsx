@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { me } from '../api/auth'
+import { getUnreadNotificationCount } from '../api/notifications'
 import { listMyBadges, listMyClaims, listMyFavorites, listMyHelping, listMyItems } from '../api/me'
 import { getMyPoints } from '../api/points'
 import { applyStaffApplication } from '../api/staffApplications'
@@ -83,6 +84,7 @@ export default function Me() {
     return results.map((result) => (result.status === 'fulfilled' ? result.value.total : null))
   }, [])
   const badges = useAsync(() => (badgeOpen ? listMyBadges() : Promise.resolve([])), [badgeOpen])
+  const unread = useAsync(() => getUnreadNotificationCount(), [])
   const badgeList = badges.data ?? []
   const step = points.data ? Math.round(pointProgress(points.data.total, points.data.next_threshold) * 10) : 0
 
@@ -261,12 +263,27 @@ export default function Me() {
 
       <section className={styles.group} aria-label="内容">
         <h2 className={styles.groupTitle}>内容</h2>
-        {CONTENT_ENTRIES.map((entry) => (
-          <Link key={entry.to} className={styles.entry} to={entry.to}>
-            <span>{entry.label}</span>
-            <span aria-hidden="true">›</span>
-          </Link>
-        ))}
+        {CONTENT_ENTRIES.map((entry) => {
+          const showBadge = entry.to === '/me/notifications' && (unread.data ?? 0) > 0
+          return (
+            <Link
+              key={entry.to}
+              className={styles.entry}
+              to={entry.to}
+              aria-label={showBadge ? `我的通知，${unread.data} 条未读` : entry.label}
+            >
+              <span className={styles.entryLabel}>
+                {entry.label}
+                {showBadge && (
+                  <span className={styles.badge} aria-hidden="true">
+                    {unread.data}
+                  </span>
+                )}
+              </span>
+              <span aria-hidden="true">›</span>
+            </Link>
+          )
+        })}
       </section>
 
       {(role === 'staff' || role === 'admin') && (

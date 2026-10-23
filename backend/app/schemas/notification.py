@@ -18,3 +18,6 @@ class NotificationOut(BaseModel):
     source: Source
     read: bool
     created_at: datetime
+
+class UnreadCountOut(BaseModel):
+    count: int
