@@ -247,12 +247,56 @@
 }
 /* ===== 移动端（<768px，分界与团队 min-width: 768px 一致）===== */
 
-/* 下拉关闭把手：仅移动端面板顶部渲染 */
+/* 底部居中圆形停靠按钮（tap 展开，不做侧边停靠/拖拽）：
+   抬高到底部导航上方，避免遮挡队友 BottomNav 的中央凸起发布按钮 */
+.barMobile {
+  position: fixed;
+  left: 50%;
+  bottom: calc(76px + env(safe-area-inset-bottom) + var(--space-4));
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 20%);
+  transform: translateX(-50%);
+  cursor: pointer;
+  transition:
+    opacity var(--transition-fast),
+    box-shadow 0.2s ease;
+}
+
+.barMobile img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+  user-select: none;
+}
+
+.barMobile:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 聊天 sheet 展开时隐藏圆钮（sheet 全宽覆盖，圆钮不再提供入口） */
+.barMobileHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 下拉关闭把手：仅移动端面板顶部渲染，44px 触控区 */
 .handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
+  height: 44px;
   flex: 0 0 auto;
   cursor: grab;
   touch-action: none;
@@ -266,15 +310,15 @@
   background: var(--color-border-strong);
 }
 
-/* 移动端面板：底部弹出（bottom sheet），不随停靠条定位 */
+/* 移动端面板：底部弹出（bottom sheet），全宽 + 85dvh，不随停靠条定位 */
 .panelMobile {
   position: fixed;
   right: 0;
   bottom: 0;
   left: 0;
   width: auto;
-  height: min(88vh, var(--aifloat-vvh, 100vh));
-  height: min(88dvh, var(--aifloat-vvh, 100dvh));
+  height: min(85vh, var(--aifloat-vvh, 100vh));
+  height: min(85dvh, var(--aifloat-vvh, 100dvh));
   padding-bottom: env(safe-area-inset-bottom);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   border-bottom: none;
@@ -287,11 +331,6 @@
 }
 
 @media (max-width: 767.98px) {
-  .barInner img {
-    width: 32px;
-    height: 32px;
-  }
-
   .message {
     max-width: 92%;
     font-size: var(--font-md);

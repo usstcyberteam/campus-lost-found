@@ -24,7 +24,7 @@ const DRAG_THRESHOLD = 5
 const NOTICE_MS = 6000
 const Y_MIN = 60
 const BOTTOM_NAV_H = 60
-const HANDLE_CLOSE_PX = 72
+const HANDLE_CLOSE_PX = 80
 // 与团队断点一致：min-width: 768px 及以上为桌面布局
 const DESKTOP_QUERY = '(min-width: 768px)'
 
@@ -309,14 +309,7 @@ export default function AiFloatWidget() {
     try {
       const result: AiChatResult = await aiChat(value, location.pathname)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
-      applyResult(
-        result,
-        value,
-        setTarget,
-        setNotice,
-        navigate,
-        () => setOpen(false),
-      )
+      applyResult(result, value, setTarget, setNotice, navigate, () => setOpen(false))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -338,10 +331,7 @@ export default function AiFloatWidget() {
     setDraftBusy(true)
     try {
       const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft')
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: result.reply, degraded: result.degraded },
-      ])
+      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
       if (result.form_patch && hasPrefillValue(result.form_patch)) {
         const route = routeFor(lastUser.text)
         setTarget({
@@ -383,10 +373,7 @@ export default function AiFloatWidget() {
   const panelH = Math.min(PANEL_H, window.innerHeight - 24)
   const panelW = Math.min(PANEL_W, window.innerWidth - barW - 24)
   const panelX = side === 'left' ? barW + 16 : Math.max(8, pos.x - panelW - 16)
-  const panelY = Math.min(
-    Math.max(8, pos.y + barH / 2 - panelH / 2),
-    Math.max(8, window.innerHeight - panelH - 8),
-  )
+  const panelY = Math.min(Math.max(8, pos.y + barH / 2 - panelH / 2), Math.max(8, window.innerHeight - panelH - 8))
 
   return (
     <>
@@ -434,12 +421,7 @@ export default function AiFloatWidget() {
               </li>
             ))}
           </ol>
-          <button
-            type="button"
-            className={styles.draftButton}
-            onClick={onDraftClick}
-            disabled={draftBusy || busy}
-          >
+          <button type="button" className={styles.draftButton} onClick={onDraftClick} disabled={draftBusy || busy}>
             {draftBusy ? '整理中…' : '📝 整理为发布草稿'}
           </button>
           <form className={styles.form} onSubmit={onSubmit}>
@@ -459,25 +441,35 @@ export default function AiFloatWidget() {
           {error && <p className={styles.error}>{error}</p>}
         </section>
       </div>
-      <button
-        type="button"
-        className={`${styles.bar} ${side === 'right' ? styles.barRight : ''} ${
-          dragging ? '' : styles.barSnap
-        }`}
-        style={{ transform: `translate(${pos.x}px, ${pos.y}px)`, width: barW, height: barH }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        aria-label="AI 助手"
-        aria-expanded={open}
-        title="AI 助手（可拖动）"
-      >
-        <span className={styles.barInner}>
+      {isDesktop ? (
+        <button
+          type="button"
+          className={`${styles.bar} ${side === 'right' ? styles.barRight : ''} ${dragging ? '' : styles.barSnap}`}
+          style={{ transform: `translate(${pos.x}px, ${pos.y}px)`, width: barW, height: barH }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          aria-label="AI 助手"
+          aria-expanded={open}
+          title="AI 助手（可拖动）"
+        >
+          <span className={styles.barInner}>
+            <img src="/ai-float.png" alt="" draggable={false} />
+            <span className={styles.barLabel}>AI</span>
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={`${styles.barMobile} ${open ? styles.barMobileHidden : ''}`}
+          onClick={() => setOpen((value) => !value)}
+          aria-label="AI 助手"
+          aria-expanded={open}
+        >
           <img src="/ai-float.png" alt="" draggable={false} />
-          <span className={styles.barLabel}>AI</span>
-        </span>
-      </button>
+        </button>
+      )}
     </>
   )
 }
