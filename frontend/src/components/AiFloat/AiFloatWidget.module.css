@@ -245,3 +245,66 @@
   color: var(--color-danger);
   font-size: var(--font-sm);
 }
+/* ===== 移动端（<768px，分界与团队 min-width: 768px 一致）===== */
+
+/* 下拉关闭把手：仅移动端面板顶部渲染 */
+.handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  flex: 0 0 auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.handle::after {
+  content: '';
+  width: 44px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-strong);
+}
+
+/* 移动端面板：底部弹出（bottom sheet），不随停靠条定位 */
+.panelMobile {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  height: min(88vh, var(--aifloat-vvh, 100vh));
+  height: min(88dvh, var(--aifloat-vvh, 100dvh));
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-bottom: none;
+  transform: translateY(100%);
+  transform-origin: bottom center;
+}
+
+.panelMobile.panelOpen {
+  transform: translateY(0);
+}
+
+@media (max-width: 767.98px) {
+  .barInner img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .message {
+    max-width: 92%;
+    font-size: var(--font-md);
+  }
+
+  .notice,
+  .draftButton,
+  .send {
+    min-height: 44px;
+  }
+
+  .input {
+    min-height: 48px;
+    font-size: var(--font-md);
+  }
+}

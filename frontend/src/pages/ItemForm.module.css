@@ -200,3 +200,19 @@
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
+/* 移动端（<768px，与团队断点一致）：推荐地点横向滚动，chip 触控友好 */
+@media (max-width: 767.98px) {
+  .locationSuggestions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--space-1);
+  }
+
+  .locationChip {
+    flex: 0 0 auto;
+    min-height: 36px;
+    scroll-snap-align: start;
+  }
+}
