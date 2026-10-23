@@ -99,6 +99,23 @@ export interface Item {
   helpers?: HelperUser[]
 }
 
+export interface NotificationItem {
+  id: string
+  kind: string
+  title: string
+  content: string
+  link: string
+  related_item_id: string | null
+  source: Source
+  read: boolean
+  created_at: string
+}
+
+// 通知类型标签：kind 与后端 notification.kind 对应
+export const notificationKindLabels: Record<string, string> = {
+  ai_match: '失物匹配',
+}
+
 export function placeLabel(item: { building_name: string | null; floor: number | null }): string {
   if (!item.building_name) return '未指定地点'
   return item.floor == null ? item.building_name : `${item.building_name} ${item.floor}F`

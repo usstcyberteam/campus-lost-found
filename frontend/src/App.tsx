@@ -16,6 +16,7 @@ import MapView from './pages/MapView'
 import Me from './pages/Me'
 import MeList from './pages/MeList'
 import MePoints from './pages/MePoints'
+import Notifications from './pages/Notifications'
 import Praises from './pages/Praises'
 import Profile from './pages/Profile'
 import Register from './pages/Register'
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/me" element={<Me />} />
         <Route path="/me/points" element={<MePoints />} />
         <Route path="/me/profile" element={<Profile />} />
+        <Route path="/me/notifications" element={<Notifications />} />
         <Route path="/me/:kind" element={<MeList />} />
         <Route path="/announcements" element={<Announcements />} />
         <Route path="/announcements/:id" element={<AnnouncementDetail />} />

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.models.enums import Source
 
@@ -42,10 +42,16 @@ class SearchAdviceOut(BaseModel):
     degraded: bool
 
 
+class ChatHistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
 class ChatRequest(BaseModel):
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     page: str | None = None
-    action: Literal["draft"] | None = None
+    action: Literal["draft", "polish"] | None = None
+    history: list[ChatHistoryItem] = Field(default_factory=list, max_length=10)
 
 
 class SuggestLocationsOut(BaseModel):
@@ -69,3 +75,24 @@ class ChatOut(BaseModel):
     actions: list[str]
     source: Source
     degraded: bool
+
+
+class MatchRequest(BaseModel):
+    item_id: uuid.UUID
+
+
+class MatchedItemOut(BaseModel):
+    item_id: str
+    title: str
+    category: str
+    location_area: str
+    # False 表示该组合此前已推送过（去重生效），本次未新建通知
+    notified: bool
+
+
+class MatchOut(BaseModel):
+    item_id: str
+    matched: int
+    notified: int
+    items: list[MatchedItemOut]
+    source: Source

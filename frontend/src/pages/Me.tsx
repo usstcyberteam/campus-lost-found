@@ -31,6 +31,7 @@ const COUNT_ENTRIES = [
 ]
 
 const CONTENT_ENTRIES = [
+  { label: '我的通知', to: '/me/notifications' },
   { label: '我的发布', to: '/me/posts' },
   { label: '我接取的', to: '/me/helping' },
   { label: '我的收藏', to: '/me/favorites' },

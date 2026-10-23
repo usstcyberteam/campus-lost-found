@@ -9,6 +9,7 @@ from app.schemas.claim import ClaimOut, MyClaimOut
 from app.schemas.comment import MyCommentOut
 from app.schemas.common import Page
 from app.schemas.item import ItemPublic, MyHelpingOut
+from app.schemas.notification import NotificationOut
 from app.schemas.points import MyPointsOut, PointRecordOut
 from app.schemas.staff_application import StaffApplicationCreate
 from app.schemas.ticket import TicketOut
@@ -17,6 +18,7 @@ from app.services import (
     comment_service,
     helper_service,
     item_service,
+    match_push_service,
     points_service,
     reaction_service,
     staff_application_service,
@@ -69,6 +71,17 @@ def submit_staff_application(
     user: User = Depends(get_current_user),
 ):
     return staff_application_service.submit_application(db, user, body)
+
+
+@router.get("/notifications", response_model=Page[NotificationOut])
+def my_notifications(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    rows, total = match_push_service.list_notifications(db, user.id, limit, offset)
+    return Page(items=rows, total=total, limit=limit, offset=offset)
 
 
 @router.get("/items", response_model=Page[ItemPublic])
