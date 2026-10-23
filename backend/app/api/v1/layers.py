@@ -15,11 +15,14 @@ from app.schemas.layer import (
     CalibrateRequest,
     LayerOut,
     LayerPointsOut,
+    MapMetaOut,
     SimulatedPointCreate,
     SimulatedPointOut,
 )
+from app.services import building_service
 
 router = APIRouter(tags=["layers"])
+map_router = APIRouter(tags=["map"])
 
 _IMAGE_MEDIA_TYPES = {
     ".jpg": "image/jpeg",
@@ -95,8 +98,7 @@ def create_simulated_point(
     db: Session = Depends(get_db),
     user: User = Depends(require_role(Role.staff, Role.admin)),
 ):
-    if db.get(Layer, layer_id) is None:
-        raise ApiError(404, "NOT_FOUND", "图层不存在")
+    building_service.ensure_flat_layer(db, layer_id, "help_point")
     point = SimulatedPoint(
         layer_id=layer_id,
         label=body.label,
@@ -112,3 +114,8 @@ def create_simulated_point(
     db.commit()
     db.refresh(point)
     return point
+
+
+@map_router.get("/meta", response_model=MapMetaOut)
+def get_map_meta(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return building_service.get_map_meta(db)

@@ -120,15 +120,9 @@ def list_my_comments(db: Session, user: User, limit: int, offset: int) -> tuple[
     return items, total
 
 
-def list_for_moderation(
-    db: Session, only_hidden: bool | None, limit: int, offset: int
-) -> tuple[list[dict], int]:
+def list_for_moderation(db: Session, only_hidden: bool | None, limit: int, offset: int) -> tuple[list[dict], int]:
     """工作人员评论审核列表：仅未删除评论，可按“仅隐藏”过滤。"""
-    query = (
-        db.query(Comment, Item.title)
-        .join(Item, Item.id == Comment.item_id)
-        .filter(Comment.is_deleted.is_(False))
-    )
+    query = db.query(Comment, Item.title).join(Item, Item.id == Comment.item_id).filter(Comment.is_deleted.is_(False))
     if only_hidden:
         query = query.filter(Comment.is_hidden.is_(True))
     total = query.count()

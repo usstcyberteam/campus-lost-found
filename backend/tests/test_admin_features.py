@@ -182,8 +182,16 @@ def test_admin_cannot_modify_self_or_peer_admin(client):
     me = client.get("/api/v1/auth/me", headers=auth(admin_token)).json()
     peer = client.get("/api/v1/auth/me", headers=auth(login(client, "adm4", "admin123"))).json()
 
-    assert client.patch(f"/api/v1/admin/users/{me['id']}", json={"role": "student"}, headers=auth(admin_token)).status_code == 409
-    assert client.patch(f"/api/v1/admin/users/{peer['id']}", json={"is_banned": True}, headers=auth(admin_token)).status_code == 409
+    assert (
+        client.patch(f"/api/v1/admin/users/{me['id']}", json={"role": "student"}, headers=auth(admin_token)).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/v1/admin/users/{peer['id']}", json={"is_banned": True}, headers=auth(admin_token)
+        ).status_code
+        == 409
+    )
 
 
 def test_non_admin_cannot_manage_users_or_stats(client):

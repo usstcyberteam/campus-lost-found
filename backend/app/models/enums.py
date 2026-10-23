@@ -56,6 +56,12 @@ class CandidateSource(str, Enum):
     model = "model"
 
 
+class LayerKind(str, Enum):
+    flat = "flat"
+    iso = "iso"
+    floor = "floor"
+
+
 class RouteKind(str, Enum):
     polyline = "polyline"
     circle = "circle"

@@ -1,0 +1,54 @@
+.labelIcon {
+  background: transparent;
+  border: 0;
+  pointer-events: none;
+}
+
+.labelIcon span {
+  display: inline-block;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.badgeIcon {
+  background: transparent;
+  border: 0;
+  pointer-events: none;
+}
+
+.badgeIcon span {
+  display: inline-block;
+  min-width: 20px;
+  transform: translate(-50%, calc(-100% - 32px));
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  text-align: center;
+}
+
+.monitorIcon {
+  background: transparent;
+  border: 0;
+}
+
+.monitorIcon span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px dashed var(--color-text-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-1);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}

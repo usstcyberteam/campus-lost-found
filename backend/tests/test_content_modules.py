@@ -36,7 +36,9 @@ def login(client, username: str, password: str) -> str:
 
 
 def new_item(client, token: str, title: str = "公告测试帖") -> str:
-    r = client.post("/api/v1/items", json={"direction": "lost", "category": "雨伞", "title": title}, headers=auth(token))
+    r = client.post(
+        "/api/v1/items", json={"direction": "lost", "category": "雨伞", "title": title}, headers=auth(token)
+    )
     assert r.status_code == 200, r.text
     return r.json()["id"]
 
@@ -59,9 +61,7 @@ def test_admin_seeds_and_student_reads_announcement(client):
     assert listing.status_code == 200
     assert any(a["id"] == ann_id for a in listing.json()["items"])
 
-    student_create = client.post(
-        "/api/v1/announcements", json={"title": "越权", "content": "x"}, headers=auth(stu)
-    )
+    student_create = client.post("/api/v1/announcements", json={"title": "越权", "content": "x"}, headers=auth(stu))
     assert student_create.status_code == 403
 
 
@@ -116,9 +116,7 @@ def test_comment_moderation_hide_and_restore(client):
     owner, _ = register(client, "mod_owner")
     item_id = new_item(client, owner)
 
-    created = client.post(
-        f"/api/v1/items/{item_id}/comments", json={"content": "含不当内容"}, headers=auth(owner)
-    )
+    created = client.post(f"/api/v1/items/{item_id}/comments", json={"content": "含不当内容"}, headers=auth(owner))
     assert created.status_code == 200
     comment_id = created.json()["id"]
 
@@ -166,9 +164,7 @@ def test_praise_create_list_edit_delete(client):
     row = next(p for p in listing if p["id"] == praise_id)
     assert row["can_edit"] is False
 
-    updated = client.patch(
-        f"/api/v1/praises/{praise_id}", json={"content": "改后的致谢"}, headers=auth(author)
-    )
+    updated = client.patch(f"/api/v1/praises/{praise_id}", json={"content": "改后的致谢"}, headers=auth(author))
     assert updated.status_code == 200
     assert updated.json()["content"] == "改后的致谢"
 

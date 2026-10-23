@@ -1,5 +1,5 @@
 import client from './client'
-import type { Layer, LayerPoints, SimulatedPoint } from '../types'
+import type { Layer, LayerPoints, MapMeta, SimulatedPoint } from '../types'
 
 export interface CalibrateInput {
   pixels_per_meter: number
@@ -14,6 +14,11 @@ export interface SimulatedPointInput {
 
 export async function listLayers(): Promise<Layer[]> {
   const res = await client.get<Layer[]>('/layers')
+  return res.data
+}
+
+export async function getMapMeta(): Promise<MapMeta> {
+  const res = await client.get<MapMeta>('/map/meta')
   return res.data
 }
 

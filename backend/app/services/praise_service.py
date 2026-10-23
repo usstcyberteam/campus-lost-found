@@ -7,7 +7,9 @@ from app.models import Item, Praise, Role, User
 from app.schemas.praise import PraiseCreate, PraiseUpdate
 
 
-def _serialize(praise: Praise, from_user: User | None, to_user: User | None, item_title: str | None, viewer: User) -> dict:
+def _serialize(
+    praise: Praise, from_user: User | None, to_user: User | None, item_title: str | None, viewer: User
+) -> dict:
     return {
         "id": praise.id,
         "content": praise.content,
@@ -28,9 +30,7 @@ def _load_context(db: Session, rows: list[Praise], viewer: User) -> list[dict]:
     user_ids = {row.from_user_id for row in rows} | {row.to_user_id for row in rows}
     users = {user.id: user for user in db.query(User).filter(User.id.in_(user_ids)).all()}
     item_ids = {row.item_id for row in rows if row.item_id is not None}
-    titles = (
-        {item.id: item.title for item in db.query(Item).filter(Item.id.in_(item_ids)).all()} if item_ids else {}
-    )
+    titles = {item.id: item.title for item in db.query(Item).filter(Item.id.in_(item_ids)).all()} if item_ids else {}
     return [
         _serialize(row, users.get(row.from_user_id), users.get(row.to_user_id), titles.get(row.item_id), viewer)
         for row in rows

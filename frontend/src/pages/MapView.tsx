@@ -1,233 +1,163 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { listLayerPoints } from '../api/layers'
+import { getMapMeta, listLayerPoints } from '../api/layers'
 import { useAsync } from '../hooks/useAsync'
 import { useCampusMapLayers } from '../hooks/useCampusMapLayers'
 import { useDrawTool } from '../hooks/useDrawTool'
 import { useLayers } from '../hooks/useLayers'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
 import { useAuth } from '../auth/AuthContext'
-import type { Building, LayerPoints, SearchAdvice, Visibility } from '../types'
-import Button from '../components/Button'
+import type { Building, LayerPoints, SearchAdvice } from '../types'
 import ErrorNotice from '../components/ErrorNotice'
-import CampusMap, { type MapMarker } from '../components/CampusMap/CampusMap'
-import AIRecommendLayer from '../components/CampusMap/AIRecommendLayer'
-import BuildingCard from '../components/CampusMap/BuildingCard'
-import BuildingLayer, { buildingAt } from '../components/CampusMap/BuildingLayer'
-import DrawToolLayer from '../components/CampusMap/DrawToolLayer'
+import { buildingAt } from '../components/CampusMap/BuildingLayer'
+import { flatBuildingAt, isoBuildingAt } from '../components/CampusMap/coords'
 import FloorSwitcher from '../components/CampusMap/FloorSwitcher'
-import HeatmapLayer from '../components/CampusMap/HeatmapLayer'
-import HelpPointsLayer from '../components/CampusMap/HelpPointsLayer'
-import ItemPointsLayer from '../components/CampusMap/ItemPointsLayer'
-import LayerToggles from '../components/CampusMap/LayerToggles'
-import MonitorPointsLayer from '../components/CampusMap/MonitorPointsLayer'
-import ClickCoordsPopup from './ClickCoordsPopup'
+import MapBuildingCard from '../components/CampusMap/MapBuildingCard'
+import MapCanvas, { type MapLayerSwitches } from '../components/CampusMap/MapCanvas'
+import MapDrawer, { type MapDrawerTab } from '../components/CampusMap/MapDrawer'
+import MapTopBar, { type MapFilterKey, type MapViewMode } from '../components/CampusMap/MapTopBar'
+import { buildingPoint, selectMapBuildings } from '../components/CampusMap/mapResults'
+import { readStoredSwitches, saveStoredSwitches } from '../components/CampusMap/mapViewStorage'
 import styles from './MapView.module.css'
-
-const NO_MARKERS: MapMarker[] = []
-const MAP_STATE_KEY = 'campus-map-view'
-const DRAWER_TABS = [
-  { key: 'results', label: '结果' },
-  { key: 'layers', label: '图层' },
-  { key: 'tools', label: '工具' },
-] as const
-const FILTERS = [
-  { key: 'all', label: '全部' },
-  { key: 'hot', label: '热门' },
-  { key: 'near', label: '附近' },
-] as const
-
-type DrawerTab = (typeof DRAWER_TABS)[number]['key']
-type FilterKey = (typeof FILTERS)[number]['key']
-type DrawerState = 'collapsed' | 'half' | 'expanded'
-type DrawerAnchors = { collapsed: number; half: number; expanded: number }
-
-function drawerAnchors(): DrawerAnchors {
-  const desktop = window.matchMedia('(min-width: 768px)').matches
-  const collapsed = desktop ? 220 : 190
-  const expanded = Math.round(window.innerHeight * (desktop ? 0.72 : 0.68))
-  const half = Math.round(window.innerHeight * (desktop ? 0.45 : 0.4))
-  return { collapsed, half, expanded }
-}
-
-function nearestDrawerState(height: number, anchors: DrawerAnchors): DrawerState {
-  const dCollapsed = Math.abs(height - anchors.collapsed)
-  const dHalf = Math.abs(height - anchors.half)
-  const dExpanded = Math.abs(height - anchors.expanded)
-  if (dHalf <= dCollapsed && dHalf <= dExpanded) return 'half'
-  return dExpanded < dCollapsed ? 'expanded' : 'collapsed'
-}
-
-interface StoredMapState {
-  selected?: string
-  showBuildings?: boolean
-  showItems?: boolean
-  showHelp?: boolean
-  showMonitor?: boolean
-  showAdvice?: boolean
-  showHeatmap?: boolean
-}
-
-function readStoredMapState(): StoredMapState {
-  try {
-    return JSON.parse(sessionStorage.getItem(MAP_STATE_KEY) ?? '{}') as StoredMapState
-  } catch {
-    return {}
-  }
-}
-
-function buildingPoint(building: Building): { x: number; y: number } | null {
-  if (building.label_position) {
-    return { x: Number(building.label_position.x), y: Number(building.label_position.y) }
-  }
-  const region = building.click_region
-  if (!region || region.length === 0) return null
-  const sum = region.reduce(
-    (acc, point) => ({ x: acc.x + Number(point.x), y: acc.y + Number(point.y) }),
-    { x: 0, y: 0 },
-  )
-  return { x: sum.x / region.length, y: sum.y / region.length }
-}
 
 export default function MapView() {
   const navigate = useNavigate()
   const location = useLocation()
   const { role } = useAuth()
-  const [initial] = useState(readStoredMapState)
+  const [initial] = useState(readStoredSwitches)
   const initialAdvice = (location.state as { advice?: SearchAdvice } | null)?.advice ?? null
   const { advice, error: adviceError, pending: advicePending, request } = useSearchAdvice(initialAdvice)
-  const [selected, setSelected] = useState(initial.selected ?? '')
 
+  const [view, setView] = useState<MapViewMode>('flat')
+  const [floorLayerId, setFloorLayerId] = useState<string | null>(null)
+  const [pendingLocate, setPendingLocate] = useState<Building | null>(null)
   const [imageError, setImageError] = useState('')
-  const [showBuildings, setShowBuildings] = useState(initial.showBuildings ?? true)
-  const [showItems, setShowItems] = useState(initial.showItems ?? true)
-  const [showHelp, setShowHelp] = useState(initial.showHelp ?? true)
-  const [showMonitor, setShowMonitor] = useState(initial.showMonitor ?? false)
-  const [showAdvice, setShowAdvice] = useState(initial.showAdvice ?? true)
-  const [showHeatmap, setShowHeatmap] = useState(initial.showHeatmap ?? false)
+  const [show, setShow] = useState<MapLayerSwitches>({
+    buildings: initial.showBuildings ?? true,
+    items: initial.showItems ?? true,
+    help: initial.showHelp ?? true,
+    monitor: initial.showMonitor ?? false,
+    advice: initial.showAdvice ?? true,
+    heatmap: initial.showHeatmap ?? false,
+    labels: initial.showLabels ?? false,
+  })
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null)
+  const [cardClosed, setCardClosed] = useState(false)
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<FilterKey>('all')
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>('results')
-  const [drawerState, setDrawerState] = useState<DrawerState>('collapsed')
-  const [dragHeight, setDragHeight] = useState<number | null>(null)
+  const [filter, setFilter] = useState<MapFilterKey>('all')
+  const [drawerTab, setDrawerTab] = useState<MapDrawerTab>('results')
   const [focus, setFocus] = useState<{ x: number; y: number; token: number } | null>(null)
-  const drawerRef = useRef<HTMLElement | null>(null)
-  const dragRef = useRef<{ startY: number; startHeight: number; height: number; anchors: DrawerAnchors } | null>(null)
-  const dragMovedRef = useRef(false)
   const tool = useDrawTool()
 
   const canSeeMonitor = role === 'staff' || role === 'admin'
   const { data: layers, error: layersError } = useLayers()
   const { data: mapLayers, error: mapLayersError } = useCampusMapLayers()
+  const { data: mapMeta, error: mapMetaError } = useAsync(() => getMapMeta(), [])
+  const flatLayerId = mapMeta?.flat_layer_id ?? layers?.find((item) => item.kind === 'flat')?.id ?? null
+  const isoLayerId = mapMeta?.iso_layer_id ?? layers?.find((item) => item.kind === 'iso')?.id ?? null
+  const canUseIso = mapMeta != null && isoLayerId != null
   const { data: pointData, error: pointsError } = useAsync(
-    () => (selected ? listLayerPoints(selected) : Promise.resolve<LayerPoints | null>(null)),
-    [selected],
+    () => (flatLayerId ? listLayerPoints(flatLayerId) : Promise.resolve<LayerPoints | null>(null)),
+    [flatLayerId],
   )
 
-  useEffect(() => {
-    if (layers && layers.length > 0) {
-      setSelected((current) => {
-        if (current && layers.some((item) => item.id === current)) return current
-        return (layers.find((item) => item.building_id === null) ?? layers[0]).id
-      })
-    }
-  }, [layers])
+  const activeLayerId = view === 'flat' ? flatLayerId : view === 'iso' ? isoLayerId : floorLayerId
+  const layer = layers?.find((item) => item.id === activeLayerId) ?? null
+  const outdoor = view === 'flat'
+  const indoor = view === 'iso'
+  const isFloor = view === 'floor'
+  const canDraw = layer != null && !indoor && !(isFloor && !layer.image_path)
 
-  const layer = layers?.find((l) => l.id === selected)
-  const outdoor = layer != null && layer.building_id === null
-  const floorLayers =
-    selectedBuilding && layers ? layers.filter((item) => item.building_id === selectedBuilding.id) : []
   const currentBuilding =
-    layer?.building_id != null
+    isFloor && layer?.building_id != null
       ? (mapLayers?.buildings.find((building) => building.id === layer.building_id) ?? null)
       : null
+  const cardBuilding = isFloor ? currentBuilding : selectedBuilding
+  const floorLayers =
+    cardBuilding && layers ? layers.filter((item) => item.kind === 'floor' && item.building_id === cardBuilding.id) : []
   const currentFloorLayers =
-    layer?.building_id != null && layers ? layers.filter((item) => item.building_id === layer.building_id) : []
-  const outdoorLayerId = layers?.find((item) => item.building_id === null)?.id ?? null
-  const drawing = tool.mode !== null
-  const canUndo = tool.point !== null || tool.circle !== null || tool.points.length > 0
+    isFloor && layer?.building_id != null && layers
+      ? layers.filter((item) => item.kind === 'floor' && item.building_id === layer.building_id)
+      : []
 
+  useEffect(() => saveStoredSwitches(show), [show])
+
+  // 切换视图会重设视野，定位要等新图层挂载后再执行，否则会被 fitBounds 覆盖
   useEffect(() => {
-    try {
-      sessionStorage.setItem(
-        MAP_STATE_KEY,
-        JSON.stringify({ selected, showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap }),
-      )
-    } catch {
-      /* 隐私模式下写入可能失败，不影响地图使用 */
-    }
-  }, [selected, showBuildings, showItems, showHelp, showMonitor, showAdvice, showHeatmap])
-
-  const dragging = dragHeight != null
-
-  useEffect(() => {
-    if (!dragging) return
-    const bodyStyle = document.body.style
-    const previous = bodyStyle.userSelect
-    bodyStyle.userSelect = 'none'
-    return () => {
-      bodyStyle.userSelect = previous
-    }
-  }, [dragging])
+    if (!pendingLocate || layer?.id !== flatLayerId) return
+    const point = buildingPoint(pendingLocate)
+    if (point) setFocus({ ...point, token: Date.now() })
+    setPendingLocate(null)
+  }, [pendingLocate, layer, flatLayerId])
 
   const helpPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'help_point') ?? [], [pointData])
   const monitorPoints = useMemo(() => pointData?.points.filter((p) => p.kind === 'monitor_point') ?? [], [pointData])
-
-  // 结果列表：搜索过滤 + 全部/热门/附近 排序
-  const results = useMemo(() => {
-    const keyword = query.trim().toLowerCase()
-    const list = (mapLayers?.buildings ?? []).filter((building) => {
-      if (!keyword) return true
-      return (
-        building.name.toLowerCase().includes(keyword) ||
-        building.code.toLowerCase().includes(keyword) ||
-        building.category.toLowerCase().includes(keyword)
-      )
-    })
-    if (filter === 'hot') {
-      return [...list].sort((a, b) => b.active_item_count - a.active_item_count)
-    }
-    if (filter === 'near') {
-      const anchor = tool.point ?? (selectedBuilding ? buildingPoint(selectedBuilding) : null)
-      if (anchor) {
-        return [...list].sort((a, b) => {
-          const pa = buildingPoint(a)
-          const pb = buildingPoint(b)
-          const da = pa ? Math.hypot(pa.x - anchor.x, pa.y - anchor.y) : Number.POSITIVE_INFINITY
-          const db = pb ? Math.hypot(pb.x - anchor.x, pb.y - anchor.y) : Number.POSITIVE_INFINITY
-          return da - db
-        })
-      }
-    }
-    return list
-  }, [mapLayers, query, filter, tool.point, selectedBuilding])
-
+  const results = useMemo(
+    () =>
+      selectMapBuildings(
+        mapLayers?.buildings ?? [],
+        query,
+        filter,
+        tool.point ?? (selectedBuilding ? buildingPoint(selectedBuilding) : null),
+      ),
+    [mapLayers, query, filter, tool.point, selectedBuilding],
+  )
   const nearUnavailable = filter === 'near' && !tool.point && !selectedBuilding
 
-  function selectLayer(layerId: string) {
+  function toggleLayer(key: keyof MapLayerSwitches, checked: boolean) {
+    setShow((current) => ({ ...current, [key]: checked }))
+  }
+
+  function resetTransient() {
     tool.clear()
-    setSelected(layerId)
     setSelectedBuilding(null)
+    setCardClosed(false)
+    setFocus(null)
+  }
+
+  function switchView(next: 'flat' | 'iso') {
+    if (next === 'iso' && !canUseIso) return
+    resetTransient()
+    setView(next)
+    setFloorLayerId(null)
+    if (next === 'iso') setDrawerTab((current) => (current === 'tools' ? 'results' : current))
+  }
+
+  function openFloor(targetId: string) {
+    const target = layers?.find((item) => item.id === targetId)
+    if (!target || target.kind !== 'floor') return
+    resetTransient()
+    setFloorLayerId(targetId)
+    setView('floor')
+  }
+
+  function locateOutdoor() {
+    if (!selectedBuilding || !flatLayerId) return
+    tool.clear()
+    setPendingLocate(selectedBuilding)
+    setCardClosed(false)
+    setView('flat')
+    setFloorLayerId(null)
+  }
+
+  function handleMapClick(point: { x: number; y: number }) {
+    // 绘制中点击用于落点，不切换选中建筑
+    if (tool.mode !== null || (!outdoor && !indoor)) {
+      setSelectedBuilding(null)
+      return
+    }
+    const buildings = mapLayers?.buildings ?? []
+    setSelectedBuilding(indoor ? isoBuildingAt(point, buildings) : flatBuildingAt(point, buildings))
+    setCardClosed(false)
   }
 
   function focusBuilding(building: Building) {
     setSelectedBuilding(building)
+    setCardClosed(false)
     setDrawerTab('results')
+    if (!outdoor) return
     const point = buildingPoint(building)
     if (point) setFocus({ ...point, token: Date.now() })
-  }
-
-  function finishDrawerDrag(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current
-    dragRef.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    setDragHeight(null)
-    if (drag && dragMovedRef.current) {
-      setDrawerState(nearestDrawerState(drag.height, drag.anchors))
-    }
   }
 
   function publish() {
@@ -243,7 +173,7 @@ export default function MapView() {
         building_name: matched?.name ?? null,
         floor,
         location_area: `${matched?.name ?? ''}${floor != null ? `${floor}F` : ''}`,
-        layer_id: selected,
+        layer_id: layer.id,
         norm_x: anchor.x,
         norm_y: anchor.y,
         geometry: tool.geometry(),
@@ -254,313 +184,100 @@ export default function MapView() {
   }
 
   async function recommend() {
-    if (await request({ geometry: tool.geometry() })) setShowAdvice(true)
+    if (await request({ geometry: tool.geometry() })) toggleLayer('advice', true)
   }
+
+  const notice = imageError || adviceError || (mapMetaError ? '地图元数据加载失败，室内视图不可用' : '')
 
   return (
     <div className={styles.page}>
       <div className={styles.mapWrap}>
         {layer ? (
-          <CampusMap
+          <MapCanvas
+            view={view}
             layer={layer}
-            markers={NO_MARKERS}
+            buildings={mapLayers?.buildings ?? []}
+            items={mapLayers?.items ?? []}
+            mapMeta={mapMeta}
+            advice={advice}
+            helpPoints={helpPoints}
+            monitorPoints={monitorPoints}
+            canSeeMonitor={canSeeMonitor}
+            selectedBuilding={selectedBuilding}
             focus={focus}
-            onMapClick={() => setSelectedBuilding(null)}
+            show={show}
+            tool={tool}
+            canDraw={canDraw}
+            onMapClick={handleMapClick}
             onImageError={setImageError}
-          >
-            {outdoor && showBuildings && mapLayers && (
-              <BuildingLayer
-                buildings={mapLayers.buildings}
-                selectedId={selectedBuilding?.id ?? null}
-                onSelect={focusBuilding}
-                interactive={!drawing}
-              />
-            )}
-            {outdoor && showItems && mapLayers && (
-              <ItemPointsLayer
-                buildings={mapLayers.buildings}
-                items={mapLayers.items}
-                interactive={!drawing}
-              />
-            )}
-            {showHelp && <HelpPointsLayer points={helpPoints} />}
-            {canSeeMonitor && showMonitor && <MonitorPointsLayer points={monitorPoints} />}
-            {outdoor && showHeatmap && mapLayers && (
-              <HeatmapLayer buildings={mapLayers.buildings} items={mapLayers.items} />
-            )}
-            {outdoor && showAdvice && advice && mapLayers && (
-              <AIRecommendLayer buildings={mapLayers.buildings} locations={advice.locations} source={advice.source} degraded={advice.degraded} />
-            )}
-            <DrawToolLayer tool={tool} />
-            {!drawing && <ClickCoordsPopup />}
-          </CampusMap>
+          />
         ) : (
           <div className={styles.mapEmpty}>
             {(!layers || layers.length === 0) && !layersError ? '暂无图层，请先初始化地图数据。' : '正在加载地图…'}
           </div>
         )}
 
-        {/* 顶部悬浮搜索 + 筛选 chips */}
-        <div className={styles.overlayTop}>
-          <input
-            className={styles.search}
-            aria-label="搜索建筑"
-            placeholder="搜索建筑 / 类别"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className={styles.chips} role="group" aria-label="结果筛选">
-            {FILTERS.map((chip) => (
-              <button
-                key={chip.key}
-                type="button"
-                className={`${styles.chip} ${filter === chip.key ? styles.chipActive : ''}`}
-                aria-pressed={filter === chip.key}
-                onClick={() => setFilter(chip.key)}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {outdoor && selectedBuilding && (
-          <div className={styles.buildingCard}>
-            <BuildingCard
-              key={selectedBuilding.id}
-              building={selectedBuilding}
-              floorLayers={floorLayers}
-              onClose={() => setSelectedBuilding(null)}
-              onEnterFloor={selectLayer}
+        <MapTopBar
+          view={view}
+          canUseIso={canUseIso}
+          onSwitchView={switchView}
+          query={query}
+          onQueryChange={setQuery}
+          filter={filter}
+          onFilterChange={setFilter}
+          notice={notice ? <ErrorNotice message={notice} /> : undefined}
+        >
+          {isFloor && currentBuilding && currentFloorLayers.length > 0 && (
+            <FloorSwitcher
+              buildingName={currentBuilding.name}
+              floors={currentFloorLayers}
+              currentId={layer?.id ?? ''}
+              onSelect={openFloor}
+              onExit={() => switchView('flat')}
             />
-          </div>
+          )}
+        </MapTopBar>
+
+        {cardBuilding && !cardClosed && (
+          <MapBuildingCard
+            building={cardBuilding}
+            mode={isFloor ? 'floor' : indoor ? 'iso' : 'flat'}
+            floorLayers={floorLayers}
+            filterFloor={isFloor ? (layer?.floor ?? null) : null}
+            belowTopBar={isFloor}
+            onClose={() => {
+              setSelectedBuilding(null)
+              setCardClosed(true)
+            }}
+            onEnterFloor={openFloor}
+            onLocateOutdoor={indoor ? locateOutdoor : undefined}
+          />
         )}
 
-        {(imageError || adviceError) && (
-          <div className={styles.mapNotice}>
-            <ErrorNotice message={imageError || adviceError} />
-          </div>
-        )}
       </div>
 
-      {/* 底部可拖拽抽屉 */}
-      <section
-        ref={drawerRef}
-        className={`${styles.drawer} ${drawerState === 'expanded' ? styles.drawerExpanded : ''} ${drawerState === 'half' ? styles.drawerHalf : ''} ${dragHeight != null ? styles.drawerDragging : ''}`}
-        style={dragHeight != null ? { height: dragHeight } : undefined}
-        aria-label="地图结果与设置"
-      >
-        <div
-          className={styles.handle}
-          role="button"
-          tabIndex={0}
-          aria-label={drawerState === 'collapsed' ? '展开面板' : '收起面板'}
-          aria-expanded={drawerState !== 'collapsed'}
-          onPointerDown={(event) => {
-            if (event.pointerType === 'mouse' && event.button !== 0) return
-            const rect = drawerRef.current?.getBoundingClientRect()
-            if (!rect) return
-            const anchors = drawerAnchors()
-            dragRef.current = { startY: event.clientY, startHeight: rect.height, height: rect.height, anchors }
-            dragMovedRef.current = false
-            event.currentTarget.setPointerCapture(event.pointerId)
-          }}
-          onPointerMove={(event) => {
-            const drag = dragRef.current
-            if (!drag) return
-            const dy = drag.startY - event.clientY
-            if (!dragMovedRef.current && Math.abs(dy) < 4) return
-            dragMovedRef.current = true
-            const next = Math.max(
-              drag.anchors.collapsed,
-              Math.min(drag.startHeight + dy, drag.anchors.expanded),
-            )
-            drag.height = next
-            setDragHeight(next)
-          }}
-          onPointerUp={(event) => finishDrawerDrag(event)}
-          onPointerCancel={(event) => finishDrawerDrag(event)}
-          onClick={() => {
-            if (dragMovedRef.current) {
-              dragMovedRef.current = false
-              return
-            }
-            setDrawerState((value) => (value === 'collapsed' ? 'expanded' : 'collapsed'))
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              setDrawerState((value) => (value === 'collapsed' ? 'expanded' : 'collapsed'))
-            }
-          }}
-        >
-          <span className={styles.handleBar} aria-hidden="true" />
-        </div>
-
-        <div className={styles.tabs} role="tablist" aria-label="地图面板">
-          {DRAWER_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={drawerTab === tab.key}
-              className={`${styles.tab} ${drawerTab === tab.key ? styles.tabActive : ''}`}
-              onClick={() => {
-                setDrawerTab(tab.key)
-                setDrawerState('expanded')
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.drawerBody}>
-          {drawerTab === 'results' && (
-            <>
-              {nearUnavailable && <p className={styles.note}>「附近」需要一个参照点：点击地图上的建筑或先标一个点。</p>}
-              {results.length === 0 ? (
-                <p className={styles.empty}>没有匹配的建筑，试试其它关键词。</p>
-              ) : (
-                <ul className={styles.results}>
-                  {results.map((building) => (
-                    <li key={building.id}>
-                      <button
-                        type="button"
-                        className={`${styles.resultItem} ${selectedBuilding?.id === building.id ? styles.resultActive : ''}`}
-                        onClick={() => focusBuilding(building)}
-                      >
-                        <span className={styles.resultName}>{building.name}</span>
-                        <span className={styles.resultMeta}>
-                          {building.category}
-                          {building.active_item_count > 0 && (
-                            <span className={styles.resultBadge}>进行中 {building.active_item_count}</span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-
-          {drawerTab === 'layers' && (
-            <div className={styles.panel}>
-              {layersError && <ErrorNotice message={layersError} />}
-              {mapLayersError && <ErrorNotice message={mapLayersError} />}
-              {pointsError && <ErrorNotice message={pointsError} />}
-              <select value={selected} onChange={(event) => selectLayer(event.target.value)} aria-label="选择图层">
-                {layers?.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                    {item.scale_calibrated ? '（已标定）' : '（未标定，不显示米数）'}
-                  </option>
-                ))}
-              </select>
-              {currentBuilding && currentFloorLayers.length > 0 && (
-                <FloorSwitcher
-                  buildingName={currentBuilding.name}
-                  floors={currentFloorLayers}
-                  currentId={selected}
-                  outdoorId={outdoorLayerId}
-                  onSelect={selectLayer}
-                />
-              )}
-              <LayerToggles
-                options={[
-                  { key: 'buildings', label: '建筑层', checked: showBuildings, disabled: !outdoor, onChange: setShowBuildings },
-                  { key: 'items', label: '帖子点位', checked: showItems, disabled: !outdoor, onChange: setShowItems },
-                  { key: 'help', label: '求助点位', checked: showHelp, onChange: setShowHelp },
-                  ...(canSeeMonitor
-                    ? [{ key: 'monitor', label: '监控点位（模拟）', checked: showMonitor, onChange: setShowMonitor }]
-                    : []),
-                  { key: 'advice', label: 'AI 推荐层', checked: showAdvice, disabled: !outdoor || !advice, onChange: setShowAdvice },
-                  { key: 'heatmap', label: '热力层', checked: showHeatmap, disabled: !outdoor, onChange: setShowHeatmap },
-                ]}
-              />
-            </div>
-          )}
-
-          {drawerTab === 'tools' && (
-            <div className={styles.panel}>
-              {layer ? (
-                <>
-                  <div className={styles.drawBar} role="toolbar" aria-label="地图绘制工具">
-                    <Button
-                      type="button"
-                      variant={tool.mode === 'point' ? 'primary' : 'secondary'}
-                      aria-pressed={tool.mode === 'point'}
-                      onClick={() => tool.start('point')}
-                    >
-                      标点
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={tool.mode === 'circle' ? 'primary' : 'secondary'}
-                      aria-pressed={tool.mode === 'circle'}
-                      onClick={() => tool.start('circle')}
-                    >
-                      圈范围
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={tool.mode === 'polyline' ? 'primary' : 'secondary'}
-                      aria-pressed={tool.mode === 'polyline'}
-                      onClick={() => tool.start('polyline')}
-                    >
-                      画路径
-                    </Button>
-                    <Button type="button" variant="secondary" onClick={tool.undo} disabled={!canUndo}>
-                      撤销上一步
-                    </Button>
-                    <Button type="button" variant="secondary" onClick={tool.finish} disabled={!drawing}>
-                      完成
-                    </Button>
-                    <Button type="button" variant="ghost" onClick={tool.clear} disabled={!canUndo && !drawing}>
-                      清空
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={recommend}
-                      disabled={!outdoor || !tool.hasResult}
-                      loading={advicePending}
-                    >
-                      AI 推荐地点
-                    </Button>
-                  </div>
-                  {tool.hasResult && tool.routeKind && (
-                    <div className={styles.visibility}>
-                      <label className={styles.visibilityLabel}>
-                        路线可见性
-                        <select
-                          value={tool.visibility}
-                          onChange={(event) => tool.setVisibility(event.target.value as Visibility)}
-                        >
-                          <option value="private">私密（仅自己与已授权处理人员）</option>
-                          <option value="public">公开</option>
-                        </select>
-                      </label>
-                      <span className={styles.note}>圈选默认公开，路径默认私密</span>
-                    </div>
-                  )}
-                  {tool.hasResult && (
-                    <Button type="button" onClick={publish}>
-                      发布到大厅
-                    </Button>
-                  )}
-                  <p className={styles.note}>
-                    点击地图获取归一化坐标；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
-                    {layer.scale_calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
-                  </p>
-                </>
-              ) : (
-                <p className={styles.empty}>地图加载后可在此标点、圈范围、画路径。</p>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+      <MapDrawer
+        view={view}
+        tab={drawerTab}
+        onTabChange={setDrawerTab}
+        results={results}
+        nearUnavailable={nearUnavailable}
+        selectedId={selectedBuilding?.id ?? null}
+        onSelectBuilding={focusBuilding}
+        layersError={layersError}
+        mapLayersError={mapLayersError}
+        pointsError={pointsError}
+        layerSwitches={show}
+        onToggleLayer={toggleLayer}
+        canSeeMonitor={canSeeMonitor}
+        adviceReady={advice != null}
+        layer={layer}
+        canDraw={canDraw}
+        tool={tool}
+        advicePending={advicePending}
+        onRecommend={recommend}
+        onPublish={publish}
+      />
     </div>
   )
 }
