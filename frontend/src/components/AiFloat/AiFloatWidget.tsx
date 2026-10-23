@@ -307,7 +307,12 @@ export default function AiFloatWidget() {
     setMessages((prev) => [...prev, { role: 'user', text: value }])
     setBusy(true)
     try {
-      const result: AiChatResult = await aiChat(value, location.pathname)
+      // 多轮上下文：带最近 5 轮（10 条）历史，模型累积理解信息再决定追问或出草稿
+      const history = messages.slice(-10).map((message) => ({
+        role: message.role,
+        text: message.text,
+      }))
+      const result: AiChatResult = await aiChat(value, location.pathname, undefined, history)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
       applyResult(result, value, setTarget, setNotice, navigate, () => setOpen(false))
     } catch (err) {
@@ -330,7 +335,12 @@ export default function AiFloatWidget() {
     setTarget(null)
     setDraftBusy(true)
     try {
-      const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft')
+      // 整理草稿同样带多轮历史：信息分散在几轮问答里时也能攒齐
+      const history = messages
+        .slice(0, -1)
+        .slice(-10)
+        .map((message) => ({ role: message.role, text: message.text }))
+      const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft', history)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
       if (result.form_patch && hasPrefillValue(result.form_patch)) {
         const route = routeFor(lastUser.text)

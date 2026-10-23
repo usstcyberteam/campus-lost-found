@@ -283,3 +283,73 @@
     scroll-snap-align: start;
   }
 }
+
+/* AI 润色：按钮 + 预览卡片（用户点"采用"才写入描述，不自动覆盖） */
+.polishBlock {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.polishButton {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+}
+
+.polishButton:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.polishButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.polishPreview {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-2);
+}
+
+.polishText {
+  margin: 0;
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.polishActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.polishApply {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-sm);
+}
+
+.polishDiscard {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}

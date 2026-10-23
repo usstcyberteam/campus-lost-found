@@ -8,12 +8,18 @@ export interface SearchAdviceInput {
   category?: string | null
 }
 
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant'
+  text: string
+}
+
 export async function aiChat(
   message: string,
   page?: string,
-  action?: 'draft',
+  action?: 'draft' | 'polish',
+  history?: ChatHistoryItem[],
 ): Promise<AiChatResult> {
-  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action })
+  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action, history })
   return res.data
 }
 
