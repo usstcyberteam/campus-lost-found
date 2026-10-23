@@ -86,6 +86,8 @@ export interface Item {
   building_id: string | null
   building_name: string | null
   floor: number | null
+  group_id: string | null
+  group_count: number
   first_photo: Photo | null
   like_count: number
   comment_count: number
@@ -101,17 +103,34 @@ export interface Item {
 
 export interface PlaceFields {
   building_name: string | null
-  location_area: string | null
+  location_area?: string | null
   floor: number | null
+}
+
+export interface NotificationItem {
+  id: string
+  kind: string
+  title: string
+  content: string
+  link: string
+  related_item_id: string | null
+  source: Source
+  read: boolean
+  created_at: string
+}
+
+// 通知类型标签：kind 与后端 notification.kind 对应
+export const notificationKindLabels: Record<string, string> = {
+  ai_match: '失物匹配',
 }
 
 function trimmed(value: string | null): string {
   return value?.trim() ?? ''
 }
 
-export function placeLabel(item: PlaceFields): string {
+export function placeLabel(item: { building_name: string | null; location_area?: string | null; floor: number | null }): string {
   const building = trimmed(item.building_name)
-  if (!building) return trimmed(item.location_area) || '未指定地点'
+  if (!building) return trimmed(item.location_area ?? null) || '未指定地点'
   return item.floor == null ? building : `${building} ${item.floor}F`
 }
 

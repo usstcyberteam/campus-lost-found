@@ -1,14 +1,18 @@
+import uuid
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.database import get_db
+from app.errors import ApiError
 from app.models import Badge, Item, ItemHelper, User
 from app.schemas.auth import BadgeOut, PasswordChangeRequest, ProfileUpdate, UserOut
 from app.schemas.claim import ClaimOut, MyClaimOut
 from app.schemas.comment import MyCommentOut
 from app.schemas.common import Page
 from app.schemas.item import ItemPublic, MyHelpingOut
+from app.schemas.notification import NotificationOut, UnreadCountOut
 from app.schemas.points import MyPointsOut, PointRecordOut
 from app.schemas.staff_application import StaffApplicationCreate
 from app.schemas.ticket import TicketOut
@@ -17,6 +21,7 @@ from app.services import (
     comment_service,
     helper_service,
     item_service,
+    match_push_service,
     points_service,
     reaction_service,
     staff_application_service,
@@ -69,6 +74,33 @@ def submit_staff_application(
     user: User = Depends(get_current_user),
 ):
     return staff_application_service.submit_application(db, user, body)
+
+
+@router.get("/notifications", response_model=Page[NotificationOut])
+def my_notifications(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    rows, total = match_push_service.list_notifications(db, user.id, limit, offset)
+    return Page(items=rows, total=total, limit=limit, offset=offset)
+
+
+@router.get("/notifications/unread-count", response_model=UnreadCountOut)
+def my_notification_unread_count(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return {"count": match_push_service.unread_count(db, user.id)}
+
+
+@router.post("/notifications/{notification_id}/read", response_model=NotificationOut)
+def read_notification(
+    notification_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    # 只能标记自己的通知：他人/不存在一律 404，不区分以避免探测
+    notification = match_push_service.mark_notification_read(db, user.id, notification_id)
+    if notification is None:
+        raise ApiError(404, "NOT_FOUND", "通知不存在")
+    return notification
 
 
 @router.get("/items", response_model=Page[ItemPublic])

@@ -53,6 +53,8 @@ class ItemPublic(BaseModel):
     building_id: uuid.UUID | None = None
     building_name: str | None = None
     floor: int | None = None
+    group_id: uuid.UUID | None = None
+    group_count: int = 1
     first_photo: UploadOut | None = None
     like_count: int = 0
     comment_count: int = 0
@@ -91,6 +93,7 @@ class ItemDetail(BaseModel):
     building_id: uuid.UUID | None = None
     building_name: str | None = None
     floor: int | None = None
+    group_id: uuid.UUID | None = None
     photos: list[UploadOut] = Field(default_factory=list)
     photos_hidden: bool = False
     like_count: int = 0

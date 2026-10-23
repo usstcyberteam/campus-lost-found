@@ -36,6 +36,8 @@ class Item(Base):
     source: Mapped[Source] = mapped_column(
         SAEnum(Source, native_enum=False, length=8), nullable=False, default=Source.manual
     )
+    # 相似帖聚合分组（发布时规则判定：地点/类别/关键词重叠率/时间差满足 2 条以上即同组）
+    group_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

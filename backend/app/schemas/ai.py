@@ -75,3 +75,24 @@ class ChatOut(BaseModel):
     actions: list[str]
     source: Source
     degraded: bool
+
+
+class MatchRequest(BaseModel):
+    item_id: uuid.UUID
+
+
+class MatchedItemOut(BaseModel):
+    item_id: str
+    title: str
+    category: str
+    location_area: str
+    # False 表示该组合此前已推送过（去重生效），本次未新建通知
+    notified: bool
+
+
+class MatchOut(BaseModel):
+    item_id: str
+    matched: int
+    notified: int
+    items: list[MatchedItemOut]
+    source: Source

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -18,14 +18,22 @@ from app.schemas.item import (
 )
 from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
 from app.schemas.upload import PhotoBindRequest
-from app.services import item_service
+from app.services import item_service, match_push_service
 
 router = APIRouter(tags=["items"])
 
 
 @router.post("", response_model=ItemPublic)
-def create_item(body: ItemCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return item_service.create_item(db, user, body)
+def create_item(
+    body: ItemCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = item_service.create_item(db, user, body)
+    # 发布成功后异步匹配历史帖；推送失败只记日志，不影响发布结果
+    background_tasks.add_task(match_push_service.run_match_push, result["id"])
+    return result
 
 
 @router.patch("/{item_id}", response_model=ItemDetail)
@@ -48,13 +56,14 @@ def list_items(
     status: ItemStatus | None = None,
     q: str | None = None,
     building_id: uuid.UUID | None = None,
+    group_id: uuid.UUID | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     items, total = item_service.list_items(
-        db, user, direction, category, location_area, status, q, building_id, limit, offset
+        db, user, direction, category, location_area, status, q, building_id, group_id, limit, offset
     )
     return Page(items=items, total=total, limit=limit, offset=offset)
 

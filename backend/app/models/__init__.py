@@ -23,6 +23,7 @@ from app.models.item_favorite import ItemFavorite
 from app.models.item_helper import ItemHelper
 from app.models.item_like import ItemLike
 from app.models.layer import Layer, SimulatedPoint
+from app.models.notification import Notification
 from app.models.point_record import PointRecord
 from app.models.praise import Praise
 from app.models.ticket import Ticket
@@ -60,6 +61,7 @@ __all__ = [
     "Praise",
     "Route",
     "Layer",
+    "Notification",
     "SimulatedPoint",
     "Ticket",
     "Badge",

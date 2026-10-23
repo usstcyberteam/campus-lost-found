@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { aiChat } from '../../api/ai'
+import { useVoiceInput } from '../../hooks/useVoiceInput'
 import type { AiChatResult, FormPatch } from '../../types'
 import { errorMessage } from '../../utils/error'
 import styles from './AiFloatWidget.module.css'
@@ -183,6 +184,17 @@ export default function AiFloatWidget() {
   const posRef = useRef(pos)
   const listRef = useRef<HTMLOListElement>(null)
   const noticeTimer = useRef(0)
+  // 语音开始前输入框已有的手打内容：识别文本追加在其后，避免覆盖用户输入
+  const voiceBaseRef = useRef('')
+  const voice = useVoiceInput((partial) => {
+    setText((voiceBaseRef.current + partial).slice(0, 2000))
+  })
+
+  function onMicClick() {
+    if (!voice.supported) return
+    if (!voice.listening) voiceBaseRef.current = text
+    voice.toggle()
+  }
 
   posRef.current = pos
 
@@ -442,13 +454,25 @@ export default function AiFloatWidget() {
               placeholder="例如：今天在图书馆3楼丢了蓝色折叠伞"
               maxLength={2000}
               disabled={busy}
+              readOnly={voice.listening}
               aria-label="发给 AI 助手的消息"
             />
+            <button
+              type="button"
+              className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
+              onClick={onMicClick}
+              disabled={!voice.supported || busy}
+              title={voice.supported ? undefined : '当前浏览器不支持语音输入'}
+              aria-label={voice.listening ? '停止语音输入' : '语音输入'}
+              aria-pressed={voice.listening}
+            >
+              {voice.listening ? '⏹' : '🎤'}
+            </button>
             <button type="submit" className={styles.send} disabled={busy || !text.trim()}>
               发送
             </button>
           </form>
-          {error && <p className={styles.error}>{error}</p>}
+          {(error || voice.error) && <p className={styles.error}>{error || voice.error}</p>}
         </section>
       </div>
       {isDesktop ? (

@@ -8,6 +8,7 @@ export interface ListItemsParams {
   status?: ItemStatus | null
   q?: string | null
   building_id?: string | null
+  group_id?: string | null
   limit?: number
   offset?: number
 }
