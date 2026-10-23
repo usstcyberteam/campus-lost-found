@@ -1,11 +1,12 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.models.enums import SimulatedPointKind
+from app.models.enums import LayerKind, SimulatedPointKind
 
 
 class Layer(Base):
@@ -21,6 +22,15 @@ class Layer(Base):
     pixels_per_meter: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
     building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("building.id"), nullable=True, index=True)
     floor: Mapped[int | None] = mapped_column(nullable=True)
+    kind: Mapped[LayerKind] = mapped_column(
+        SAEnum(LayerKind, native_enum=False, length=16), nullable=False, default=LayerKind.flat, index=True
+    )
+    rooms: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 平面图到 2.5D 图的 2×3 换算矩阵，仅 2.5D 图层使用
+    transform: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
 
 
 class SimulatedPoint(Base):

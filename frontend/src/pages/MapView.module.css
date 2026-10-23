@@ -25,246 +25,26 @@
   background: var(--color-map-bg);
 }
 
-/* 顶部悬浮搜索栏 + 筛选 chips */
-.overlayTop {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
-  left: var(--space-3);
-  z-index: var(--z-sticky);
-  display: grid;
-  gap: var(--space-2);
-}
-
-.search {
-  min-height: 44px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-1);
-  box-shadow: var(--shadow-md);
-}
-
-.chips {
-  display: flex;
-  gap: var(--space-2);
-  overflow-x: auto;
-}
-
-.chip {
-  flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-1);
-  color: var(--color-text-1);
-  font-size: var(--font-sm);
-  box-shadow: var(--shadow-sm);
-}
-
-.chipActive {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
-  font-weight: 600;
-}
-
-.buildingCard {
-  position: absolute;
-  top: calc(var(--space-3) + 96px);
-  right: var(--space-3);
-  left: var(--space-3);
-  z-index: var(--z-dropdown);
-}
-
-.mapNotice {
-  position: absolute;
-  right: var(--space-3);
-  bottom: var(--space-3);
-  left: var(--space-3);
-  z-index: var(--z-dropdown);
-}
-
-/* 底部可拖拽抽屉 */
-.drawer {
-  position: fixed;
-  right: 0;
-  bottom: calc(60px + env(safe-area-inset-bottom));
-  left: 0;
-  z-index: var(--z-sticky);
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  height: 190px;
-  border-top: 1px solid var(--color-border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  background: var(--color-bg-1);
-  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
-  transition: height var(--transition-fast);
-}
-
-.drawerExpanded {
-  height: 68vh;
-}
-
-.drawerHalf {
-  height: 40vh;
-}
-
-.drawerDragging {
-  transition: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.drawerDragging .handle {
-  cursor: grabbing;
+/* 缩放控件移到右下后需抬到抽屉收起时的上沿之上，否则会被抽屉盖住。
+   移动端 174 = 抽屉 bottom 60 + 收起高度 190 - 地图容器顶部偏移 76；
+   桌面 220 = 抽屉 bottom 0 + 收起高度 220。抽屉高度调整时须同步。 */
+.mapWrap :global(.leaflet-bottom.leaflet-right) {
+  bottom: 174px;
+  z-index: calc(var(--z-sticky) - 100);
 }
 
 @media (min-width: 768px) {
-  .drawer {
-    left: 232px;
-    bottom: 0;
-    height: 220px;
-  }
-
-  .drawerExpanded {
-    height: 72vh;
-  }
-
-  .drawerHalf {
-    height: 45vh;
+  .mapWrap :global(.leaflet-bottom.leaflet-right) {
+    bottom: 220px;
   }
 }
 
-.handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  cursor: grab;
-  touch-action: none;
-}
-
-.handleBar {
+.mapWrap :global(.leaflet-control-zoom a),
+.mapWrap :global(.leaflet-touch .leaflet-bar a) {
   width: 44px;
-  height: 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-border-strong);
+  height: 44px;
+  line-height: 44px;
+  font-size: var(--font-xl);
 }
 
-.tabs {
-  display: flex;
-  gap: var(--space-2);
-  padding: 0 var(--space-4) var(--space-2);
-}
 
-.tab {
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-1);
-  color: var(--color-text-1);
-  font-size: var(--font-sm);
-}
-
-.tabActive {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.drawerBody {
-  overflow-y: auto;
-  padding: 0 var(--space-4) var(--space-4);
-}
-
-.panel {
-  display: grid;
-  gap: var(--space-3);
-}
-
-/* 结果列表 */
-.results {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.resultItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: 44px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-1);
-  color: var(--color-text-1);
-  text-align: left;
-}
-
-.resultActive {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
-
-.resultName {
-  font-weight: 600;
-}
-
-.resultMeta {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  color: var(--color-text-2);
-  font-size: var(--font-sm);
-}
-
-.resultBadge {
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
-  font-size: var(--font-sm);
-}
-
-.empty,
-.note {
-  margin: 0;
-  color: var(--color-text-2);
-  font-size: var(--font-sm);
-}
-
-.drawBar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.visibility {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-}
-
-.visibilityLabel {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 44px;
-  color: var(--color-text-1);
-  font-size: var(--font-sm);
-}
-
-.visibilityLabel select {
-  min-height: 44px;
-}

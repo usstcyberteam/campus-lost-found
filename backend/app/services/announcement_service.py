@@ -77,7 +77,9 @@ def get_announcement(db: Session, user: User, announcement_id: uuid.UUID) -> dic
     if announcement is None:
         raise ApiError(404, "NOT_FOUND", "公告不存在")
     counts, mine = _favorite_stats(db, [announcement.id], user.id)
-    return _serialize(announcement, _author_name(db, announcement), counts.get(announcement.id, 0), announcement.id in mine)
+    return _serialize(
+        announcement, _author_name(db, announcement), counts.get(announcement.id, 0), announcement.id in mine
+    )
 
 
 def create_announcement(db: Session, user: User, body: AnnouncementCreate) -> dict:
@@ -145,9 +147,7 @@ def list_my_favorites(db: Session, user: User, limit: int, offset: int) -> tuple
         .filter(AnnouncementFavorite.user_id == user.id)
     )
     total = base.count()
-    rows = (
-        base.order_by(AnnouncementFavorite.created_at.desc()).offset(offset).limit(limit).all()
-    )
+    rows = base.order_by(AnnouncementFavorite.created_at.desc()).offset(offset).limit(limit).all()
     items = [
         {
             "id": announcement.id,

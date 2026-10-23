@@ -2,11 +2,11 @@ import httpx
 
 from app.services import model_client
 from tests.test_acceptance import auth, register
-from tests.test_buildings import import_config
 
 MODEL_JSON = (
     '{"category":"雨伞","title":"图书馆丢了一把蓝色雨伞","description":"蓝色折叠伞，伞柄有划痕",'
-    '"location_area":"图书馆3F","building_code":"B02","floor":3,"time_occurred":"2026-10-18T15:00:00"}'
+    '"location_area":"测试图书馆3F","building_code":"DUP-f003","floor":3,'
+    '"time_occurred":"2026-10-18T15:00:00"}'
 )
 
 
@@ -65,8 +65,7 @@ def test_draft_rejects_blank_text(client):
     assert response.json()["code"] == "VALIDATION"
 
 
-def test_draft_uses_model_output(client, monkeypatch):
-    import_config()
+def test_draft_uses_model_output(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, content=MODEL_JSON)
@@ -74,7 +73,7 @@ def test_draft_uses_model_output(client, monkeypatch):
 
     response = client.post(
         "/api/v1/ai/draft-post",
-        json={"text": "今天下午三点在图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
+        json={"text": "今天下午三点在测试图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
         headers=auth(token),
     )
 
@@ -84,16 +83,15 @@ def test_draft_uses_model_output(client, monkeypatch):
     assert body["degraded"] is False
     assert body["category"] == "雨伞"
     assert body["title"] == "图书馆丢了一把蓝色雨伞"
-    assert body["building_code"] == "B02"
+    assert body["building_code"] == "DUP-f003"
     assert body["floor"] == 3
-    assert body["location_area"] == "图书馆3F"
+    assert body["location_area"] == "测试图书馆3F"
     assert body["time_occurred"].startswith("2026-10-18T15:00:00")
     assert captured["url"] == "https://model.example/v1/chat/completions"
     assert captured["timeout"] == 10
 
 
-def test_draft_degrades_on_model_timeout(client, monkeypatch):
-    import_config()
+def test_draft_degrades_on_model_timeout(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, error=httpx.ReadTimeout("timeout"))
@@ -101,7 +99,7 @@ def test_draft_degrades_on_model_timeout(client, monkeypatch):
 
     response = client.post(
         "/api/v1/ai/draft-post",
-        json={"text": "图书馆3楼丢了一把雨伞"},
+        json={"text": "测试图书馆3楼丢了一把雨伞"},
         headers=auth(token),
     )
 
@@ -110,7 +108,7 @@ def test_draft_degrades_on_model_timeout(client, monkeypatch):
     assert body["source"] == "rule"
     assert body["degraded"] is True
     assert body["category"] == "雨伞"
-    assert body["building_code"] == "B02"
+    assert body["building_code"] == "DUP-f003"
     assert body["floor"] == 3
 
 

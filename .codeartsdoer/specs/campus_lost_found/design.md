@@ -270,7 +270,7 @@ erDiagram
 
 **① `user`**：`id` UUID PK；`username` varchar(64) UNIQUE；`password_hash` text（哈希）；`role` enum(student/staff/admin)；`display_name` varchar(64)；`contact` text（私密）；`created_at`。注册接口强制拒绝 `role≠student`。
 
-**② `layer`**：`id`；`name` varchar(64) UNIQUE；`image_path` text；`version` varchar(32)；`width/height` int；`scale_calibrated` boolean DEFAULT false；`pixels_per_meter` numeric（仅标定后）。未标定 ⇒ `pixels_per_meter IS NULL` ⇒ 不输出米数。
+**② `layer`**：`id`；`name` varchar(64) UNIQUE；`image_path` text；`version` varchar(32)；`width/height` int；`scale_calibrated` boolean DEFAULT false；`pixels_per_meter` numeric（仅标定后）。未标定 ⇒ `pixels_per_meter IS NULL` ⇒ 不输出米数。X2a 追加（见 2.28.2）：`kind`（`flat`/`iso`/`floor`）决定该图层能否写入位置数据；`rooms` JSON 仅楼层图使用，保存房间名与房间中心。
 
 **③ `item`**：`id`；`direction` enum(lost/found)；`category` varchar(32)；`title` varchar(128)；`description` text（公开）；`location_area` varchar(128)（楼层级脱敏公开）；`precise_location` text（私密）；`time_occurred` timestamptz NULLABLE；`status` enum；`owner_user_id` FK→user；`layer_id` FK→layer NULLABLE；`norm_x/norm_y` numeric [0,1]；`is_simulated` boolean（模拟点位标识）；`source` enum(manual/rule/cache/model)；`created_at/updated_at`。
 status：lost=`寻找中/核验中/已找回/已撤销`；found=`待认领/核验中/已归还/已撤销`。
@@ -357,9 +357,9 @@ status：lost=`寻找中/核验中/已找回/已撤销`；found=`待认领/核�
 关键路径：`T1 → T2 → (T3 → T4) → T5/T6 → T7 → T8 → T9 → T10 → T14 → T11 → T12 → T13 → T15 → T16`。
 
 ## 2.6 地图技术约定
-1. 图层体系：v1.0 为固定 3 图层（室外示意图、楼1F、楼2F）；v2.0 改为「建筑层 + 帖子点位层（聚合）+ 求助点位层 + 监控点位层 + AI 推荐层 + 热力层 + 绘制工具层」独立开关，楼层图经 `layer.building_id + floor` 关联建筑（详见 2.22）。
+1. 图层体系：v1.0 为固定 3 图层（室外示意图、楼1F、楼2F）；v2.0 改为「建筑层 + 帖子点位层（聚合）+ 求助点位层 + 监控点位层 + AI 推荐层 + 热力层 + 绘制工具层」独立开关，楼层图经 `layer.building_id + floor` 关联建筑（详见 2.22）。**X2a 更新**：图层按 `kind` 分为室外平面图（`flat`）、2.5D 选楼图（`iso`）、楼层图（`floor`）；位置数据只允许写在 `flat` 与 `floor`，写在 `iso` 一律 400（见 2.28.3）。
 2. `layer.version` 统一，变更递增，前端做缓存失效。
-3. **归一化坐标原点（v2.0 变更）**：坐标统一为归一化 `[0,1]`，**原点在图片左下角**（x 向右增大，y 向上增大）。与 v1.0「左上角原点」不同，前端 `coords.ts` 的换算函数须改为：`lng = nx * width`、`lat = (1 - ny) * height`；逆变换 `nx = lng / width`、`ny = 1 - lat / height`。存量已落库的 `norm_x/norm_y`（左上角语义）在迁移时须转换为左下角语义（`ny' = 1 - ny`），见 2.18.3 迁移映射。
+3. **归一化坐标原点（v2.0 变更）**：坐标统一为归一化 `[0,1]`，**原点在图片左下角**（x 向右增大，y 向上增大）。与 v1.0「左上角原点」不同，前端 `coords.ts` 的换算函数实行为：`lng = nx * width`、`lat = ny * height`；逆变换 `nx = lng / width`、`ny = lat / height`（CRS.Simple 的纬度向上增大，与左下角原点同向，故不需要 `1 - ny`；本节原公式 `lat = (1 - ny) * height` 与实现不符，X2a 一并更正，见 2.28.11.3）。**X2a 核验**：`20261018_v2_incremental.py` 未执行 `1 - ny` 转换；若历史库确实存在按左上角写入的数据，需单独校正，X2a 新导入数据一律按左下角写入，不改变存量坐标。
 4. 圆形范围：中心 (cx,cy) + 半径 r（归一化，y 向上）。
 5. 分层路线：`floor_segments` 跨层多段线。
 6. 比例尺门控：未标定 ⇒ 不返回/不渲染米数，后端返回 422。
@@ -526,7 +526,7 @@ flowchart LR
 
 | 文件 | 改动 |
 |---|---|
-| `backend/seed.py` | 移除 `create_all`，仅保留幂等种子写入（管理员按 username 存在则跳过；图层按 name 幂等 upsert） |
+| `backend/seed.py` | 移除 `create_all`，仅保留幂等种子写入（管理员按 username 存在则跳过；图层按 name 幂等 upsert；X2a 起改为按 `kind` 幂等，见 2.28.6.3） |
 | `backend/Dockerfile` | `CMD` 改为 `alembic upgrade head && python seed.py && uvicorn app.main:app ...` |
 | `README.md` | 本地运行步骤在 `seed.py` 之前插入 `alembic upgrade head` |
 
@@ -1379,7 +1379,7 @@ export interface LayerDims {
   height: number
 }
 
-// 归一化坐标 → Leaflet 地图坐标（CRS.Simple 下 lat=y、lng=x，原点为图片左上角）
+// 归一化坐标 → Leaflet 地图坐标（CRS.Simple 下 lat=y、lng=x，原点为图片左下角）
 export function normToLatLng(nx: number, ny: number, dims: LayerDims): LatLng
 
 // Leaflet 地图坐标 → 归一化坐标 { x, y }
@@ -1659,7 +1659,7 @@ flowchart LR
 | `thanked` | boolean | NOT NULL, default false | 是否已被致谢（积分去重依据） |
 | `created_at` | timestamptz | NOT NULL | |
 
-无 UNIQUE（允许同一用户历史多次接取）；「同一帖子同一用户仅一条 active」由 `helper_service` 应用层校验（接取前查 `status=active` 是否存在）。放弃后再次接取新建记录。
+唯一约束 `uq_item_helper_item_user`（`item_id`, `user_id`），同一用户对同一帖子最多一条记录（由 F14 验收修复引入，见 2.27.3.1、2.27.3.2）。同一组合的 `active` 记录存在时再次接取返回 409；存在 `abandoned` 记录时再次接取原地恢复该行（见 2.27.3.3、2.27.3.4）。
 
 **⑥ `point_record`（积分记录，只增不减）**
 
@@ -1724,7 +1724,20 @@ flowchart LR
 | `kind` | SimulatedPointKind | NOT NULL, default `help_point` | `help_point`（保卫处/服务台/失物招领处，公开）；`monitor_point`（模拟监控，仅 staff） |
 | `is_public` | boolean | NOT NULL, default true | 公开性；监控点位置 `false` |
 
-**坐标语义迁移**：`item.norm_x/norm_y`、`simulated_point.norm_x/norm_y`、`route.geometry`、`building.click_region/label_position` 的 `y` 轴由 v1.0「左上角原点」改为 v2.0「左下角原点」，迁移时对既有 `norm_y`/`y` 做 `y' = 1 - y` 转换（见 2.6 第 3 条）。
+**坐标语义迁移（历史设计，未执行）**：v1.0 文档将 `y` 轴定义为「左上角原点」，v2.0 改为「左下角原点」，原计划迁移时对既有 `norm_y`/`y` 做 `y' = 1 - y` 转换。**X2a 核验**：`20261018_v2_incremental.py` 未包含该转换；当前前端换算为 `lat = ny * height`，与新导入素材一致。交付前需确认存量数据是否按左上角写入，若有则由数据维护单独校正；X2a 不改变存量坐标（见 2.6 第 3 条）。
+
+**X2a 追加列（双视图地图，详见 2.28.2）**
+
+| 表 | 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|---|
+| `layer` | `kind` | LayerKind | NOT NULL, default `flat`, index | `flat` 室外平面图 / `iso` 2.5D 选楼图 / `floor` 楼层图；迁移回填既有楼层图为 `floor` |
+| `layer` | `rooms` | JSON | NULLABLE | 楼层房间：`[{"name": str, "x": float, "y": float}]`，仅 `kind=floor` 使用 |
+| `building` | `iso_hit_area` | JSON | NULLABLE | 2.5D 命中区域，`[{x,y}]`，与 `click_region` 同构 |
+| `building` | `iso_label_position` | JSON | NULLABLE | 2.5D 标签位置 `{x,y}` |
+| `building` | `draw_order` | int | NOT NULL, default 0 | 2.5D 绘制层级，命中重叠时取最大值；素材中存在负值 |
+| `building` | `entrance_node` | int | NULLABLE | 路网入口节点编号，仅存档，不参与位置计算 |
+
+语义约定：`building.click_region` 改存室外平面轮廓（素材 `flat.footprint`），`building.label_position` 改存室外标签点（素材 `flat.label_anchor`）。字段名不变，推荐算法、演示数据、前端 `buildingAt`/`buildingCenter` 继续复用；2.5D 几何只进 `iso_hit_area`/`iso_label_position`，不参与位置写入。
 
 ### 2.18.4 计数查询策略（不建冗余字段）
 
@@ -1982,7 +1995,7 @@ class ThankOut(BaseModel):
     thanked_count: int
 ```
 
-**业务规则**：接取须为「寻找中/核验中」的寻物帖且非发布者；放弃后再次接取新建记录；致谢仅在寻物帖「已找回」后、从 active 协助者中选最多 3 人，致谢成功触发 `points_service.add(thank, +20, helper.id)`，并将 `item_helper.thanked` 置 true（防止重复致谢计分）。
+**业务规则**：接取须为「寻找中/核验中」的寻物帖且非发布者；同一用户对同一帖子已有 `active` 记录时再次接取返回 409，仅有 `abandoned` 记录时原地恢复该行（口径 B，见 2.27.3.3）；致谢仅在寻物帖「已找回」后、从 active 协助者中选最多 3 人，致谢成功触发 `points_service.add(thank, +20, helper.id)`，并将 `item_helper.thanked` 置 true（防止重复致谢计分）。
 
 ### 2.21.7 积分与称号
 
@@ -2159,6 +2172,9 @@ class SearchAdviceOut(BaseModel):
 | `HeatmapLayer` | `HeatmapLayer.tsx` | 热力层（自行实现，不引第三方） | 热力层开关 |
 | `DrawToolLayer` | `DrawToolLayer.tsx` | 绘制工具（标点/圈范围/画路径，完成/撤销/清空），「发布到大厅」入口 | 绘制模式 |
 | `FloorSwitcher` | `FloorSwitcher.tsx` | 楼层图切换（有平面图的建筑） | 进入楼层模式 |
+| `IsoBuildingLayer` | `IsoBuildingLayer.tsx`（X2a 新增） | 2.5D 选楼层：按 `iso_hit_area` 命中、高亮选中与推荐建筑、显示帖子数量角标与楼名 | 室内视图 |
+
+**X2a 更新**：视图分「室外平面图（`flat`）/ 室内 2.5D（`iso`）/ 楼层（`floor`）」三种。`flat` 视图保留上表全部图层；`iso` 视图由 `IsoBuildingLayer` 取代 `BuildingLayer`，保留监控点层（坐标经矩阵换算）、AI 推荐高亮（矩阵换算），不显示绘制工具、求助点层与热力层；`floor` 视图复用 `BuildingLayer` 渲染房间名、用 `FloorSwitcher` 切换楼层，绘制工具仅在有底图时提供。详见 2.28.11。
 
 **实现约束**：
 - 每个图层组件为 `null` 渲染（仅副作用），通过 `useCampusMap()` 拿 `map/layer/toMap/toNorm`，`map` 为 `null` 时跳过注册。
@@ -2174,14 +2190,15 @@ class SearchAdviceOut(BaseModel):
 // 归一化 (nx, ny) 左下角原点 → Leaflet CRS.Simple 地图坐标
 export function normToLatLng(nx: number, ny: number, dims: LayerDims): LatLng
 //   lng = nx * dims.width
-//   lat = (1 - ny) * dims.height
+//   lat = ny * dims.height
 export function latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: number }
 //   x = latlng.lng / dims.width
-//   y = 1 - latlng.lat / dims.height
+//   y = latlng.lat / dims.height
 ```
 
 - 归一化对象统一 `{x, y}`，`x` 向右、`y` 向上。
 - 后端 `norm_x/norm_y`、`simulated_point`、`building.click_region/label_position`、`route.geometry` 均遵循左下角原点；存量数据迁移时 `y' = 1 - y`。
+- X2a 补充：`coords.ts` 追加平面→2.5D 的仿射换算 `flatToIso(point, matrix)` 与多边形命中纯函数；矩阵不写死，来自 `GET /map/meta`。位置数据只使用室外平面图坐标，2.5D 坐标仅用于渲染（见 2.28.11.3）。
 
 ## 2.23 模型客户端与降级策略
 
@@ -2268,12 +2285,12 @@ export function latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: n
 | 任务类型 | 增量功能（页面整合 + 两个新查询接口 + 一个查询接口扩展 + 已批准的存量缺陷修复），不改变认领、核验、归还、协助工单的既有行为 |
 | 特性名 | `campus_lost_found` |
 | 本文档路径 | `.codeartsdoer/specs/campus_lost_found/design.md`（2.26 节） |
-| 需求依据 | `spec.md` 6.18（F14 验收细化已于 2026-10-20 确认，5 条修改意见已落入本节）、6.16 积分称号 |
+| 需求依据 | `spec.md` 6.18（F14 验收细化已于 2026-10-20 确认，5 条修改意见已落入本节）、6.16 积分称号；验收阶段追加 6.19（F14 验收修复），其实现方案见 **2.27** |
 | 上游设计 | 本文 2.21.7（积分接口）、2.21.8（我的列表）、2.21.12（错误码）、2.22.1（前端路由）、2.24（积分与称号） |
 | 允许修改 | `backend/app/api/v1/me.py`、`backend/app/services/staff_application_service.py`、`backend/app/services/comment_service.py`、`backend/app/services/helper_service.py`（仅新增 `list_my_helping`）、`backend/app/services/claim_service.py`、`backend/app/schemas/comment.py`、`backend/app/schemas/item.py`、`backend/app/schemas/claim.py`、`backend/tests/test_me_lists.py`（新建）、`backend/tests/test_staff_application.py`、`frontend/src/api/me.ts`、`frontend/src/types.ts`、`frontend/src/components/ItemCard/ItemCard.tsx` 及 `ItemCard.module.css`、`frontend/src/pages/Me.tsx` 及样式、`frontend/src/pages/MeList.tsx`/`MePoints.tsx`（新建）及样式、删除 `frontend/src/pages/MyDelegations.tsx`、`frontend/src/App.tsx`（仅增加路由） |
-| 不修改 | 认领审核/归还/工单服务与路由、`helper_service` 的既有接取/放弃/致谢函数、`points_service`、`PageHeader`、`AppShell`、`AuthContext`、数据库模型与迁移、其他页面 |
+| 不修改 | 认领审核/归还/工单服务与路由、`helper_service` 的既有接取/放弃/致谢函数（**6.19.3 验收修复另行改造 `take_helper`，见 2.27.3.3**）、`points_service`、`PageHeader`、`AppShell`、`AuthContext`、数据库模型与迁移（**6.19.3 验收修复新增 `item_helper` 唯一约束与迁移，见 2.27.3、2.27.4**）、其他页面 |
 | 新增依赖 | 无（前端沿用 React Router、Axios、现有 UI 组件） |
-| 数据库迁移 | **无**。仅新增只读查询，不新增表、列、索引 |
+| 数据库迁移 | 2.26 自身**无**（仅新增只读查询，不新增表、列、索引）；6.19.3 验收修复新增一个迁移，文件与步骤见 2.27.3.2、2.27.4 |
 | 沙箱约束 | 本文档不执行 `pytest`、不启动服务、不安装依赖；验证命令列入 2.26.10 由用户本地执行 |
 
 **边界声明**：本节只描述“如何实现”，不包含完整业务代码与测试结果；所有接口字段、排序与错误码以本节为准。
@@ -2347,7 +2364,7 @@ export function latLngToNorm(latlng: LatLng, dims: LayerDims): { x: number; y: n
 | `ItemCard` 扩展点 | 组件只接收 `item`，内部是整块 `Link` | 新增可选 `extra`，渲染在卡片内容底部；只放展示型内容（Tag/文字），不放按钮或链接，避免嵌套交互 |
 | 积分阈值 | 后端持有 `POINT_TITLES`；接口返回 `title`、`next_title`、`next_threshold` | 前端不保存阈值表；进度用 `total / next_threshold` 表达“距离下一称号的累计完成度” |
 | 教职工重提 | service 当前禁止 `rejected` 再次提交 | 已批准修改；`approved` 用户正常数据下 `role` 已为 `staff`，会先命中 403，409 仅作防御性分支 |
-| 委托唯一性落点 | 迁移与模型未见显式 `UniqueConstraint`，现有唯一性由 `helper_service._active_helper` 的应用层检查保证 | F14 按“每帖一条”设计且不改表；数据库层约束缺失列入 2.26.9 R9，另行确认 |
+| 委托唯一性落点 | 迁移与模型未见显式 `UniqueConstraint`，现有唯一性由 `helper_service._active_helper` 的应用层检查保证 | 6.19.3 要求补数据库层约束，模型与迁移需同时声明 | 按 2.27.3 实施：模型声明 `uq_item_helper_item_user`，迁移清理重复后加约束 |
 | 时间精度 | SQLite `func.now()` 秒级，同秒记录顺序不稳定 | 新查询统一 `created_at DESC, id DESC`；测试不依赖同秒内严格顺序 |
 
 ### 2.26.2 增量设计方案：后端接口契约
@@ -2854,10 +2871,10 @@ PageHeader(title=标题, backTo="/me")
 
 **帖子类列表**：`<li key={item.id}><ItemCard item={item} /></li>`。
 
-**helping 附加信息**：通过 `ItemCard` 新增的 `extra` 属性传入，渲染在卡片内容底部，不再包裹外层标签行：
+**helping 附加信息**：通过 `ItemCard` 新增的 `extra` 属性传入，渲染在卡片内容底部，不再包裹外层标签行。**标签派生规则以 6.19.2 为准，原「`abandoned` → 已放弃、`active` → 进行中」的简化映射已由 2.27.2.2 的真值表取代**：
 
-- `helper_status === 'active'` → `进行中`（`primary`）；`abandoned` → `已放弃`（`neutral`）。
-- `thanked === true` → `已被致谢`（`success`）。
+- 状态标签：`abandoned` → 已放弃（`neutral`）；`active` 且帖子 `status ∈ {searching, reviewing}` → 进行中（`primary`）；`active` 且帖子已离开进行中 → `thanked ? 已被致谢（success）: 已结束（neutral）`。
+- 独立「已被致谢」标签：仅当状态标签**不是**「已被致谢」且 `thanked === true` 时渲染（`success`）。
 - `taken_at` → 「接取于 YYYY/M/D」小号文字，与标签同一行，允许换行。
 - `extra` 内只放 `Tag` 与 `span`，不放按钮或链接（`ItemCard` 外层是 `Link`，避免嵌套交互）。
 - 列表 key 用 `item.id`；由于 `(item_id,user_id)` 唯一，`helper_id` 与 `item.id` 一一对应。
@@ -2958,13 +2975,15 @@ PageHeader(title=标题, backTo="/me")
 
 **claims 标题来源**：`/me/claims` 已在同一次查询中返回 `item_title`；前端直接渲染，不调用 `getItem`、不维护标题缓存、不做逐条补查。列表页的网络请求只应有 `/me/claims` 一条。
 
-**helping 展示补充**：
+**helping 展示补充**（组合真值表见 2.27.2.2，以 6.19.2 为准）：
 
 | 后端字段 | 前端映射 | 展示位置 |
 |---|---|---|
-| `helper_status: active` | 进行中（`primary`） | `ItemCard` 的 `extra` 插槽（卡片内容底部） |
-| `helper_status: abandoned` | 已放弃（`neutral`） | 同上 |
-| `thanked: true` | 已被致谢（`success`） | 同上，可与其他标签并列 |
+| `helper_status: abandoned` | 已放弃（`neutral`），与帖子状态、`thanked` 无关 | `ItemCard` 的 `extra` 插槽（卡片内容底部） |
+| `helper_status: active` 且 `status ∈ {searching, reviewing}` | 进行中（`primary`） | 同上 |
+| `helper_status: active` 且 `status ∉ {searching, reviewing}` 且 `thanked=true` | 已被致谢（`success`） | 同上 |
+| `helper_status: active` 且 `status ∉ {searching, reviewing}` 且 `thanked=false` | 已结束（`neutral`） | 同上 |
+| `thanked: true` 且状态标签不是「已被致谢」 | 独立「已被致谢」标签（`success`） | 同上，可与其他标签并列 |
 | `taken_at` | 「接取于 YYYY/M/D」 | 同上，`span` 小号文字，允许换行 |
 
 **不允许**：在 `ItemCard` 外层再包一层标签；`extra` 内放按钮或链接；按 `found_item_id` 并发补标题。
@@ -3040,7 +3059,7 @@ PageHeader(title=标题, backTo="/me")
 | # | 文件 | 动作 | 说明 |
 |---|---|---|---|
 | 1 | `backend/app/services/comment_service.py` | 修改（仅新增函数） | 新增 `list_my_comments` |
-| 2 | `backend/app/services/helper_service.py` | 修改（仅新增函数） | 新增 `list_my_helping`；既有接取/放弃/致谢函数行为不变 |
+| 2 | `backend/app/services/helper_service.py` | 修改（仅新增函数） | 新增 `list_my_helping`；2.26 交付时既有接取/放弃/致谢函数行为不变（验收修复对 `take_helper` 的改造见 2.27.3.3） |
 | 3 | `backend/app/services/claim_service.py` | 修改（仅改造查询） | `list_my_claims` 联表返回 `(Claim, item_title)`；其他函数不变 |
 | 4 | `backend/app/schemas/comment.py` | 修改（仅新增类） | 新增 `MyCommentOut` |
 | 5 | `backend/app/schemas/item.py` | 修改（仅新增类与枚举导入） | 新增 `MyHelpingOut(ItemPublic)`；避免 `helper.py` 反向导入造成循环 |
@@ -3062,9 +3081,9 @@ PageHeader(title=标题, backTo="/me")
 | 21 | `frontend/src/pages/MyDelegations.tsx` | 删除 | 功能并入 `Me`/`MeList`；全仓无引用 |
 | 22 | `frontend/src/App.tsx` | 修改（仅加路由） | `/me/points`、`/me/:kind` |
 
-**不改动**：数据库模型、Alembic 迁移、`item_service`、`ticket_service`、`reaction_service`、`points_service`、`AuthContext`、`PageHeader`、`AppShell`、`helper_service` 的既有写函数、`ClaimOut`/`ClaimDetail`、既有测试（`test_staff_application.py` 仅新增用例）。
+**2.26 交付时的不改动项**：数据库模型、Alembic 迁移、`item_service`、`ticket_service`、`reaction_service`、`points_service`、`AuthContext`、`PageHeader`、`AppShell`、`helper_service` 的既有写函数、`ClaimOut`/`ClaimDetail`、既有测试（`test_staff_application.py` 仅新增用例）。
 
-**迁移说明**：本次不需要迁移。`/me/claims` 只增加响应字段，不改表；`item_helper` 的数据库层唯一约束不在本次补迁移（见 2.26.9 R9）。
+**迁移说明**：2.26 自身仍不需要迁移（`/me/claims` 只增加响应字段，不改表）。**该结论已被 6.19.3 取代**：验收修复新增 `item_helper` 唯一约束迁移，见 2.27.3.2 与 2.27.4。
 
 ### 2.26.9 风险与待确认事项
 
@@ -3078,23 +3097,24 @@ PageHeader(title=标题, backTo="/me")
 | R6 | `Me.tsx` 重写后可能超过 300 行 | 违反单文件规范 | 目标控制在 300 行内：卡片/拒绝卡/徽章面板均以同文件内子函数实现；若仍超出，需申请新增组件文件 |
 | R7 | 删除 `MyDelegations.tsx` 前需确认无引用 | 构建失败 | 已用全仓检索确认无 import/route；删除后以 `npm run build` 复核 |
 | R8 | 前端 `Item` 类型含 `norm_x/layer_id` 等必填字段，而 `ItemPublic` 不返回 | 运行期访问这些字段会得到 `undefined`（现有 `/me/items`、`/me/likes` 同样存在） | 本次沿用既有类型约定，不新增 `any`、不改 `Item`；新页面只读取 `ItemPublic` 实际提供的字段 |
-| R9 | `item_helper` 的唯一性当前由 `helper_service._active_helper` 的应用层检查保证；迁移 `20261018_v2_incremental.py:144-158` 与模型均未显式声明 `UniqueConstraint` | 若存量数据存在同帖多条，`/me/helping` 会与“每帖一条”的设计假设不符 | F14 只读、不改表。先确认数据；如需数据库层强制唯一，另开迁移（清理重复 + 加约束），不在 F14 范围 |
+| R9 | ~~`item_helper` 的唯一性当前由 `helper_service._active_helper` 的应用层检查保证；迁移与模型均未显式声明 `UniqueConstraint`~~ **已被 6.19.3 关闭**：验收修复在模型声明 `uq_item_helper_item_user` 并新增迁移（先清理重复再加约束），见 2.27.3.1、2.27.3.2、2.27.4 | 原假设「F14 不改表」不再成立；「每帖一条」改由数据库层保证 | 按 2.27 实施；`abandoned` 记录同样受约束，放弃后重接已按口径 B 原地恢复，见 2.27.3.4 |
 | R10 | 进度条用 `total / next_threshold` 表示累计完成度，而非“当前称号到下一称号”的区间比例 | 视觉语义与区间进度略有差异；接口未返回当前称号阈值 | 6.18.1 只要求进度条与“再得 N 分”；若产品要求区间比例，另给 `/me/points` 增加当前阈值字段，前端不私存阈值表 |
 | R11 | `MyClaimOut` 与前端 `MyClaim` 需要保持字段同步 | 后端增删字段时前端类型可能漂移 | 前端用 `MyClaim extends Claim`，只追加 `item_title`；后端只加字段、不改 `ClaimOut` 既有字段 |
 
 ### 2.26.10 验证计划（由用户在本地执行）
 
-沙箱限制：本环境不运行 `pytest`、不启动服务、不安装依赖，故以下命令均**未执行**，不报告任何结果。
+沙箱限制：本环境不运行 `pytest`、不启动服务、不安装依赖，故以下命令均**未执行**，不报告任何结果。**验收修复（2.27）新增了迁移与唯一约束用例，完整命令、逐文件 eslint 与迁移往返步骤以 2.27.8 为准**；2.26 原计划的 `npm run lint`（整仓）在本地会挂起，已改为逐文件 eslint。
 
 ```bash
+cd backend && .venv/Scripts/python -m alembic check
 cd backend && .venv/Scripts/python -m pytest tests/ -q
 cd backend && .venv/Scripts/python -m ruff check .
 cd backend && .venv/Scripts/python -m ruff format --check .
-cd frontend && npm run lint
+cd frontend && npx eslint src/types.ts src/pages/MeList.tsx src/pages/Me.tsx src/pages/MePoints.tsx src/api/me.ts src/components/ItemCard/ItemCard.tsx src/App.tsx
 cd frontend && npm run build
 ```
 
-预期：后端全部用例通过（含既有 `test_points.py`、`test_staff_application.py`，以及本次新增的 `tests/test_me_lists.py` 13 条与 `test_staff_application.py::test_rejected_application_can_be_resubmitted` 1 条）；ruff 无告警且格式一致；前端 lint/build 通过。
+预期：后端全部用例通过（含既有 `test_points.py`、`test_staff_application.py`，本次新增的 `tests/test_me_lists.py` 13 条、`test_staff_application.py::test_rejected_application_can_be_resubmitted` 1 条，以及 2.27.5 的 `test_helpers.py` 2 条）；ruff 无告警且格式一致；前端指定文件 eslint 与 build 通过。
 
 ### 2.26.11 浏览器手工检查清单
 
@@ -3103,9 +3123,2291 @@ cd frontend && npm run build
 3. **积分进度**：0 分显示「再得 20 分成为 热心同学」、进度接近起点；20 分显示下一档「寻物能手/再得 40 分」；300 分显示「已达最高称号」且无进度条。
 4. **评论跳转**：`/me/comments` 点击任一条能进入 `/hall/{item_id}`；对已撤销帖子的评论仍可见并可打开详情。
 5. **教职工重新申请**：被拒绝账号进入 `/me` 看到拒绝理由与「重新申请」；提交后身份标签变「教职工审核中」，拒绝卡消失；提交失败时按钮恢复且显示中文错误。
-6. **委托状态**：`/me/helping` 中放弃过的记录显示「已放弃」，被致谢的记录显示「已被致谢」；同一帖子放弃后重新接取**仍是同一条记录**（状态回到「进行中」），列表中不会出现两条。
+6. **委托状态**：`/me/helping` 中放弃过的记录显示「已放弃」；帖子已找回且被致谢时状态标签显示「已被致谢」（不再出现第二个同名标签）；帖子已撤销且未被致谢时显示「已结束」。**同一帖子放弃后再次接取按口径 B 原地恢复为「进行中」（见 2.27.3.4），列表仍只有一条记录**。
 7. **委托标签位置**：上述状态标签显示在帖子卡片**内部底部**；对照大厅 `/hall` 中同一帖子的卡片，外观无变化（不传 `extra` 时不渲染该区域、不留空白）。
 8. **认领列表标题**：`/me/claims` 每行直接显示物品标题；打开浏览器网络面板刷新该页，确认只有一次 `/me/claims` 请求，没有逐条 `/items/{id}` 请求。
 9. **徽章**：点击「我的徽章」弹出面板，无徽章显示空态，`Esc` 与点击遮罩可关闭。
 10. **375px**：逐页检查 `/me`、`/me/points`、7 种 `/me/:kind`，确认无横向滚动、入口与按钮高度 ≥44px。
 11. **分页与失败**：滚动到底点击「加载更多」能追加且不重复；断网后点击「加载更多」出现可重试错误且已加载内容不消失。
+---
+
+## 2.27 F14 验收修复（spec 6.19 增量实现方案）
+
+### 2.27.0 文档信息与范围
+
+| 项 | 内容 |
+|---|---|
+| 任务编号 | F14-FIX（F14 验收修复） |
+| 需求依据 | `spec.md` 6.19.1（地点文案回退）、6.19.2（委托状态展示）、6.19.3（唯一约束与迁移）、6.19.4（改动边界）、6.19.5（验收场景）、6.19.6（验证命令）；相关既有约定见 4.5、6.7、6.16、6.18 |
+| 上游设计 | 本文 2.26（`/me/helping` 接口、`MeList` 的 `helping` 行、`ItemCard.extra` 插槽）、2.21.12（错误码）、2.26.8（F14 改动清单，本次由 2.27.6 补充） |
+| 允许修改（严格按 6.19） | `frontend/src/types.ts`、`frontend/src/pages/MeList.tsx`、`backend/app/models/item_helper.py`、`backend/app/services/helper_service.py`、`backend/alembic/versions/20261020_f14_helper_unique.py`（已存在，修改去重排序与 docstring）、`backend/tests/test_helpers.py`（新增用例；用例二因口径变更改写） |
+| 不修改 | `spec.md`、`tasks.md`、`ItemDetail.tsx`（地点展示分支保持原样）、`ItemCard.tsx` 及其样式、`AiPage.tsx`、`api/me.ts`、`schemas/*`、`me.py`、`points_service`、`conftest.py`、`/me/helping` 响应字段与分页契约 |
+| 新增依赖 | 无 |
+| 数据库迁移 | 一个（已存在、本次修改去重排序）：`20261020_f14_helper_unique`——去重保留优先级为 **active > created_at 最早 > id 最小**，同组 active 与 abandoned 并存时删除 abandoned 行；随后加唯一约束，见 2.27.3.2、2.27.4 |
+| 口径 | **口径 B**：放弃后重接原地恢复原记录（不新增行、不返回 409），见 2.27.3.3、2.27.3.4 |
+| 沙箱约束 | 本阶段不执行 `alembic upgrade/downgrade`、不跑 `pytest`、不装依赖；命令列入 2.27.8 由用户本地执行 |
+| 沙箱约束 | 本阶段不执行 `alembic upgrade/downgrade`、不跑 `pytest`、不装依赖；命令列入 2.27.8 由用户本地执行 |
+
+**边界声明**：本节只覆盖 6.19 的三处修复，不改变认领、核验、归还、协助工单的既有行为。2.26 与本节冲突的表述已在 2.26.0/2.26.1.4/2.26.4.4/2.26.5.2/2.26.8/2.26.9 R9/2.26.10/2.26.11 同步更新，**以本节为准**。
+
+### 2.27.1 需求与存量实现关系分析
+
+#### 2.27.1.1 已实现/可复用
+
+| 需求功能 | 存量实现 | 代码位置 | 匹配度 | 判定依据 |
+|---|---|---|---|---|
+| 「建筑名 + 楼层」文案 | `placeLabel` 已有 `building_name` 非空判断与 `floor` 拼接 | `frontend/src/types.ts:83-86` | 100% | 6.19.1 前两条与前实现逐字一致 |
+| 无楼层时只显示建筑名 | `item.floor == null` 分支已存在 | `frontend/src/types.ts:85` | 100% | 无需改逻辑，只需保留 |
+| 列表/卡片地点渲染入口 | `ItemCard`、`AiPage`、`ItemDetail` 均调用同一函数 | `ItemCard.tsx:57`、`AiPage.tsx:128`、`ItemDetail.tsx:233` | 100% | 调用点集中，改函数即可覆盖 |
+| 「我接取的」列表与帖子概要 | `/me/helping` 返回 `helper_status/thanked/taken_at` + 大厅字段，`ItemCard.extra` 已落地 | `design.md` 2.26.2.3、2.26.4.4 | 100% | 后端字段足够，本次只改前端派生 |
+| 串行重复接取拦截（仅 active） | `_active_helper` 先查 active 记录并抛 409 | `backend/app/services/helper_service.py:22-27, 94-95` | 75% | 6.19.3 要求「已存在 active → 409」保持不变；但同一查询不足以区分 abandoned，需改为全状态查询后分支（见 2.27.3.3） |
+| 「当前 UTC」时间取值范式 | `claim_service` 用 `datetime.now(UTC)` 写状态时间戳 | `backend/app/services/claim_service.py:180, 209` | 100% | 恢复分支刷新 `created_at` 沿用同一写法，不引入 `func.now()` 赋值 |
+| `IntegrityError` 捕获范式 | `set_like`/`set_favorite` 仅在 `commit` 处捕获、`rollback` 后继续返回 | `backend/app/services/reaction_service.py:70-95` | 100% | 可作为 `take_helper` 的写法参照 |
+| 唯一约束命名与迁移范式 | `uq_item_like_item_user`/`uq_item_favorite_item_user` 模型+迁移同名 | `backend/app/models/item_like.py:12`、`alembic/versions/20261018_v2_incremental.py:122,138` | 100% | 命名沿用 `<表>_<列>_<列>` 风格 |
+
+#### 2.27.1.2 需要扩展的功能
+
+| 需求功能 | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| 地点文案回退到 `location_area` | `placeLabel` 只接收 `building_name`、`floor` | 入参缺 `location_area`；建筑名为空时一律「未指定地点」 | 扩展参数类型并新增回退分支；调用点不改（`Item` 已含该字段），靠类型检查兜底 |
+| 委托状态标签按帖子状态派生 | `renderRow` 只按 `helper_status` 二选一 | 缺「已被致谢 / 已结束」；`thanked` 独立标签可能重复 | 新增 `helperBadge` 纯函数，一次输出 label/tone/是否显示独立标签 |
+| `take_helper` 并发冲突处理 | 应用层查 active 后直接 `commit` | 唯一约束引入后，并发插入会抛 `IntegrityError`，当前未捕获会变 500 | 在 `commit` 处捕获，`rollback` 后抛与串行一致的 409 |
+| 放弃后再次接取 | `take_helper` 只认 active；abandoned 记录被唯一约束挡住 | 口径 A（返回 409）会使 spec 4.5「已放弃 → 进行中」不可达 | 改为按 `(item_id, user_id)` 查全状态记录：active → 409；abandoned → 原地 UPDATE 恢复；无记录 → INSERT（见 2.27.3.3） |
+
+#### 2.27.1.3 需要新增的功能
+
+**后端**
+
+1. 模型层唯一约束 `uq_item_helper_item_user`（`item_id`, `user_id`）。
+2. Alembic 迁移：按 `(item_id, user_id)` 清理重复（优先保留 active）→ `batch_alter_table` 加唯一约束；降级只删约束。
+3. `take_helper` 新增「abandoned 记录原地恢复」分支（不新增接口、不新增表）。
+4. `backend/tests/test_helpers.py` 新增用例（见 2.27.5）。
+
+**前端**
+
+无新增接口、无新增字段、无新增依赖；只改一个函数签名与一个行渲染分支。
+
+#### 2.27.1.4 存量约束与依赖
+
+| 约束 | 现状 | 对本次的影响 |
+|---|---|---|
+| 前端 `Item` 类型 | `location_area: string` 为必填（非空字符串），`building_name: string \| null`、`floor: number \| null` | 三处调用点都传 `Item`，补齐签名后**不需要改调用点**；渲染结果不变符合 6.19.1 展示范围约束 |
+| `ItemDetail` 地点分支 | `item.building_name ? placeLabel(item) : item.location_area \|\| '未知'` | 明确不在本次范围，保持原样；不因函数扩展而改写该分支 |
+| 测试库建表方式 | `conftest.py` 用 `Base.metadata.create_all`，每例重建 | 模型一旦声明唯一约束，**测试库立即生效**，无需跑迁移；这也是用例 2 能构造约束冲突的前提 |
+| 迁移链 | 当前 head：`20261018_v2_inc`（`20261018_v2_incremental.py`） | 新迁移 `down_revision` 必须指向它，否则 `alembic check`/`upgrade` 报多 head |
+| 迁移风格 | 既有迁移用 `op.batch_alter_table` 做 SQLite 兼容 | 本次必须沿用，且约束名与模型一致 |
+| 事务粒度 | service 一次业务只 `commit` 一次 | `take_helper` 失败路径用 `rollback`，不引入第二次提交 |
+| 错误模型 | `ApiError(409, "STATE_CONFLICT", 中文)` 由统一处理器输出 `{code,message}` | 捕获后必须抛同一对象，保证响应体与串行分支逐字一致 |
+| 前端样式 | 不写内联 `style`，颜色只取 `tokens.css` | 本次不新增样式；沿用 `Tag` 现有 tone |
+| 前端 lint | 整仓 `npm run lint` 在本地挂起 | 验证改为逐文件 eslint + `npm run build`（见 2.27.8） |
+| 文件换行 | ruff format 对 CRLF 会误报 | 新增 Python 文件（迁移、测试）必须保存为 LF |
+
+### 2.27.2 前端设计
+
+#### 2.27.2.1 地点文案回退（`frontend/src/types.ts`）
+
+**新签名**
+
+```ts
+export interface PlaceFields {
+  building_name: string | null
+  location_area: string | null
+  floor: number | null
+}
+
+export function placeLabel(item: PlaceFields): string
+```
+
+**函数形态（三条分支，直读即优先级）**
+
+```ts
+export function placeLabel(item: PlaceFields): string {
+  const building = trimmed(item.building_name)
+  if (building) {
+    return item.floor == null ? building : `${building} ${item.floor}F`
+  }
+  return trimmed(item.location_area) || '未指定地点'
+}
+```
+
+**空值判定**：`null`、`""`、纯空白一律视为空。不引入额外依赖，用一个模块内私有函数统一去空白：
+
+```ts
+function trimmed(value: string | null): string {
+  return value?.trim() ?? ''
+}
+```
+
+**优先级与输出格式**
+
+| 顺序 | 条件 | 输出 |
+|---|---|---|
+| 1 | `trimmed(building_name)` 非空且 `floor != null` | `${建筑名} ${floor}F`（建筑名去首尾空白） |
+| 2 | `trimmed(building_name)` 非空且 `floor == null` | 建筑名，不追加楼层 |
+| 3 | 建筑名为空，`trimmed(location_area)` 非空 | `location_area` 去首尾空白后的原文 |
+| 4 | 两者均为空 | `未指定地点` |
+
+设计要点：
+
+1. **楼层只跟随建筑名**：建筑名为空时即使 `floor` 有值也不输出楼层（6.19.1 异常条款），避免出现「3F · 图书馆三楼」这类拼接。
+2. **`floor == null` 用宽松相等**：只把 `null/undefined` 视为缺失，`0` 不作为缺失值（后端 schema 已限制楼层为正整数，前端不重复做业务校验）。
+3. **不返回占位楼层**，也不用 `location_area` 拼接楼层；`location_area` 原文已含楼层信息时保持原样。
+4. 函数保持**纯函数**、无副作用、不读取 `precise_location`/`norm_*`/路线字段（6.19.1 权限条款）。
+5. **类型门禁**：参数用内联对象类型而非 `Pick<Item, ...>` 或可选字段，**不给 `location_area` 默认值**。缺少该字段的对象在 `tsc -b`（`npm run build` 的第一步）即报错，不会静默回退。
+
+**调用点清单（全仓检索结果）**
+
+| # | 调用点 | 传入对象 | 是否需要改调用 | 说明 |
+|---|---|---|---|---|
+| 1 | `frontend/src/components/ItemCard/ItemCard.tsx:57` | `item: Item` | 否 | `Item` 已含 `location_area`，补齐后编译通过；卡片渲染不变 |
+| 2 | `frontend/src/pages/AiPage.tsx:128` | `lostItems: Item[]` 的元素 | 否 | 同上；AI 页不新增地点逻辑 |
+| 3 | `frontend/src/pages/ItemDetail.tsx:233` | `item: Item`，仅 `building_name` 非空时调用 | 否 | 该行三元分支与「未知」文案保持原样，不改成统一回退 |
+| 4 | `frontend/src/types.ts:83` | 函数定义 | 是 | 本次唯一改动点 |
+
+**为什么不需要改调用点也满足需求**：需求要求的是「调用点缺字段必须类型报错」，而不是「所有调用点都必须改」。三处调用点传入的都是完整 `Item`，字段齐全；类型收紧后若未来新增只含 `building_name/floor` 的对象，构建会失败，从而防止遗漏。
+
+**示例（边界表，与 6.19.1 一致）**
+
+| `building_name` | `floor` | `location_area` | 输出 |
+|---|---|---|---|
+| `图书馆` | `3` | `三楼自习区` | `图书馆 3F` |
+| `图书馆` | `null` | `三楼自习区` | `图书馆` |
+| `null` | `3` | `图书馆三楼` | `图书馆三楼` |
+| `null` | `null` | `图书馆三楼` | `图书馆三楼` |
+| `"  "` | `3` | `" 图书馆三楼 "` | `图书馆三楼`（建筑名视为空，楼层不输出） |
+| `null` | `null` | `null`/`""`/`"   "` | `未指定地点` |
+| `图书馆` | `3` | `null` | `图书馆 3F` |
+
+#### 2.27.2.2 「我接取的」状态标签（`frontend/src/pages/MeList.tsx`）
+
+**派生函数（模块级纯函数，避免嵌套三元）**
+
+```ts
+const ONGOING_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(['searching', 'reviewing'])
+const THANKED_LABEL = '已被致谢'
+
+interface HelperBadge {
+  label: string
+  tone: TagTone
+  showThankedTag: boolean
+}
+
+function helperBadge(item: HelpingItem): HelperBadge {
+  if (item.helper_status === 'abandoned') {
+    return { label: helperStatusLabels.abandoned, tone: 'neutral', showThankedTag: item.thanked }
+  }
+  if (ONGOING_STATUS.has(item.status)) {
+    return { label: helperStatusLabels.active, tone: 'primary', showThankedTag: item.thanked }
+  }
+  if (item.thanked) {
+    return { label: THANKED_LABEL, tone: 'success', showThankedTag: false }
+  }
+  return { label: '已结束', tone: 'neutral', showThankedTag: false }
+}
+```
+
+**渲染形态（`renderRow` 的 helping 分支）**
+
+```tsx
+const badge = helperBadge(item)
+<Tag tone={badge.tone}>{badge.label}</Tag>
+{badge.showThankedTag && <Tag tone="success">{THANKED_LABEL}</Tag>}
+<span>接取于 {formatDate(item.taken_at)}</span>
+```
+
+**导入调整**：`MeList.tsx` 现有的 `../types` 导入需追加 `type ItemStatus`（用于 `ONGOING_STATUS` 的类型标注）；`TagTone` 与 `helperStatusLabels` 已在导入列表中，无需新增依赖或新文件。
+
+判定顺序（与 6.19.2 真值表一一对应）：
+
+```mermaid
+flowchart TD
+  A[helper_status] -->|abandoned| B["已放弃 / neutral<br/>showThankedTag = thanked"]
+  A -->|active| C{status ∈ searching, reviewing}
+  C -->|是| D["进行中 / primary<br/>showThankedTag = thanked"]
+  C -->|否| E{thanked}
+  E -->|true| F["已被致谢 / success<br/>showThankedTag = false"]
+  E -->|false| G["已结束 / neutral<br/>showThankedTag = false"]
+```
+
+组合真值表（`helper_status=active`）：
+
+| 帖子状态 | `thanked` | 状态标签 | tone | 独立「已被致谢」 |
+|---|---|---|---|---|
+| searching | true | 进行中 | `primary` | 显示 |
+| searching | false | 进行中 | `primary` | 不显示 |
+| reviewing | true | 进行中 | `primary` | 显示 |
+| reviewing | false | 进行中 | `primary` | 不显示 |
+| found | true | 已被致谢 | `success` | 不显示 |
+| found | false | 已结束 | `neutral` | 不显示 |
+| withdrawn | true | 已被致谢 | `success` | 不显示 |
+| withdrawn | false | 已结束 | `neutral` | 不显示 |
+| pending / returned（不可达） | true | 已被致谢 | `success` | 不显示 |
+| pending / returned（不可达） | false | 已结束 | `neutral` | 不显示 |
+
+`helper_status=abandoned`：任意帖子状态 + 任意 `thanked` → 状态标签「已放弃」（`neutral`）；仅 `thanked=true` 时额外显示「已被致谢」。
+
+**渲染规则**
+
+1. `renderRow` 的 `kind === 'helping'` 分支只调用一次 `helperBadge(item)`，用返回值渲染状态 `Tag`、可选的独立致谢 `Tag` 与「接取于 YYYY/M/D」。
+2. **去重规则落在函数内部**：标签文案为「已被致谢」时 `showThankedTag` 恒为 `false`；独立标签只由 `showThankedTag` 控制。两者同源同函数，**结构上不可能重复渲染**，不依赖渲染顺序或字符串比较。
+3. 「已被致谢」文案只保留一个模块常量，状态标签与独立标签共用，避免文案漂移导致去重失效。
+4. 不改 `helperStatusLabels`（仍用于「进行中/已放弃」两档），不新增类型、不新增接口字段、不在前端维护状态表（6.19.2 约束）。
+5. 防御性：`status` 为 `pending/returned` 时走 `thanked` 分支，不抛错、不丢行；类型上 `status: ItemStatus` 已覆盖全部取值。
+6. 排序、分页、`ItemCard.extra` 位置不变；`taken_at` 文案与格式不变。
+
+**文件规模**：`MeList.tsx` 当前 228 行，新增常量、接口、函数约 24 行、`renderRow` 内替换约 6 行，预计 ≤ 260 行，满足单文件 300 行约束。
+
+#### 2.27.2.3 前端明确不做
+
+- 不改 `Item`/`HelpingItem` 类型字段，不改 `api/me.ts`。
+- 不改 `ItemDetail` 的地点三元分支（即使它不回退到 `location_area` 的「未知」文案）。
+- 不为状态标签新增 CSS 或内联样式；颜色沿用 `Tag` 的 `primary/success/neutral`。
+- 不新增前端状态管理或缓存。
+
+### 2.27.3 后端设计
+
+#### 2.27.3.1 模型声明（`backend/app/models/item_helper.py`）
+
+```python
+from sqlalchemy import Boolean, DateTime, ForeignKey, UniqueConstraint, func
+
+class ItemHelper(Base):
+    __tablename__ = "item_helper"
+    __table_args__ = (UniqueConstraint("item_id", "user_id", name="uq_item_helper_item_user"),)
+```
+
+要点：
+
+1. 约束名 `uq_item_helper_item_user` 与迁移中的名称**必须逐字一致**，`alembic check` 才能判定无差异；命名沿用 `uq_item_like_item_user`、`uq_item_favorite_item_user` 的既有风格。
+2. 只新增表级约束：不改列类型、不改可空性、不改 `status`/`thanked` 默认值、不动既有 `item_id`/`user_id` 索引。
+3. 模型不写业务方法；约束仅表达「同一用户对同一帖子最多一条记录」，状态语义仍由 service 负责。
+
+#### 2.27.3.2 迁移设计（`backend/alembic/versions/20261020_f14_helper_unique.py`，已存在，本次修改去重排序）
+
+| 项 | 内容 |
+|---|---|
+| revision | `20261020_f14_uniq` |
+| down_revision | `20261018_v2_inc`（当前唯一 head） |
+| 文件命名 | `20261020_f14_helper_unique.py`，与 `20261018_v2_incremental.py` 的日期前缀风格一致 |
+| docstring | 必须写明：升级会**删除**同组多余记录且**不可恢复**；保留优先级为「active 优先 → `created_at` 最早 → `id` 最小」；**同组同时存在 active 与 abandoned 时，abandoned 行会被删除**（用户失去该帖的「已放弃」历史，仅保留一条进行中记录）；降级只删约束，不恢复数据 |
+| 适用库 | SQLite（测试/本地）与 PostgreSQL 共用同一份 SQL；`status` 在 `SAEnum(native_enum=False)` 下两种库都以字符串落库（`active`/`abandoned`），无需分支写法 |
+
+**升级步骤（同一迁移、同一事务）**
+
+**步骤 1：清理重复。** 按 `(item_id, user_id)` 分组，**每组优先保留 `status='active'` 的行**；同组无 active 时保留 `created_at` 最早的一条；`created_at` 并列时保留 `id` 字典序最小的一条；删除其余。
+
+```sql
+DELETE FROM item_helper
+WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY item_id, user_id
+            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                     created_at ASC,
+                     id ASC
+        ) AS rn
+        FROM item_helper
+    ) ranked
+    WHERE rn > 1
+)
+```
+
+**SQL 跨库说明**
+
+| 库 | `status` 实际类型与取值 | `CASE WHEN status = 'active'` 的比较方式 | 备注 |
+|---|---|---|---|
+| SQLite | `VARCHAR(16)` + CHECK，存字符串 `active` / `abandoned`（`HelperStatus` 的 `name` 与 `value` 相同） | 普通字符串等值比较，大小写敏感 | 窗口函数需 SQLite ≥ 3.25（既有迁移已使用 `ROW_NUMBER`，环境已满足） |
+| PostgreSQL | `VARCHAR(16)` + CHECK（`native_enum=False`，不是 PG 原生 enum 类型） | 与字符串字面量比较，无需 `::text` 转换、无需 `CAST` | 未用 `create_type`，所以不存在 enum 类型转换差异 |
+
+- 两种库都**不能**直接写 `ORDER BY status`：字符串序 `abandoned < active` 会与「active 优先」相反，必须用 `CASE` 显式映射。
+- 若未来把 `SAEnum` 换成 `native_enum=True`，PostgreSQL 下需改为 `CASE WHEN status = 'active'::helperstatus ...`；当前设计不依赖该前提。
+- `created_at` 在 SQLite 以 `'YYYY-MM-DD HH:MM:SS.ffffff'` 字符串存储，字典序等价时间序；PostgreSQL 为 `timestamptz` 原生比较，两种库的 `ORDER BY created_at` 语义一致。
+- `id` 为 UUID：SQLite 存 32 位无连字符字符串，PostgreSQL 存 uuid 类型，`ORDER BY id` 在各自库内均为确定性全序，满足「字典序最小」的并列裁决。
+
+**步骤 2：加唯一约束**（SQLite 重建表 / PostgreSQL 原生 ALTER）：
+
+```python
+with op.batch_alter_table("item_helper") as batch_op:
+    batch_op.create_unique_constraint("uq_item_helper_item_user", ["item_id", "user_id"])
+```
+
+**降级步骤**
+
+```python
+with op.batch_alter_table("item_helper") as batch_op:
+    batch_op.drop_constraint("uq_item_helper_item_user", type_="unique")
+```
+
+**设计决策与依据**
+
+| 决策 | 选择 | 理由 |
+|---|---|---|
+| 清理时机 | 加约束之前、同一迁移内 | 先删后加；任一步失败由迁移事务整体回滚，不出现「已清理未加约束」的中间状态（6.19.3 异常条款） |
+| 去重实现 | 单条窗口函数 `DELETE` | 一条语句内完成分组与删除，避免应用层逐行判断；`ROW_NUMBER` 在 SQLite 3.25+ 与 PostgreSQL 均可用；`ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at, id` 可精确表达三级保留优先级，无需按库分支 |
+| 保留优先级 | active > abandoned | 口径 B 下同一组合只应有一条记录，active 代表当前仍有效的委托；若无 active 才保留最早一条 abandoned，使 `/me/helping` 的「已放弃」历史尽量保留一条 |
+| 表结构变更 | `batch_alter_table` | SQLite 不支持 `ALTER TABLE ADD CONSTRAINT`，batch 走临时表重建；PostgreSQL 下等价原生 `ALTER TABLE`（6.19.3 明确要求） |
+| 约束名 | 与模型同名 | `alembic check` 以名称+列集合比对，同名才无 diff（6.19.3） |
+| 降级 | 只 `drop_constraint` | 6.19.3 明确不恢复已删数据；降级后再 `upgrade` 仍可成功（空重复集） |
+| 索引 | 不显式处理 | batch 反射会保留既有 `ix_item_helper_item_id`、`ix_item_helper_user_id`；本设计已用 Alembic 1.20 + SQLAlchemy 2.1 在临时 SQLite 库上验证 add/drop 后两条索引均保留 |
+| 积分 | 不触碰 `point_record` | 6.19.3 要求不新增积分、不改总额；历史 `thank` 记录保留，`ref_id` 指向的重复行被删也不影响积分明细 |
+
+**同组同时存在 active 与 abandoned 的后果（必须写入 docstring）**
+
+- 迁移后该组只留 active 行，abandoned 行被删除；用户在该帖的「已放弃」历史消失，`/me/helping` 只显示 1 条「进行中」。
+- 该行为与口径 B 一致：口径 B 下同一用户同一帖只可能有一条记录，`abandoned` 只是同一行的中间状态，重复行属于旧实现遗留，保留 active 更贴近当前事实。
+- 迁移**不**新增/修改 `point_record`，被删行对应的历史致谢积分明细保留（见 2.27.7 R6）。
+
+**已在本沙箱验证的可行性（仅探针，未执行项目迁移）**
+
+- SQLite 反射可取得命名唯一约束（`UniqueConstraint.name == 'uq_item_helper_item_user'`），因此 downgrade 的 `drop_constraint` 能按名删除。
+- `ROW_NUMBER()` 去重语句在 SQLite 上可用；本次只在其 `ORDER BY` 前增加 `CASE WHEN status='active' THEN 0 ELSE 1 END` 排序键，语句形态（子查询 + `rn > 1`）与已验证版本一致。本次**未**在沙箱执行新 SQL（不建库、不跑迁移），故不给出执行结果，由 2.27.8 的 `alembic check` 与迁移往返在用户本地验证。
+- `batch_alter_table` 完成 add/drop 后，表上的两个业务索引均保留。
+
+#### 2.27.3.3 接取接口的冲突捕获与「放弃后重接」恢复（`backend/app/services/helper_service.py`）
+
+改造 `take_helper`（当前 88-104 行），保持函数签名 `(db: Session, user: User, item_id: uuid.UUID) -> dict`、前置校验顺序与成功返回体不变；新增一个全状态查询私有函数，并加入 abandoned 记录的原地恢复分支。
+
+**最终代码形态（签名 + 分支顺序）**
+
+```python
+from datetime import UTC, datetime
+
+
+def _any_helper(db: Session, item_id: uuid.UUID, user_id: uuid.UUID) -> ItemHelper | None:
+    # 唯一约束保证最多一条；用 first() 而非 one_or_none()，未迁移的旧库出现重复时也不抛 500
+    return db.query(ItemHelper).filter(ItemHelper.item_id == item_id, ItemHelper.user_id == user_id).first()
+
+
+def take_helper(db: Session, user: User, item_id: uuid.UUID) -> dict:
+    item = _ensure_item(db, item_id)
+    if item.owner_user_id == user.id:
+        raise ApiError(403, "FORBIDDEN", "不能接取自己发布的委托")
+    if item.direction != Direction.lost or item.status not in (ItemStatus.searching, ItemStatus.reviewing):
+        raise ApiError(409, "STATE_CONFLICT", "该记录当前不可接取")
+    helper = _any_helper(db, item_id, user.id)
+    if helper is not None and helper.status == HelperStatus.active:
+        raise ApiError(409, "STATE_CONFLICT", _TAKEN_MESSAGE)
+    if helper is not None:
+        # 口径 B：放弃后重接复用原行，既避开唯一约束，也保证 /me/helping 只有一条记录
+        helper.status = HelperStatus.active
+        helper.thanked = False
+        helper.created_at = datetime.now(UTC)
+        db.commit()
+    else:
+        db.add(ItemHelper(item_id=item_id, user_id=user.id, status=HelperStatus.active))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 并发重复接取会绕过上层检查命中唯一约束，响应与串行分支保持一致
+            db.rollback()
+            raise ApiError(409, "STATE_CONFLICT", _TAKEN_MESSAGE) from None
+    count = db.query(ItemHelper).filter(ItemHelper.item_id == item_id, ItemHelper.status == HelperStatus.active).count()
+    return {"helper_count": count, "is_helper": True}
+```
+
+**分支顺序（不可调整）**
+
+1. `_ensure_item`：记录不存在 → 404（既有）。
+2. 本人发布 → 403（既有）。
+3. `direction != lost` 或 `status ∉ {searching, reviewing}` → 409「该记录当前不可接取」；**该前置校验必须早于恢复逻辑**，帖子已离开寻找中/核验中时不得因存在 abandoned 行而恢复（spec 6.19.3、6.19.3 已知影响）。
+4. 全状态查询有记录且为 `active` → 409「已接取该委托」。
+5. 全状态查询有记录且为 `abandoned` → 原地恢复（UPDATE 路径，不 INSERT）。
+6. 无记录 → INSERT，`IntegrityError` 捕获行为保持不变。
+
+**要点**
+
+1. **捕获位置只包 INSERT 后的 `commit`**：恢复是 UPDATE，不会触发唯一约束；若把两个 `commit` 都放进 `except`，UPDATE 期间的连接异常会被误报成 409。
+2. **文案单一来源**：`_TAKEN_MESSAGE` 同时被串行分支与 INSERT 冲突分支使用，保证响应逐字一致（6.19.3）。
+3. **两条路径返回体同构**：都落到最后的 active 计数查询，`helper_count` 为当前 active 行数，`is_helper` 恒为 `True`。
+4. **一次业务只 `commit` 一次**：两个分支互斥，各自提交一次；失败路径的 `rollback` 不产生业务提交。
+5. **不改 `abandon_helper`、`thank_helpers`、`list_my_helping`、`stats_for_items`**；`abandon_helper` 仍用 `_active_helper`，致谢积分去重仍依赖 `point_record` 既有唯一约束。
+6. 行宽 ≤ 120，通过 `ruff check` / `ruff format --check`；`from datetime import UTC, datetime` 加在文件顶部 import 区（与 `claim_service.py` 一致），不引入新依赖。
+
+**私有函数职责边界**
+
+| 函数 | 语义 | 调用方 | 查询条件 | 为何不合并 |
+|---|---|---|---|---|
+| `_active_helper`（既有，22-27 行） | 「该用户在该帖上**进行中**的委托」 | `abandon_helper`、原 `take_helper` | `item_id AND user_id AND status == active` | 语义是「可放弃的委托」，`abandon_helper` 只需 active；改名会扩散到允许范围外的调用点 |
+| `_any_helper`（新增） | 「该用户在该帖上的**唯一**记录（active 或 abandoned）」 | 仅 `take_helper` | `item_id AND user_id` | 恢复分支必须先看到 abandoned，`_active_helper` 查不到它；`take_helper` 用这一条全状态查询即可同时判定 409 与恢复，避免「先查 active 再查 abandoned」的两次 SELECT |
+
+- `take_helper` 不再调用 `_active_helper`，接取路径的查询次数不变（原 1 次 → 现 1 次），不产生重复查询。
+- 两个函数都只做单条查询、不含业务判断；状态分支留在 `take_helper`，符合分层规范。
+
+**恢复时的时间取值：`datetime.now(UTC)`，不用 `func.now()`**
+
+| 维度 | `datetime.now(UTC)`（选中） | `func.now()`（未选） |
+|---|---|---|
+| 与既有代码一致 | `claim_service.py:180,209` 写 `reviewed_at`/`completed_at` 已用该写法 | 项目中 `func.now()` 只出现在 `server_default`/`onupdate`，没有作为 ORM 赋值值使用 |
+| 赋值后能否立即断言 | 赋值即为 Python 值，`commit` 后测试可直接读 `created_at` | 赋值为 SQL 表达式，需 `refresh` 或重新查询才能取回实际值，多一次往返 |
+| 时区语义 | 显式 UTC，与 `DateTime(timezone=True)` 的意图一致 | 由数据库时钟决定：SQLite 的 `CURRENT_TIMESTAMP` 是 UTC，PostgreSQL 的 `now()` 带会话时区 |
+| SQLite 落库表现 | 方言绑定处理器按字段取值、丢弃 `tzinfo`，存入 UTC 墙上时间 `'YYYY-MM-DD HH:MM:SS.ffffff'`，与 `server_default=func.now()` 生成的值同量纲 | 存 `'YYYY-MM-DD HH:MM:SS'`（秒级精度），与 Python 写入的微秒级字符串混用，同一秒内的先后依赖字符串长度比较 |
+| PostgreSQL 落库表现 | `timestamptz` 保存带偏移的时刻，读回 aware datetime | 同左，精度由列定义决定 |
+
+- **禁止 `datetime.now()`（无时区）**：在 UTC+8 的开发机上会写入本地时间，与既有以 UTC 落库的行相差 8 小时，`/me/helping` 的 `ORDER BY created_at DESC` 会把恢复后的记录排到错误位置。这是本设计唯一需要主动规避的写法。
+- **SQLite 下读回是 naive**：测试断言避免 tz-aware 与 naive 直接比较（会抛 `TypeError`），改为比较两次读到的 `created_at` 先后（见 2.27.5）。
+- 恢复后 `taken_at`（`me.py:40` 取 `helper.created_at`）变为本次接取时间，列表按最新置顶，符合「重新接取」的直觉。
+
+**并发边界（已有 abandoned 行时的重接）**
+
+- 两个并发请求都可能读到同一条 abandoned 记录，随后各自 `UPDATE` 同一行：不触发唯一约束，**两次请求都返回 200**，库中仍是同一行、`helper_count=1`。
+- 该行为**可接受**：结果幂等（同一行被置为 active，`created_at` 取两次中较晚的一次），无重复行、无 500、无计数偏差；与「同时 INSERT」场景的差别仅在于后者失败方返回 409。
+- **测试不覆盖真并发**：`TestClient` 是同步调用；文件型 SQLite 上开两个线程同时写会先撞 `database is locked`，无法稳定复现目标路径（见 2.27.5）。并发正确性由「唯一约束 + 单行 UPDATE」的结构保证；真并发验证列入 2.27.7 R2，由用户在 PostgreSQL 上手工确认。
+- 并发下仍可能出现 409 的只剩「两个请求都无记录 → 都 INSERT」路径，由既有 `IntegrityError` 捕获兜底，行为不变。
+
+**接取请求的最终判定顺序**
+
+```mermaid
+flowchart TD
+  A[POST /items/{id}/helpers] --> B{记录存在}
+  B -->|否| C[404 NOT_FOUND]
+  B -->|是| D{本人发布}
+  D -->|是| E[403 FORBIDDEN]
+  D -->|否| F{lost 且 searching/reviewing}
+  F -->|否| G[409 该记录当前不可接取]
+  F -->|是| H{全状态记录存在}
+  H -->|无记录| I[INSERT + commit]
+  H -->|status=active| J[409 已接取该委托]
+  H -->|status=abandoned| K["UPDATE 原行：status=active、thanked=False、created_at=now(UTC) + commit"]
+  I -->|唯一冲突| L[rollback → 409 已接取该委托]
+  I -->|成功| M[200 helper_count/is_helper]
+  K -->|成功| M
+```
+
+#### 2.27.3.4 裁决结论：`abandoned` 记录与「放弃后可再次接取」（已采纳口径 B）
+
+**结论（已生效）**：采纳**口径 B——原地恢复原记录**。`spec.md` 4.5 与 6.19.3 已按 B 修订；本节不再保留「待裁决」状态，2.27.3.3 的 UPDATE 分支即最终实现形态。
+
+**口径对比与选择理由**
+
+| 口径 | 行为 | 与 spec 4.5「已放弃 → 进行中」 | 数据结果 | 判定 |
+|---|---|---|---|---|
+| A：放弃后重接返回 409 | INSERT 命中唯一约束 → 409「已接取该委托」 | 不可达，功能缺失 | 1 行（仍为 abandoned） | 不采纳 |
+| **B：放弃后重接原地恢复** | 查到 abandoned → UPDATE 为 active、刷新 `created_at`、`thanked=False` → 200 | 可达，状态机闭环 | 1 行（变为 active） | **采纳** |
+
+选择 B 的三条依据：
+
+1. **需求直接要求**：4.5 的状态表与状态图明确「已放弃 → 进行中（再次接取）」，6.19.3 进一步规定「不新增记录，返回与新建相同的成功响应」。A 使该转换在唯一约束下永远无法完成。
+2. **数据模型成本最低**：唯一约束已覆盖 `(item_id, user_id)`，B 只改一行的三列，不新增表、不新增迁移、不改索引；A 若想保留「新建一条」的语义则必须放宽约束（与 6.19.3 第一条冲突）。
+3. **列表契约不变**：`/me/helping` 仍按 `created_at` 倒序，恢复后自然置顶，`taken_at` 表示「本次接取时间」，与 6.18 的展示约定一致。
+
+**已确认的副作用（写入 spec 6.19.3「已知影响」）**
+
+- 恢复时 `thanked` 置为 `false`：原委托的致谢标记被清除，但已发放的 `point_record` 致谢积分**不回收**、用户积分总额不变（6.19.3 明确要求不改积分）。
+- 帖子必须仍处于 `searching/reviewing`：帖子已找回/已撤销时放弃后重接返回 409「该记录当前不可接取」，不因 B 放宽前置校验。
+- 既有 `test_take_helper_duplicate_insert_returns_conflict` 的断言前提（「预置 abandoned → 重接 → 409」）在 B 下不再成立，必须同步调整；这是需求驱动的测试语义更新，处理方式与理由见 2.27.5，需在交付说明中列明。
+
+**与 4.5 的一致性**：不新增第二行，语义上等价于「重新建立一条进行中的委托」；`/me/helping` 中该行从「已放弃」变回「进行中」，「接取于」显示本次时间。
+
+### 2.27.4 数据迁移步骤与回滚
+
+**执行前检查（只读，建议在目标库先跑）**
+
+```sql
+-- 1. 有多少组重复，以及各组 active / abandoned 的构成
+SELECT item_id, user_id, COUNT(*) AS n,
+       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_n,
+       SUM(CASE WHEN status = 'abandoned' THEN 1 ELSE 0 END) AS abandoned_n
+FROM item_helper
+GROUP BY item_id, user_id
+HAVING COUNT(*) > 1;
+
+-- 2. 迁移后会被删除的行（与迁移中窗口函数逐字等价）
+SELECT id, item_id, user_id, status, created_at
+FROM (
+    SELECT id, item_id, user_id, status, created_at,
+           ROW_NUMBER() OVER (
+               PARTITION BY item_id, user_id
+               ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                        created_at ASC,
+                        id ASC
+           ) AS rn
+    FROM item_helper
+) ranked
+WHERE rn > 1;
+```
+
+两条查询只读，不修改数据；结果用于评估影响面与留档。第 1 条中 `active_n >= 1 AND abandoned_n >= 1` 的组，升级后 abandoned 行会被删除（spec 允许且已在 2.27.3.2 写明），执行前应先向相关用户说明「已放弃」历史将并入进行中记录。
+
+**升级步骤**
+
+| 步骤 | 操作 | 预期 |
+|---|---|---|
+| 1 | 备份目标库（或至少备份 `item_helper`） | 具备人工恢复手段（迁移自身不备份） |
+| 2 | `cd backend && .venv/Scripts/python -m alembic upgrade head` | 执行 `20261020_f14_uniq`：先删重复，再加约束 |
+| 3 | `cd backend && .venv/Scripts/python -m alembic check` | 输出无待生成变更（模型与迁移一致） |
+| 4 | 重复查询复查 | `HAVING COUNT(*) > 1` 返回 0 行 |
+| 5 | 抽查约束 | 直连 SQL 对同一 `(item_id, user_id)` 插入第二行返回唯一冲突；接口层在口径 B 下不会走到 INSERT（已有行时走 UPDATE 恢复） |
+
+**失败与回滚**
+
+- 迁移在单个事务内执行：清理 SQL 与 `batch_alter_table` 任一失败即整体回滚，目标库保持迁移前状态，不会出现「已清理、未加约束」的中间态（6.19.3 异常条款）。
+- `If` 存在其他违反约束的脏数据（例如清理后仍有同组未删净）：加约束失败 → 整次回滚；此时应先人工排查重复定义外的脏数据，再重跑迁移。
+- `If` 表为空或无重复：两条语句均为 no-op，迁移正常完成。
+
+**降级**
+
+```bash
+cd backend && .venv/Scripts/python -m alembic downgrade -1
+```
+
+- 只删除 `uq_item_helper_item_user`；`item_id`/`user_id` 索引与其他列保持不变。
+- **不可逆点（必须写入迁移 docstring）**：升级阶段删除的重复记录不会随降级恢复；降级后数据库允许再次出现同组多行。**同组同时存在 active 与 abandoned 时，被删除的是 abandoned 行**——该「已放弃」历史无法通过降级找回。
+- 降级后再次 `upgrade head` 仍可成功（重复集为空时清理为 no-op）。
+- SQLite 下的 batch 删除以重建表实现；已在沙箱验证：命名唯一约束可反射并按名删除，重建后两个业务索引仍在。
+
+**测试库说明**：`backend/tests/conftest.py` 使用 `Base.metadata.create_all`，测试库不执行迁移；模型声明唯一约束后，测试库自动具备约束。因此 pytest 通过**不能**替代 `alembic upgrade` 的验证，两者需分别执行（见 2.27.8）。
+
+### 2.27.5 测试用例设计（`backend/tests/test_helpers.py`）
+
+**新增辅助（不改既有 `auth`/`register`/`create_item`）**
+
+```python
+from app.database import SessionLocal
+from app.models import HelperStatus, ItemHelper
+
+def helper_rows(item_id: str, user_id: str) -> list[ItemHelper]:
+    with SessionLocal() as db:
+        return (
+            db.query(ItemHelper)
+            .filter(ItemHelper.item_id == uuid.UUID(item_id), ItemHelper.user_id == uuid.UUID(user_id))
+            .all()
+        )
+```
+
+- `SessionLocal` 与 `conftest.py` 共享同一个测试 engine（`DATABASE_URL` 在 conftest 导入时已指向 `sqlite:///./test_pytest.db`），读到的是同一份数据。
+- 查询条件必须传 `uuid.UUID` 对象；测试库中 UUID 以 32 位字符串存储，直接传带连字符的 `str` 匹配不到。
+
+**用例一：`test_take_helper_twice_keeps_single_record`（正常 + 状态冲突，保持原样）**
+
+| 步骤 | 操作 | 断言 |
+|---|---|---|
+| 1 | 注册 owner/helper，owner 发布 lost 帖 | 200 |
+| 2 | helper 第一次 `POST /items/{id}/helpers` | 200；`{"helper_count": 1, "is_helper": true}` |
+| 3 | helper 第二次同接口 | 409；`code == "STATE_CONFLICT"`；`message == "已接取该委托"` |
+| 4 | 直连数据库按 `(item_id, user_id)` 查询 | 恰好 1 条；`status == HelperStatus.active`；`thanked is False` |
+| 5 | helper 请求 `GET /me/helping` | `total == 1`；`items[0]["helper_count"] == 1`；`is_helper is True` |
+| 6 | owner 请求帖子详情 | `helper_count == 1`；`helpers` 长度 1 |
+
+覆盖 6.19.3「接取两次只有一条记录」「人数按 1 计」与 6.19.5「只保留一条委托记录」。口径 B 只影响 `abandoned` 分支，本用例断言不变。
+
+**用例二（改写）：`test_item_helper_unique_constraint_rejects_duplicate_row`（唯一约束存在性 + 会话可用）**
+
+原 `test_take_helper_duplicate_insert_returns_conflict` 的前提是「预置 abandoned 行 → 再次接取走 INSERT → 命中唯一约束 → 409」。口径 B 下该路径已改为 UPDATE，原断言不再成立，因此**改写为直接验证约束本身**，而不是删除校验：
+
+| 步骤 | 操作 | 断言 |
+|---|---|---|
+| 1 | owner/helper 建帖，helper 接取一次 | 200 |
+| 2 | `SessionLocal` 直接 `add(ItemHelper(同 item_id + user_id, status=abandoned))` | `commit()` 抛 `IntegrityError` |
+| 3 | `db.rollback()` 退出会话 | 会话可继续使用，不抛 `PendingRollbackError` |
+| 4 | 直连按组合查询 | 仍为 1 行，`status == HelperStatus.active`（未被第二条覆盖） |
+| 5 | 同一 client `GET /me/helping` | 200；`total == 1` |
+
+- 需要新增导入：`pytest`、`sqlalchemy.exc.IntegrityError`（均为既有依赖，不新增第三方包）。
+- 该用例把「唯一约束」从接口行为解耦出来，仍覆盖 6.19.3「同一用户同一帖子最多一条」与 6.19.5「唯一约束冲突后会话可继续使用」。
+- **改写理由与影响**：这是需求口径变更（A → B）导致的断言前提失效，不是放宽测试；修改点与新增点会在交付说明中单列，供验收核对。
+
+**用例三（新增，用户指定）：`test_take_helper_after_abandon_restores_record`（接取 → 放弃 → 再次接取成功）**
+
+| 步骤 | 操作 | 断言 |
+|---|---|---|
+| 1 | 注册 owner/helper，owner 发布 lost 帖 | 200 |
+| 2 | helper `POST /items/{id}/helpers` | 200；`{"helper_count": 1, "is_helper": true}` |
+| 3 | 记录 `before = helper_rows(...)[0]` | 1 行；`before.status == active`；保存 `before.id`、`before.created_at` |
+| 4 | helper `DELETE /items/{id}/helpers` | 200；`{"helper_count": 0, "is_helper": false}`；库中该行 `status == abandoned` |
+| 5 | helper 再次 `POST /items/{id}/helpers` | **200**（不是 409）；响应体与新建逐字一致：`{"helper_count": 1, "is_helper": true}` |
+| 6 | `after = helper_rows(...)` | **恰好 1 条**；`after[0].id == before.id`（原记录被复用，未新建）；`status == HelperStatus.active`；`thanked is False`；`after[0].created_at > before.created_at` |
+| 7 | owner `GET /items/{id}` | `helper_count == 1`；`helpers` 长度 1，`display_name == "rejoin_helper"` |
+| 8 | helper `GET /me/helping` | `total == 1`；`items[0]["helper_status"] == "active"`；`helper_count == 1`；`is_helper is True` |
+| 9 | helper 再次 `DELETE` | 200，证明恢复后的行确实可继续走放弃流程 |
+
+- `created_at` 断言用「两次读取的值比较大小」：SQLite 下 `created_at` 读回是 naive，与 `datetime.now(UTC)` 写入的微秒值同量纲；**不要**与 `datetime.now(UTC)`（aware）直接比较，否则 `TypeError`。
+- `after[0].id == before.id` 是「原地恢复」最直接的证据，也防止实现退化成「删旧建新」。
+- 步骤 9 只用于证明状态回到 active，不改变前面断言。
+
+**用例四（新增边界）：`test_take_helper_after_abandon_rejects_closed_item`（前置状态校验优先于恢复）**
+
+| 步骤 | 操作 | 断言 |
+|---|---|---|
+| 1 | 建 lost 帖，helper 接取后 `DELETE` 放弃 | 200；库中 1 行 `abandoned` |
+| 2 | owner `POST /items/{id}/mark-found` | 200 |
+| 3 | helper 再次 `POST /items/{id}/helpers` | 409；`message == "该记录当前不可接取"`（**不是**「已接取该委托」） |
+| 4 | 直连查询 | 仍 1 行；`status` 仍为 `abandoned`（未被恢复） |
+
+覆盖 6.19.3「帖子已离开寻找中/核验中时返回 409 且不恢复」，同时锁定 `2.27.3.3` 的分支顺序。
+
+**为什么真并发不纳入测试**：
+
+- `TestClient` 是同步调用；文件型 SQLite 上两个线程同时写，先遇到的是 `database is locked`，无法稳定复现唯一约束路径，用例会变成偶发失败。
+- 口径 B 下「已有 abandoned 行」的并发重接走 UPDATE，本就不会产生冲突（见 2.27.3.3 并发边界），无法用并发用例区分正确与错误实现；真正需要并发的只剩「两个请求都无记录 → 都 INSERT」，由 `IntegrityError` 捕获兜底，已在 2.27.7 R2 交由 PostgreSQL 手工验证。
+- 因此本次以「确定性单线程用例 + 唯一约束直连验证」覆盖，不引入 flaky 用例。
+
+**测试约定**
+
+- `test_take_and_abandon_helper`、`test_take_helper_permissions_and_states`、`test_thank_awards_points_once`、`test_thank_rejects_invalid_helper_selection` 四条既有用例**断言不动**；仅 `test_take_helper_duplicate_insert_returns_conflict` 因口径变更改写（见用例二）。
+- 不修改 `conftest.py`、不新增 fixture、不引入新依赖。
+- 新增内容追加在文件末尾，保持 LF 换行；单函数不超过 50 行（用例三步骤较多，可拆为「恢复断言」与「列表/详情断言」两个私有 helper，但不新增 fixture）。
+
+### 2.27.6 改动文件清单
+
+| # | 文件 | 动作 | 改动内容 |
+|---|---|---|---|
+| 1 | `frontend/src/types.ts` | 修改 | `placeLabel` 入参增加 `location_area`；新增 `trimmed` 私有函数与回退分支；不改 `Item`/`DraftPost` |
+| 2 | `frontend/src/pages/MeList.tsx` | 修改 | 新增 `ONGOING_STATUS`、`THANKED_LABEL`、`HelperBadge`、`helperBadge()`；`renderRow` 的 helping 分支改用派生结果 |
+| 3 | `backend/app/models/item_helper.py` | 修改 | 新增 `__table_args__`：`UniqueConstraint("item_id", "user_id", name="uq_item_helper_item_user")` |
+| 4 | `backend/app/services/helper_service.py` | 修改 | 新增 `_any_helper`（全状态单条查询）；`take_helper` 增加 abandoned → 原地恢复分支（`status/thanked/created_at`）；INSERT 路径的 `IntegrityError` 捕获保持不变；新增 `datetime` 导入 |
+| 5 | `backend/alembic/versions/20261020_f14_helper_unique.py` | 修改（已存在） | 去重 `ORDER BY` 改为 `CASE WHEN status='active' THEN 0 ELSE 1 END, created_at, id`；docstring 补充「active 优先」「同组 active+abandoned 时删除 abandoned」；batch 加约束与降级不变 |
+| 6 | `backend/tests/test_helpers.py` | 修改 | 新增 `helper_rows` 辅助、用例三（放弃后重接恢复）、用例四（帖子关闭时拒绝恢复）；用例二改写为唯一约束直连验证；其余既有断言不动 |
+
+**明确不改**：`ItemDetail.tsx`、`ItemCard.tsx`/`.module.css`、`AiPage.tsx`、`api/me.ts`、`schemas/*`、`api/v1/me.py`、`points_service.py`、`reaction_service.py`、`conftest.py`、`spec.md`、`tasks.md`、`/me/helping` 的字段与分页契约；不新增迁移、不改表结构（唯一约束与列定义已在既有迁移与模型中）。
+
+### 2.27.7 风险与已裁决事项
+
+| # | 风险/待确认 | 影响 | 处置 |
+|---|---|---|---|
+| R1 | ~~待用户裁决~~ **已裁决：口径 B**。唯一约束覆盖 `abandoned`，放弃后重接改为原地恢复 | 若按 A 实现，4.5「已放弃 → 进行中」不可达，验收判功能缺失 | 已采纳 B 并落地到 2.27.3.3；`spec.md` 由需求方修订，本设计不改 spec |
+| R2 | 真并发用例在 SQLite 上不稳定（锁竞争先于唯一约束）；且 B 下 abandoned 重接走 UPDATE，本就不会冲突 | 强行加入会造成偶发失败，且测不出目标行为 | 本次不写真并发；并发验证留待 PostgreSQL 手工（两个请求同时重接，断言两次 200、库中 1 行） |
+| R3 | 迁移删除重复行不可逆，且 active+abandoned 并存时删的是 abandoned 行 | 降级无法恢复「已放弃」历史 | 迁移 docstring 写明；2.27.4 提供只读排查 SQL（含 active_n/abandoned_n）并建议备份 |
+| R4 | SQLite batch 重建表会重排列与外键顺序 | 结构比对/人工 diff 可能出现顺序差异 | 已验证列、外键、两个业务索引与命名约束均保留；`alembic check` 按集合比对，不因顺序报 diff；若仍出现 diff，人工核对而非 `--autogenerate` 覆盖 |
+| R5 | 目标库可能存在清理逻辑未覆盖的脏数据，导致加约束失败 | 整次迁移回滚 | 由迁移事务整体回滚；按 2.27.4 排查后重跑，不手工跳过约束 |
+| R6 | 被删除的重复行可能是历史 `point_record.ref_id` 指向的对象 | 积分明细仍保留这些记录（无外键） | 符合 6.19.3「不新增积分、不改总额」；在验收说明中备注，不修改积分数据 |
+| R7 | `alembic check` 需要连到真实数据库 | 未启动 PostgreSQL 时命令直接失败，容易被误判为迁移有问题 | 2.27.8 注明先确保 `DATABASE_URL` 可用；测试库（SQLite）不跑迁移 |
+| R8 | 前端 `npm run lint` 整仓挂起 | 无法作为门禁 | 改为 `npx eslint` 指定 `types.ts`、`MeList.tsx` + `npm run build`（含 `tsc -b` 类型检查） |
+| R9 | 新增 Python 文件若为 CRLF，`ruff format --check` 会误报 | 验证失败或产生无关 diff | 迁移与测试文件保存为 LF；提交前执行两条 ruff 命令确认 |
+| R10 | `ItemDetail` 建筑名为空时仍显示 `location_area \|\| '未知'`，未复用新回退 | 验收可能误认为地点回退未覆盖详情页 | 6.19.1「展示范围约束」明确该分支不在范围；2.27.9 手工检查中单独标注 |
+| R11 | 「已结束」与卡片上的帖子状态标签（如「已找回」）同时出现 | 视觉上出现两个状态语义 | 按 6.19.2 保留，二者位置不同（卡片标签区 / 底部 extra）；不改 `ItemCard` |
+
+### 2.27.8 验证命令（由用户本地按顺序执行）
+
+沙箱限制：本阶段**未执行**以下任何命令（不跑迁移、不跑 pytest、不装依赖），因此不报告结果。`alembic` 与 `ruff` 位于 `backend/.venv`，可直接调用。
+
+```bash
+# 1. 迁移一致性（需可连接的 DATABASE_URL）
+cd backend && .venv/Scripts/python -m alembic check
+
+# 2. 迁移往返（可选；在含重复数据的开发库上更有意义）
+cd backend && .venv/Scripts/python -m alembic downgrade -1
+cd backend && .venv/Scripts/python -m alembic upgrade head
+
+# 3. 后端静态检查（格式检查同时能暴露 CRLF）
+cd backend && .venv/Scripts/python -m ruff check .
+cd backend && .venv/Scripts/python -m ruff format --check .
+
+# 4. 后端测试（先跑受影响文件，再跑全量）
+cd backend && .venv/Scripts/python -m pytest tests/test_helpers.py -q
+cd backend && .venv/Scripts/python -m pytest tests/ -q
+
+# 5. 前端（逐文件 eslint + 构建即类型检查）
+cd frontend && npx eslint src/types.ts src/pages/MeList.tsx
+cd frontend && npm run build
+```
+
+**通过标准**
+
+- `alembic check`：无待生成变更。
+- 迁移往返：`downgrade -1` 与再次 `upgrade head` 均成功；升级后重复分组查询为 0。
+- `ruff check` / `ruff format --check`：无告警、无格式差异。
+- `pytest tests/test_helpers.py`：既有 4 条 + 新增 2 条（用例三、用例四）全部通过，其中用例二已按口径 B 改写；全量 `pytest tests/` 无回归。
+- 指定文件 eslint 无错误；`npm run build` 成功（`tsc -b` 覆盖 `placeLabel` 新签名与 `MeList` 派生函数）。
+
+### 2.27.9 手工检查清单
+
+1. **地点回退**：只填了 `location_area` 的寻物帖，在 `/hall`、`/me/posts`、`/me/helping`、`/me/favorites`、AI 寻物推荐下拉中均显示该地点原文，不显示「未指定地点」。
+2. **建筑名优先**：`building_name=图书馆`、`floor=3` → 「图书馆 3F」；`floor` 为空 → 「图书馆」；`building_name` 为空但 `floor=3` → 只显示 `location_area`，不出现「3F」。
+3. **都为空**：`building_name` 与 `location_area` 均为空/空白 → 「未指定地点」。
+4. **详情页保持原样**：`/hall/{id}` 的地点行仍走原分支（建筑名为空时显示 `location_area || 未知`），不因本次改动变形（6.19.1 展示范围约束）。
+5. **委托标签真值**：找一个「寻找中」帖（进行中）、一个已找回并被致谢的帖（状态标签「已被致谢」，且只有 1 个同名标签）、一个已撤销且未致谢的帖（已结束）、一个放弃记录（已放弃）。
+6. **放弃 + 已致谢**：`abandoned` 且 `thanked=true` → 「已放弃」+ 独立「已被致谢」两个标签。
+7. **重复接取**：同一用户对同一帖连续接取两次 → 第二次提示「已接取该委托」，列表中仍只有一条，接取人数为 1。
+8. **放弃后重接（口径 B）**：接取 → 放弃 → 再次接取应返回成功；`/me/helping` 该行变回「进行中」且「接取于」显示本次日期；数据库该组合仍 1 行、`status=active`、`thanked=false`；接取人数保持 1。
+9. **帖子已关闭时重接**：帖子改为「已找回」后再点接取 → 提示「该记录当前不可接取」，`/me/helping` 仍为「已放弃」，库中记录未被改回 active。
+10. **迁移后数据**：在开发库升级后刷新 `/me/helping` 与帖子详情的协助者人数，数值不因清理重复而异常增大或重复；若某组原本同时有 active 与 abandoned，升级后只应看到「进行中」那一条。
+11. **375px**：`/me/helping` 标签换行正常、无横向滚动；标签与「接取于 …」同一区域，点击仍进入帖子详情。
+---
+
+# 四、X2a 双视图地图与素材导入设计（spec 6.20 增量实现方案）
+
+## 2.28 X2a 双视图地图与素材导入
+
+### 2.28.0 文档信息与范围
+
+| 项 | 内容 |
+|---|---|
+| 需求来源 | `spec.md` 6.20（6.20.1–6.20.16） |
+| 目标 | 地图改为「室外平面图 + 室内 2.5D 选楼图」双视图；建立一条可重复执行的素材导入命令 |
+| 数据基准 | `backend/app/data/campus_buildings.json`（137 栋，含 flat/iso 两套几何与 2×3 矩阵）、`campus_roads.json`（4 个校门节点）、`campus_floors.json`（当前 `floors: []`）、`storage/campus_flat.webp`（1899×2400）、`storage/campus_25d.webp`（2400×1842） |
+| 硬约束 | 除种子编号 16、17、19、21 与图层名外，代码与测试不得写死建筑名、编号、坐标、图片尺寸；图层名只作新建时的展示名，不参与幂等键（按 `kind`，见 2.28.6.3）；位置数据一律室外平面图坐标；替换素材只执行一条导入命令 |
+| 不在范围 | 认领、核验、归还、协助工单、积分、权限的既有逻辑；上传与 AI 对话链路；新增第三方依赖 |
+| 影响既有章节 | 2.3.3（layer 字段）、2.6（图层体系与坐标公式）、2.18.3（新增列）、2.22.2（组件清单）、2.22.3（坐标契约）——已同步，本节为准 |
+
+### 2.28.1 需求与存量功能关系分析
+
+#### 2.28.1.1 已实现功能（可直接复用）
+
+| 需求功能 | 存量功能 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| 单底图浏览、缩放、点击取归一化坐标 | `CampusMap` 用 `CRS.Simple` + `ImageOverlay`，`fitBounds`、`setMaxBounds`、点击回调 `latLngToNorm` | `frontend/src/components/CampusMap/CampusMap.tsx:43-84` | 100% |
+| 坐标换算（左下角原点） | `normToLatLng`/`latLngToNorm` 与 `LayerDims` 窄接口 | `frontend/src/components/CampusMap/coords.ts:6-18` | 100% |
+| 建筑点击与推荐取建筑位置 | `pointInRegion`/`buildingAt`/`buildingCenter`，基于 `click_region` 与 `label_position` | `frontend/src/components/CampusMap/BuildingLayer.tsx:33-76` | 100%（几何来源换为平面轮廓，算法不变） |
+| 建筑列表与详情（含进行中帖子数、是否有楼层图） | `building_service.list_buildings/get_building` 聚合 `active_item_count`、`has_floor_map` | `backend/app/services/building_service.py:66-109` | 100% |
+| 楼层图层与建筑关联 | `layer.building_id` + `layer.floor`，`FloorSwitcher` 切换 | `backend/app/models/layer.py:13-22`、`frontend/src/components/CampusMap/FloorSwitcher.tsx` | 100% |
+| 帖子标点、路线、求助点写入 | `set_map_anchor`、`create_route`、`POST /layers/{id}/simulated-points` | `backend/app/services/item_service.py:263-293`、`backend/app/api/v1/layers.py:105-127` | 75%（仅校验图层存在，缺 kind 校验） |
+| 规则推荐与模型解释降级 | `advice_service.recommend`、`_score`、`_template_reason`、`_model_reasons` | `backend/app/services/advice_service.py:110-260` | 75%（无建筑排除、无米数） |
+| 比例尺门控与米数 | `layer.pixels_per_meter` + `scale_calibrated`，前端仅显示是否已标定 | `backend/app/models/layer.py:20-21`、`frontend/src/pages/MapView.tsx:155-162` | 50%（未参与推荐距离） |
+| 图层底图读取（jpg/png/webp） | `GET /layers/{id}/image` 按扩展名给 media type | `backend/app/api/v1/layers.py:33-47` | 100%（webp 已支持） |
+| 演示数据 | `seed_demo` 固定 60 条，按建筑轮转、坐标取标签附近 | `backend/scripts/seed_demo.py:52-95` | 50%（不按类别加权、不保证在轮廓内、不先清空） |
+| 建筑导入 | 读 `buildings.json`（8 栋），按 code 新增或更新 | `backend/app/services/building_service.py:13-64` | 50%（结构不同、无删除与警告） |
+| 建筑卡片 | 名称、类别、层数、进行中数、查看帖子、进入楼层 | `frontend/src/components/CampusMap/BuildingCard.tsx` | 75%（缺「在室外地图定位」与按楼层过滤） |
+| 图层开关与点位层过滤 | `LayerToggles` + `HelpPointsLayer`/`MonitorPointsLayer`（按 `kind`、`is_public`） | `frontend/src/components/CampusMap/LayerToggles.tsx`、`backend/app/api/v1/layers.py:71-86` | 100% |
+
+#### 2.28.1.2 需要扩展的功能
+
+| 需求功能 | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| 室外/室内/楼层三视图 | 单一图层下拉框 + 楼层切换条；`outdoor` 仅以 `building_id is null` 判定 | 输入：视图由「图层是否存在 building_id」推断；输出：无视图类型；边界：2.5D 图层会被误判为「室外」并允许标点 | `layer.kind` 显式区分图层类型；前端新增 `view` 状态（`flat`/`iso`/`floor`），视图切换控件置于地图页顶部；`MapView` 中所有「outdoor 才显示」的开关改为按 `kind` 判定 |
+| 建筑几何两套 | 仅 `click_region` + `label_position` | 输入：素材提供 flat 与 iso 两套几何；输出：需两套命中与标签；边界：2.5D 命中重叠 | 原两列继续存平面几何，新增 `iso_hit_area`/`iso_label_position`/`draw_order`/`entrance_node`；前端命中函数按视图选择几何 |
+| 图层类型校验 | 三个写入入口只校验图层存在 | 输入：`layer.kind`；输出：400 中文提示；边界：楼层一致性 | `building_service` 提供统一校验函数，`item_service` 与 `layers.py` 调用；错误文案集中在服务层常量 |
+| 推荐距离与实际米数 | 归一化距离 → 「距离较近/中/远」 | 输入：`pixels_per_meter`、图层宽高；输出：整数米；边界：未标定不输出米数 | `_score` 增加米数字段（不改评分权重），`_template_reason` 输出「距你圈选的范围约 N 米」；模型解释改为追加句，距离句由服务端保证 |
+| 建筑导入可替换、可删除 | 读扁平数组，按 code upsert | 输入：素材顶层容器 + 建筑数组；输出：统计与警告；边界：旧建筑被引用 | 新增素材模型与转换层；导入返回 `created/updated/deleted/skipped/warnings`；仅演示引用则先删演示再删建筑 |
+| 演示数据确定性重建 | 追加式生成，`exists` 判重 | 输入：固定种子、类别权重、轮廓；输出：每次恰好 60 条 | 先清空演示帖及其互动，再配对抽样生成；坐标拒绝采样，兜底取轮廓顶点 |
+| 初始图层 | 3 个硬编码图层、旧底图名 | 输入：素材 flat/iso 尺寸与比例尺；输出：flat + iso + 3 个占位楼层 | `seed.py` 复用导入模块的 `sync_layers`/`import_floors`/`sync_points`，不再持有坐标常量 |
+| 楼层房间名 | 无房间信息 | 输入：楼层素材 `rooms`；输出：`layer.rooms` JSON + 地图标签 | `layer` 新增 `rooms` 列；`BuildingLayer` 增可选 `rooms` 渲染（复用 divIcon，不新增依赖） |
+| 楼名开关与阈值 | 建筑标签无条件渲染 | 输入：开关 + 缩放级别；输出：阈值以上才显示 | `LayerToggles` 增「显示楼名」（默认关）；阈值常量集中在 `coords.ts`；两个建筑层组件监听 `zoomend` |
+| 建筑卡片按钮 | 查看帖子 / 进入楼层（禁用态文案） | 输入：当前视图；输出：三个按钮的显示条件 | `BuildingCard` 增 `mode`、`onLocateOutdoor`、`filterFloor`；无楼层图层时按钮不渲染而非禁用 |
+
+#### 2.28.1.3 需要新增的功能或接口
+
+**后端**
+
+1. `GET /map/meta`：返回 `{flat_layer_id, iso_layer_id, flat_to_iso}`，登录用户均可访问；缺图层 404、未登录 401。查询逻辑在 `building_service.get_map_meta`。
+2. `LayerKind` 枚举与 `layer.kind`/`layer.rooms`、`building` 四列（2.28.2）。
+3. 素材转换与导入模块（`building_service` 内的 `load_asset`/`convert_buildings`/`import_buildings`/`import_floors`/`sync_layers`/`sync_points`），供 `seed.py`、三个脚本、测试共用。
+4. `scripts/import_map_assets.py`：一条命令完成建筑→楼层→图层→点位→演示数据，打印统计，可重复执行。
+5. 位置写入校验：`iso` 拒绝、`floor` 一致性（2.28.3）。
+
+**前端**
+
+1. `api/layers.ts` 的 `getMapMeta`、`api/buildings.ts` 的 `listAllBuildings`（分页循环取全量，137 栋 > 单页上限 100）。
+2. `types.ts` 的 `LayerKind`、`MapMeta`、`Room`、`FlatToIsoMatrix`，以及 `Building`/`Layer` 新字段。
+3. `IsoBuildingLayer.tsx` + 样式：2.5D 命中、选中/推荐高亮、数量角标、楼名。
+4. `coords.ts` 新纯函数：`flatToIso`、`pointInRegion`、`flatBuildingAt`、`isoBuildingAt`、`BUILDING_LABEL_MIN_ZOOM`。
+5. `MapView` 三视图状态机与视图切换控件；`BuildingCard` 第三按钮与楼层过滤；`LayerToggles` 新选项；`FloorSwitcher` 增加「返回室外」语义（已有按钮，补视图回调）。
+
+#### 2.28.1.4 存量约束与依赖
+
+| 约束 | 具体表现 | 对设计的影响 |
+|---|---|---|
+| 单页上限 100 | `GET /buildings` 的 `limit` 上限 100，其余接口同 | 137 栋必须分页取全量；`listAllBuildings` 在 `api/` 内循环，页面不感知分页 |
+| 帖子列表上限 100 | 地图点位与角标基于 `listItems({limit:100})` | 角标为「已加载进行中帖子」的数量，与现状一致；不改接口、不新增参数（范围控制），在文案与总结中说明 |
+| `layer.name` 唯一 | 楼层图层按建筑名 + 楼层命名 | 楼层图层以 `(building_id, floor, kind=floor)` 为身份，`name` 仅展示；改名时同步更新，冲突时保留旧名并警告。`flat`/`iso` 的幂等键只用 `kind`，`name` 同样只作展示（2.28.6.3） |
+| 枚举用 `SAEnum(native_enum=False)` | 现有 `SimulatedPointKind` 等为 VARCHAR 存储 | `kind` 沿用同一写法，迁移为 VARCHAR + 默认值，不需要 PG 原生类型 |
+| 坐标左下角、x/y 像素尺度不同 | flat 为 1899×2400，非正方形 | 米数必须用 `dx*width, dy*height` 求像素距离再除 `pixels_per_meter`，不能直接用归一化距离乘单一比例 |
+| 素材几何质量 | `flat.footprint` 首尾不闭合、存在相邻重复点与回折；`floors` 存在 0 | 多边形闭合由算法自行首尾相连；`floors` 允许 0；演示取点用拒绝采样并设兜底 |
+| 建筑编号非规范 | 空编号 15 个、重复编号 `N` 2 个、单字母编号多个 | 转换规则必须先统计再改写，且保证导入后 `code` 唯一 |
+| `ItemForm` 不在允许改动范围 | 发帖时 `building_id`/`floor` 在创建请求中，位置在 `map-anchor` 中 | 楼层标点的建筑/楼层一致性由后端用 `item.building_id`/`item.floor` 校验，前端不需要新增请求字段 |
+| `CampusMap`/`MapContext`/`AIRecommendLayer` 不在允许改动范围 | 室内推荐高亮与房间名不能改这两个组件 | 推荐高亮放进 `IsoBuildingLayer`；房间名由 `BuildingLayer` 的可选 `rooms` 承担；监控点坐标在 `MapView` 内先用矩阵换算再传给原组件 |
+| Docker 镜像排除 storage | `backend/.dockerignore` 仅放行 `storage/outdoor.jpg` | 需同步放行新底图与楼层图，否则 `docker compose` 下底图 404（见 2.28.13.4） |
+
+### 2.28.2 数据模型与迁移
+
+#### 2.28.2.1 模型变更
+
+**`LayerKind` 枚举**（`backend/app/models/enums.py`）
+
+| 值 | 含义 | 允许写位置数据 | 底图 |
+|---|---|---|---|
+| `flat` | 室外平面图 | 是（默认位置基准） | `campus_flat.webp` |
+| `iso` | 2.5D 选楼图 | 否 | `campus_25d.webp` |
+| `floor` | 楼层图 | 是（需建筑+楼层一致） | `storage/floors/*` 或空 |
+
+**`building` 表**（`backend/app/models/building.py`）
+
+| 列 | 类型 | 约束 | 用途 |
+|---|---|---|---|
+| `click_region` | JSON | NULLABLE（不变） | 语义改为室外平面轮廓 `flat.footprint`，`[{x,y}]` |
+| `label_position` | JSON | NULLABLE（不变） | 语义改为室外标签 `flat.label_anchor`，`{x,y}` |
+| `iso_hit_area` | JSON | NULLABLE | 2.5D 命中区域，`[{x,y}]` |
+| `iso_label_position` | JSON | NULLABLE | 2.5D 标签与角标位置，`{x,y}` |
+| `draw_order` | int | NOT NULL, default 0 | 2.5D 命中重叠时取最大；素材含负值，允许 |
+| `entrance_node` | int | NULLABLE | 路网入口节点编号，仅存档 |
+
+**`layer` 表**（`backend/app/models/layer.py`）
+
+| 列 | 类型 | 约束 | 用途 |
+|---|---|---|---|
+| `kind` | LayerKind | NOT NULL, default `flat`, index | 决定视图与写入权限；`/map/meta` 与前端视图切换依据 |
+| `rooms` | JSON | NULLABLE | 楼层房间 `[{"name", "x", "y"}]`；仅 `kind=floor` 有值 |
+
+**schemas**（`backend/app/schemas/building.py`、`layer.py`）
+
+| 模型 | 变更 |
+|---|---|
+| `BuildingOut` | 增 `iso_hit_area: list[dict] \| None`、`iso_label_position: dict \| None`、`draw_order: int`、`entrance_node: int \| None` |
+| `LayerOut` | 增 `kind: LayerKind`、`rooms: list[RoomOut] \| None`；`RoomOut` 为 `{name: str, x: float, y: float}` |
+| `MapMetaOut`（新增） | `flat_layer_id: uuid.UUID`、`iso_layer_id: uuid.UUID`、`flat_to_iso: list[list[float]]` |
+| `MapAnchorRequest` | 不改字段；校验使用请求体外的 `item.building_id/floor` |
+
+`BuildingOut` 的既有字段（`code/name/category/floors/active_item_count/has_floor_map`）保持不变，避免影响 `/hall`、`/ai` 等既有页面。
+
+#### 2.28.2.2 数据归属与不变量
+
+```plantuml
+@startuml
+title X2a 位置数据归属
+package "室外平面图 kind=flat" {
+  [item.norm_x/norm_y\n帖子标点]
+  [route.geometry\n圈选/路径]
+  [simulated_point\n求助/模拟监控]
+  [building.click_region\n平面轮廓]
+  [building.label_position\n平面标签]
+}
+package "2.5D 选楼图 kind=iso" {
+  [building.iso_hit_area]
+  [building.iso_label_position]
+  [building.draw_order]
+}
+package "楼层图 kind=floor" {
+  [item + building_id + floor]
+  [layer.rooms]
+}
+[室外平面图 kind=flat] -down-> [item.norm_x/norm_y\n帖子标点] : 写入
+[室外平面图 kind=flat] -down-> [route.geometry\n圈选/路径] : 写入
+[室外平面图 kind=flat] -down-> [simulated_point\n求助/模拟监控] : 写入
+[2.5D 选楼图 kind=iso] ..> [室外平面图 kind=flat] : 仅渲染换算 flat_to_iso
+@enduml
+```
+
+不变量：
+
+1. 帖子标点允许 `flat`/`floor`；路线、求助点、演示数据只允许 `flat`。`iso` 上不保存任何位置数据，写入接口一律 400。
+2. 楼层帖（`layer.kind=floor`）同时满足 `item.building_id = layer.building_id` 且 `item.floor = layer.floor`；在室外地图上按该建筑的 `label_position` 显示，不暴露楼层内坐标（沿用 6.20.6）。
+3. 建筑的位置语义只由 flat 几何决定；`iso_*` 仅参与渲染与命中。
+4. `kind=flat` 与 `kind=iso` 在库中各只保留一条，幂等键**仅为 `kind`**，名称不参与匹配。导入时若该 `kind` 已有记录，就在原记录上更新名称、图片路径、宽高与比例尺（`pixels_per_meter`/`scale_calibrated`），保留原 `id`，不新建记录。若已有多条同 `kind`：保留 `created_at` 最早（并列取 `id` 最小）的一条作为更新目标；其余图层在 `item.layer_id`、`route.layer_id`、`simulated_point.layer_id` 均无引用时删除，有引用时保留并输出警告。`kind=floor` **不在**「各只保留一条」范围内，按 `(building_id, floor)` 区分，同一自然键只允许一条。
+
+#### 2.28.2.3 Alembic 迁移设计
+
+**新迁移文件**：`backend/alembic/versions/20261020_x2a_map_views.py`
+**revision**：`20261020_x2a_map`；**down_revision**：`20261020_f14_uniq`（当前 head）
+
+| 顺序 | 操作 | 说明 |
+|---|---|---|
+| 1 | `layer` 增加 `kind` VARCHAR(16) NOT NULL DEFAULT `'flat'` | 与 `SAEnum(native_enum=False, length=16)` 对齐，不建 PG 原生类型 |
+| 2 | `UPDATE layer SET kind='floor' WHERE floor IS NOT NULL` | 既有楼层图（旧「综合楼 1F/2F」「图书馆 1F」）回填 |
+| 3 | `UPDATE layer SET kind='flat' WHERE floor IS NULL AND building_id IS NULL` | 既有室外图层（旧「校园 2.5D 底图」，实际是旧平面图副本）标记为 flat；默认值已覆盖，本步显式保证语义 |
+| 4 | `layer` 增加 `rooms` JSON NULLABLE | 仅新图层使用 |
+| 5 | `layer.kind` 建索引 `ix_layer_kind` | `/map/meta`、楼层查询按 kind 过滤 |
+| 6 | `building` 增加 `iso_hit_area` JSON NULLABLE、`iso_label_position` JSON NULLABLE | 不回填；由导入命令写入 |
+| 7 | `building` 增加 `draw_order` INTEGER NOT NULL DEFAULT 0 | 服务端默认，避免历史行 NULL |
+| 8 | `building` 增加 `entrance_node` INTEGER NULLABLE | 仅存档 |
+
+**降级**：按相反顺序删列（`entrance_node` → `draw_order` → `iso_label_position` → `iso_hit_area` → `rooms` → 索引 → `kind`）。
+
+**不可逆点**（写入迁移 docstring）：
+
+- 降级删除 `kind` 后无法区分室外/2.5D/楼层，再次升级只能按 `floor`/`building_id` 重新推断。
+- 降级删除 `iso_hit_area`/`iso_label_position` 后需重新执行素材导入才能恢复 2.5D 命中与角标。
+- 本迁移不改动任何 `item`/`route`/`simulated_point` 坐标，也不删除旧底图文件；旧 `storage/campus-2.5d.jpg` 由任务中的文件删除处理。
+
+**重复图层**：本迁移只回填 `kind`，不合并同 `kind` 的重复记录（旧「校园 2.5D 底图」被标为 `flat` 后，可能与已有 `flat` 并存）；合并与去重由首次执行 `sync_layers` 完成，规则见 2.28.6.3。
+
+**迁移与模型一致性**：`alembic check` 必须无待生成变更；模型默认值（`default=0`/`default=LayerKind.flat`）与迁移 `server_default` 保持一致，避免 autogenerate 反复检测。
+
+**测试库**：`tests/conftest.py` 通过 `Base.metadata.create_all` 建表，不跑迁移；因此模型定义必须覆盖全部新列（迁移正确性由 `alembic check` 与本机 `upgrade head` 验证）。
+### 2.28.3 图层类型与位置写入校验
+
+#### 2.28.3.1 校验矩阵
+
+| 写入动作 | 入口 | `flat` | `floor` | `iso` |
+|---|---|---|---|---|
+| 帖子标点 | `POST /items/{id}/map-anchor` → `item_service.set_map_anchor` | 允许 | 允许，需 `item.building_id`/`item.floor` 与图层一致 | 400 `2.5D 图仅用于选楼，请在室外地图上标注` |
+| 创建路线 | `POST /items/{id}/route` → `item_service.create_route` | 允许 | 400「楼层图仅支持标点，绘制请返回室外地图」 | 400 同左（iso 文案见上） |
+| 创建求助点 | `POST /layers/{id}/simulated-points` → `layers.py` | 允许（staff/admin） | 400「求助点仅在室外平面图创建」 | 400 同上 |
+| 建筑导入（写建筑几何） | `building_service.import_buildings` | 不涉及图层 | 不涉及 | 不涉及 |
+| 演示数据 | `rebuild_demo_items` | 强制使用 flat 图层 id | — | — |
+
+判定顺序（每次写入）：图层存在 → 400/404 之前先 404；`kind=iso` → 400；`kind=floor` 且动作为帖子标点 → 建筑与楼层一致性 → 400；`kind=floor` 且动作为路线/求助点 → 400；任何一步失败都不得写入部分字段（先校验，后赋值，最后一次 `commit`）。
+
+#### 2.28.3.2 服务层接口与文案
+
+放 `building_service`（建筑与图层的几何/类型规则同属一层，避免 `api` 里写业务判断）：
+
+| 函数签名 | 职责 | 异常 |
+|---|---|---|
+| `def get_layer_or_404(db: Session, layer_id: uuid.UUID) -> Layer` | 取图层，不存在即报错 | 404 `NOT_FOUND`「图层不存在」 |
+| `def ensure_position_layer(db: Session, layer_id: uuid.UUID) -> Layer` | 取图层并拒绝 `iso`；楼层是否允许由调用方继续判断 | 404、400 `VALIDATION`「2.5D 图仅用于选楼，请在室外地图上标注」 |
+| `def ensure_flat_layer(db: Session, layer_id: uuid.UUID, action: Literal["route", "help_point"]) -> Layer` | 仅供路线与求助点：取图层并要求 `kind=flat`（内部先调 `ensure_position_layer`） | 400：路线「楼层图仅支持标点，绘制请返回室外地图」；求助点「求助点仅在室外平面图创建」 |
+| `def ensure_floor_anchor(layer: Layer, building_id: uuid.UUID \| None, floor: int \| None) -> None` | `kind=floor` 时校验建筑与楼层 | 400 `VALIDATION`，文案见下表 |
+| `def active_position_layer_id(db: Session) -> uuid.UUID` | 演示数据与点位同步取 flat 图层 id；多条时取 `(created_at, id)` 最小的一条，与 `/map/meta`、`sync_layers` 的保留规则一致 | 404「尚未创建室外平面图图层」 |
+| `def get_map_meta(db: Session) -> dict` | `/map/meta` 查询 | 404（缺 flat/iso 图层或素材文件） |
+
+`MapAnchorRequest` 不改字段；`set_map_anchor` 在调用 `ensure_position_layer` 后，用 `item.building_id`、`item.floor` 调 `ensure_floor_anchor`。`create_route` 与 `create_simulated_point` 改调 `ensure_flat_layer`，不进入楼层一致性校验。楼层一致性文案：
+
+| 条件 | 文案 |
+|---|---|
+| `item.building_id` 为空或 `item.floor` 为空 | 「在楼层图标点需要先选择建筑与楼层」 |
+| `item.building_id != layer.building_id` | 「建筑与当前楼层图不一致」 |
+| `item.floor != layer.floor` | 「楼层与当前楼层图不一致」 |
+
+#### 2.28.3.3 调用点与分层
+
+```plantuml
+@startuml
+title 位置写入校验的调用关系
+actor 用户
+participant "api/v1/items.py" as I
+participant "item_service" as S
+participant "building_service" as B
+database "DB" as DB
+用户 -> I : map-anchor / route
+I -> S : set_map_anchor(db,user,item_id,body)
+S -> B : ensure_position_layer(db, layer_id)
+B -> DB : 查 layer
+B --> S : Layer 或 ApiError(400/404)
+S -> B : ensure_floor_anchor(layer, item.building_id, item.floor)
+S -> DB : 仅校验通过后写入 norm_x/norm_y + commit
+用户 -> I : 创建求助点（staff）
+I -> B : ensure_position_layer(db, layer_id)
+B --> I : Layer 或 ApiError
+@enduml
+```
+
+- `item_service` 只负责「帖子是否可写」与字段落库；图层类型与楼层一致性规则集中在 `building_service`，便于 `/map/meta`、求助点入口复用。
+- 错误统一 `ApiError(400, "VALIDATION", 中文)`，不抛 `HTTPException`；失败时不 `commit`，`set_map_anchor` 保持「先校验、后赋值」的顺序。
+- 前端在室内视图不渲染绘制工具、不提供「创建求助点」入口；但后端校验仍是唯一权限边界（业务红线：前端隐藏不算权限控制）。
+
+### 2.28.4 建筑素材导入
+
+#### 2.28.4.1 素材结构
+
+`campus_buildings.json`（顶层对象，非数组）：
+
+| 字段 | 类型 | 用途 |
+|---|---|---|
+| `version` | int | 记录到导入输出的素材版本号（不落库） |
+| `flat.image` / `flat.width` / `flat.height` | str/int | 写入 flat 图层的 `image_path`/`width`/`height` |
+| `flat.meters_per_pixel` | float | `pixels_per_meter = round(1 / meters_per_pixel, 4)`，`scale_calibrated=true` |
+| `iso.image` / `iso.width` / `iso.height` | str/int | 写入 iso 图层 |
+| `flat_to_iso` | 2×3 数组 | `/map/meta` 返回；前端换算 |
+| `campus_outline` | 对象 | 本任务不导入（不需要校园边界）；解析时忽略 |
+| `buildings[]` | 数组 | 建筑列表 |
+
+单栋建筑字段（素材可能附带 `entrances`/`units`/`iso.footprint` 等额外字段，一律忽略）：
+
+| 字段 | 类型 | 转换后 |
+|---|---|---|
+| `id` | str | 编号为空时的兜底编号；也用于编号去重后缀 |
+| `code` | str \| null | `building.code`（按 2.28.4.3 规则改写） |
+| `name` | str | `building.name`（`named=false` 时替换） |
+| `category` | str | `building.category`（英文→中文） |
+| `floors` | int | `building.floors`（允许 0） |
+| `named` | bool | 仅参与名称判定 |
+| `draw_order` | int | `building.draw_order`（允许负值） |
+| `entrance_node` | int | `building.entrance_node` |
+| `flat.footprint` | `[x,y][]` | `building.click_region`（`[{x,y}]`） |
+| `flat.label_anchor` | `[x,y]` | `building.label_position` |
+| `iso.hit_area` | `[x,y][]` | `building.iso_hit_area` |
+| `iso.label_anchor` | `[x,y]` | `building.iso_label_position` |
+
+#### 2.28.4.2 模块划分与函数签名
+
+素材转换与导入全部放 `backend/app/services/building_service.py`（替换现有 8 栋配置读取逻辑），`scripts/` 只做编排与打印，不重复业务规则。
+
+```python
+# 素材模型：只保留本任务用到的字段
+@dataclass(frozen=True)
+class MapAsset:
+    version: int
+    flat_image: str
+    flat_width: int
+    flat_height: int
+    meters_per_pixel: float
+    iso_image: str
+    iso_width: int
+    iso_height: int
+    flat_to_iso: tuple[tuple[float, float, float], tuple[float, float, float]]
+    buildings: tuple[Mapping[str, Any], ...]
+
+@dataclass(frozen=True)
+class BuildingData:
+    code: str
+    name: str
+    category: str
+    floors: int
+    click_region: list[dict[str, float]] | None
+    label_position: dict[str, float] | None
+    iso_hit_area: list[dict[str, float]] | None
+    iso_label_position: dict[str, float] | None
+    draw_order: int
+    entrance_node: int | None
+
+@dataclass
+class BuildingImportResult:
+    created: int
+    updated: int
+    deleted: int
+    skipped: int
+    warnings: list[str]
+
+@dataclass
+class LayerSyncResult:
+    created: int
+    updated: int
+    removed: int
+    warnings: list[str]
+
+def load_asset(path: Path | None = None) -> MapAsset
+def convert_buildings(asset: MapAsset) -> tuple[list[BuildingData], list[str]]
+def import_buildings(db: Session, asset: MapAsset) -> BuildingImportResult
+def load_floor_specs(path: Path | None = None) -> list[FloorSpec]
+def import_floors(db: Session, asset: MapAsset, specs: list[FloorSpec]) -> FloorImportResult
+def sync_layers(db: Session, asset: MapAsset) -> LayerSyncResult
+def sync_points(db: Session, asset: MapAsset, roads_path: Path | None = None) -> PointSyncResult
+def get_map_meta(db: Session) -> dict
+```
+
+- `sync_layers` 只维护 `flat`/`iso` 两类（按 `kind` 幂等，规则见 2.28.6.3），楼层图层一律由 `import_floors` 负责，两者不交叉。
+
+- `load_asset` 默认路径为 `app/data/campus_buildings.json`，测试通过参数指向 `tests/fixtures/`；不写死建筑数据，只写死文件名。
+- 现有 `load_config()` 与扁平数组格式一并移除，调用点（`seed.py`、`scripts/import_buildings.py`、`scripts/seed_demo.py`、测试）全部改为 `load_asset` + `import_buildings`。
+- `import_buildings` 内部只在最后 `commit` 一次；异常向上抛，由脚本以非零状态退出。
+
+#### 2.28.4.3 转换规则
+
+| 规则 | 判定 | 结果 | 输出 |
+|---|---|---|---|
+| 坐标 | 素材点为 `[x, y]`，两个值均为 0~1 的数字 | `{"x": round(x, 8), "y": round(y, 8)}`；多边形 `[{x,y}, …]` | 越界或非数字：整栋跳过 + 警告（不中断） |
+| 编号·空 | `code` 为 null/空白 | 直接用素材 `id`（如 `b001`） | 计入「编号为空」提示 |
+| 编号·唯一 | 非空且该值在素材中只出现一次 | 原样使用 | — |
+| 编号·重复 | 非空且在素材中出现 ≥2 次 | `f"{code}-{id}"`（如 `N-b011`） | 警告一次，列出重复编号 |
+| 编号·长度 | 结果超过 32 字符 | 截断到 32 | 警告 |
+| 名称 | `named=false` 或 `name` 去空白后为空 | `未命名建筑` | — |
+| 类别 | `teaching/library/dorm/historic/admin/sports/track/court/park/bridge/gate` | 对应中文（教学楼/图书馆/宿舍/历史建筑/行政/体育馆/运动场/球场/园林/天桥/校门） | — |
+| 类别·life | 名称包含「食堂」或「餐厅」 | `食堂` | 否则 `生活服务` |
+| 类别·未知 | 不在上表 | `其他` | 警告：编号 + 原类别，不报错 |
+| 层数 | `floors` 为整数 | `0 ≤ floors ≤ 200`，越界截断 | 截断时警告 |
+| 轮廓 | `flat.footprint` 点数 ≥3 | 写入 `click_region` | 否则 `None` + 警告（该建筑不参与点击与演示取点） |
+| 标签 | `flat.label_anchor` 存在且合法 | 写入 `label_position` | 缺失时取轮廓顶点均值；两者皆无 → `None` + 警告 |
+| 2.5D 命中 | `iso.hit_area` 点数 ≥3 | 写入 `iso_hit_area` | 否则 `None` + 警告（该建筑在室内不可点） |
+| 2.5D 标签 | `iso.label_anchor` 合法 | 写入 `iso_label_position` | 缺失时用 `label_position` 经矩阵换算兜底 |
+| 绘制层级 | `draw_order` 为整数 | 原值（允许负数） | 非整数 → 0 + 警告 |
+| 入口节点 | `entrance_node` 为整数 | 原值 | 否则 `None` + 警告 |
+
+**幂等键**：`Building.code`（唯一索引）。同一素材重复导入时全部走更新分支，`created=0`、`updated=总数`。
+
+#### 2.28.4.4 旧建筑清理
+
+素材中已不存在的旧建筑按下列顺序处理，保证「先删演示数据，再删建筑」且不误删用户数据：
+
+```plantuml
+@startuml
+title 旧建筑清理决策
+start
+:取 DB 中 code 不在素材集合的建筑;
+:统计非演示引用\nItem.is_demo = false;
+if (存在非演示引用?) then (是)
+  :保留建筑;
+  :输出警告（编号 + 引用数）;
+  stop
+else (否)
+  if (演示帖存在 Claim / 评论 / 点赞 / 收藏 / 委托?) then (是)
+    :保留建筑与该帖;
+    :输出警告;
+    stop
+  else (否)
+    :删除演示帖关联\ncandidate → route → item_feature → attachment;
+    :删除演示帖（is_demo = true）;
+    :删除其楼层图层（layer.building_id）与房间数据;
+    :删除建筑;
+    :deleted += 1;
+  endif
+endif
+stop
+@enduml
+```
+
+- 引用检查覆盖 `item.building_id`、`layer.building_id`；求助点/监控点不引用建筑，无需处理。
+- 「非演示引用」包括用户发布的帖子、任何 `is_demo=false` 的帖子；只要有引用，建筑保留，素材与库的差异写入警告，由维护者人工处理。
+- 删除演示帖的关联顺序：`candidate`（lost/found 两侧）→ `route` → `item_feature` → `attachment` → `item`；演示帖按设计不生成评论、点赞、认领，若历史库中存在这些记录则保留建筑并警告（不级联删除用户互动）。
+
+#### 2.28.4.5 输出契约
+
+`import_buildings` 返回 `BuildingImportResult`，脚本统一格式打印：
+
+```
+[1/5] 建筑：素材 137 栋，新增 137，更新 0，删除 0，跳过 0，警告 0
+```
+
+警告逐条打印，格式 `警告：建筑 {code} {原因}`；类别未知、轮廓缺失、编号重复必须出现在警告中。素材文件缺失或 JSON 解析失败时抛 `ValueError`，由脚本打印失败步骤并以非零状态退出，**不写入任何数据**（先解析、后开事务）。
+
+### 2.28.5 楼层素材导入
+
+#### 2.28.5.1 素材契约
+
+`app/data/campus_floors.json`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `version` | int | 素材版本 |
+| `floors[]` | 数组 | 楼层列表 |
+| `floors[].building_code` | str | 关联 `building.code`；不存在则跳过 + 警告 |
+| `floors[].floor` | int | 楼层号，与 `layer.floor` 一致 |
+| `floors[].name` | str | 图层展示名；缺省用 `{建筑名} {floor}F` |
+| `floors[].image` | str \| null | `storage/floors/` 下的文件名；为空表示无底图 |
+| `floors[].width` / `height` | int | 画布尺寸；缺省 `1000×1000`（占位常量） |
+| `floors[].rooms` | 数组 \| null | `[{"name": str, "x": float, "y": float}]`；`x/y` 为归一化房间中心 |
+
+当前素材 `floors` 为空，因此初始化只会创建 2.28.5.2 的 3 个占位楼层。
+
+#### 2.28.5.2 模块与函数签名
+
+```python
+@dataclass(frozen=True)
+class FloorSpec:
+    building_code: str
+    floor: int
+    name: str | None
+    image: str | None
+    width: int
+    height: int
+    rooms: tuple[dict[str, Any], ...]
+
+@dataclass
+class FloorImportResult:
+    created: int
+    updated: int
+    skipped: int
+    warnings: list[str]
+
+FLOOR_IMAGE_DIR = Path("floors")          # 相对 file_storage_dir
+DEFAULT_FLOOR_LAYERS = ((21, 1), (21, 2), (17, 1))
+PLACEHOLDER_FLOOR_SIZE = (1000, 1000)
+
+def load_floor_specs(path: Path | None = None) -> list[FloorSpec]
+def import_floors(db: Session, asset: MapAsset, specs: list[FloorSpec]) -> FloorImportResult
+```
+
+`DEFAULT_FLOOR_LAYERS` 中的 21、17 是本任务明确允许写死的种子编号；建筑名、图层尺寸、房间信息全部来自数据。
+
+#### 2.28.5.3 导入规则
+
+1. **文件缺失**：`campus_floors.json` 不存在 → `specs=[]` + 警告「未找到楼层素材，仅创建占位楼层」，继续执行。
+2. **文件损坏**：存在但 JSON 无法解析 → 抛 `ValueError`，脚本非零退出（避免静默用错数据）。
+3. **重复楼层**：同一 `(building_code, floor)` 出现多次 → 只保留最后一条 + 警告。
+4. **建筑不存在**：跳过 + 警告，不创建孤立图层。
+5. **图片**：`image` 只取文件名（拒绝 `..` 与路径分隔符）；`storage/floors/{image}` 不存在 → `image_path=None` + 警告，按「无底图」处理。
+6. **图片尺寸**：优先用素材 `width/height`；图片存在但未给尺寸 → 占位尺寸 + 警告。
+7. **房间**：`name` 去空白且长度 ≤32、`x/y ∈ [0,1]`，否则丢弃该房间 + 警告；`rooms` 为空时存 `None`。
+8. **占位楼层**：文件与占位集合合并后，对 `DEFAULT_FLOOR_LAYERS` 中每个 `(code, floor)`：若素材未提供该楼层 → 创建 `kind=floor`、`image_path=None`、占位尺寸的图层；若素材提供 → 以素材为准（含无底图）。
+9. **身份与更新**：以 `(building_id, floor, kind=floor)` 查找；存在则更新 `name/image_path/width/height/rooms`，不存在则新建。楼层图层**不参与** 2.28.6.3 的「同 `kind` 各只保留一条」收敛：不同 `(building_id, floor)` 各自一条互不冲突，只有同一自然键才视为同一条记录。`name` 冲突（另一行同名）时保留旧名 + 警告。
+10. **不删除**：素材中消失的楼层图层保留（可能是用户在页面上使用过的楼层），只在输出的 `skipped` 中体现，不写警告噪音。
+
+#### 2.28.5.4 房间数据
+
+- 存储：`layer.rooms` JSON 数组，元素 `{"name": str, "x": float, "y": float}`，坐标为该楼层图归一化坐标（左下角原点，与该图层 `width/height` 对应）。
+- 使用：前端 `types.ts` 的 `Room`；`BuildingLayer` 的可选 `rooms` 在房间中心渲染 `divIcon` 文本；无底图占位楼层也允许显示房间名（若素材提供）。
+- 权限：房间信息随 `GET /layers` 返回给所有登录用户，不含帖子、联系方式或监控内容。
+### 2.28.6 可重复导入流程（`scripts/import_map_assets.py`）
+
+#### 2.28.6.1 步骤与依赖
+
+```plantuml
+@startuml
+title import_map_assets 执行顺序
+start
+:读取并解析 campus_buildings.json\n（失败 → 非零退出）;
+:[1/5] 导入建筑\n新增 / 更新 / 删除;
+:[2/5] 导入楼层\n含 21/1F、21/2F、17/1F 占位;
+:[3/5] 同步图层\n按 kind 复用现有记录；更新名称、尺寸、底图、比例尺；同 kind 多余记录去重;
+:[4/5] 同步求助点与监控点\n（编号 19/16 + 路网校门）;
+:[5/5] 重新生成演示数据\n清空后固定种子 60 条;
+:打印各类数量与警告;
+stop
+@enduml
+```
+
+顺序理由：楼层依赖建筑编号；图层同步在楼层之后（楼层名依赖建筑名）；点位依赖建筑的 flat 标签；演示数据依赖建筑、flat 图层与演示用户。
+
+#### 2.28.6.2 入口与统计
+
+```python
+@dataclass
+class ImportSummary:
+    asset_version: int
+    buildings: BuildingImportResult
+    floors: FloorImportResult
+    layers: LayerSyncResult
+    points: PointSyncResult
+    demo_created: int
+    warnings: list[str]
+
+def run(
+    db: Session,
+    *,
+    asset_path: Path | None = None,
+    floors_path: Path | None = None,
+    roads_path: Path | None = None,
+    demo_count: int = 60,
+) -> ImportSummary
+
+def main() -> None   # 打印统计；异常时打印失败步骤并 sys.exit(1)
+```
+
+- `run` 是唯一编排入口，`main` 只负责打开 `SessionLocal`、调用 `run`、打印、退出码；测试直接调 `run` 断言两次结果一致。
+- 统计逐项打印：`建筑：新增/更新/删除/跳过`、`楼层：新增/更新/跳过`、`图层：新建/更新/删除`、`点位：求助/监控/删除`、`演示数据：60（寻物 30 / 拾获 30）`、`警告：N 条`。
+- 最后打印一行 `素材版本：{version}`，便于替换最终素材后核对。
+
+#### 2.28.6.3 幂等保证
+
+| 步骤 | 幂等键 | 第二次执行的预期 |
+|---|---|---|
+| 建筑 | `building.code` | `created=0`，`updated=总数`，数量不变 |
+| 楼层 | `(building_id, floor, kind=floor)` | `created=0`，`updated=总数`，数量不变 |
+| 图层 | `kind`（`flat`/`iso` 各一条，**名称不参与**） | 命中则原记录更新名称/图片/宽高/比例尺，`id` 不变；第二次 `created=0`、`updated=2`、`removed=0` |
+| 求助点/监控点 | `(layer_id, label)` | 只更新坐标/说明，不新增 |
+| 演示数据 | 先删 `is_demo=true` 再按固定种子生成 | 每次恰好 60 条，内容一致 |
+
+**同 `kind` 图层收敛规则**（`sync_layers`，`flat`/`iso` 各执行一次）：
+
+1. **取目标**：按 `kind` 查出全部记录，按 `(created_at, id)` 升序；第一条为更新目标，其余为多余记录。
+2. **多余记录优先处理**：逐条检查 `item.layer_id`、`route.layer_id`、`simulated_point.layer_id`；三者均无引用则删除并计入 `removed`，任一有引用则保留并输出警告「图层 {name}（{id}）存在引用，未删除」。
+3. **更新目标**：在原记录上更新 `name`、`image_path`、`width`、`height`、`pixels_per_meter`、`scale_calibrated`，保留原 `id`；`version` 沿用原值，不由素材覆盖。先删除多余记录再改名，避免它们占用 `layer.name` 唯一约束。
+4. **名称冲突**：仍有其他记录（被引用而保留下来的）占用了素材规定的名称时，保留原名称并输出警告，不中断导入，也不影响幂等键。
+5. **无目标**：以素材规定的名称新建一条，`created += 1`；新建后仍满足「每个 `kind` 一条」。
+6. **边界**：`kind=floor` 不进入本规则，由 `import_floors` 按 `(building_id, floor)` 维护，不同楼层数量不受「各只保留一条」限制。
+7. **原因**：本地已存在名为「校园 2.5D 底图」、实际却是平面图的 `flat` 图层；若继续按名称匹配，会再建一条 `flat`，`/map/meta` 与前端图层列表都会出现两个平面底图。改为只按 `kind` 后，该记录被复用并改名，`id` 保持不变。
+
+「数量不变」的判定口径：建筑、楼层、图层（flat/iso 各 1 条，楼层按自然键）、求助点、监控点、演示帖的计数在两次执行后逐项相等；`flat`/`iso` 图层的 `id` 必须与首次一致（幂等更新而非重建）；演示帖的 `id` 会变化（删除后重建），测试只断言数量、方向分布、建筑分布与坐标范围，不断言 `id`。
+
+#### 2.28.6.4 失败策略
+
+- 素材解析失败：第 0 步即退出，不写库。
+- 单栋建筑转换失败：跳过并警告（不中断），保证其余可用数据能导入。
+- 数据库写入异常：交回调用方，脚本打印「失败步骤：[n/5] 名称」并以非零状态退出，不静默继续后续步骤。
+- 脚本不捕获并吞掉异常，不使用 `except Exception: pass`。
+
+#### 2.28.6.5 `seed.py` 与 `seed_demo.py` 的复用
+
+| 文件 | 做法 |
+|---|---|
+| `backend/seed.py` | 保留管理员创建；依次调用 `import_buildings` → `sync_layers` → `import_floors` → `sync_points`（不生成演示数据）；最后打印图层、建筑、楼层、求助点、监控点、演示数据数量。删除 `_LAYER_SPECS`/`_POINT_SPECS`/`_LEGACY_LAYER_NAMES` 中写死的坐标与尺寸。 |
+| `backend/scripts/seed_demo.py` | 只保留 `seed_demo(db, *, count=60, seed_value=…)` 与 `main`；内部调用 `building_service` 的素材/图层查询与 2.28.9 的重建逻辑，不重复实现加权规则。 |
+| `backend/scripts/import_buildings.py` | 保留为单步入口：`load_asset` + `import_buildings`，额外打印 `deleted/skipped/warnings`。 |
+| `backend/scripts/import_map_assets.py` | 新增，完整五步 + 统计（见上）。 |
+
+`seed.py` 直接 `from scripts.import_map_assets import ...` 复用同一批函数，避免两处维护同一套图层规格；`seed.py` 位于 `backend/`，运行时 `sys.path` 已含该目录，无需改启动方式。
+
+### 2.28.7 `GET /map/meta` 接口契约
+
+#### 2.28.7.1 接口定义
+
+| 项 | 内容 |
+|---|---|
+| 方法与路径 | `GET /api/v1/map/meta` |
+| 鉴权 | 登录即可（`get_current_user`），不区分角色 |
+| 响应模型 | `MapMetaOut` |
+| 业务逻辑 | `building_service.get_map_meta(db)`：按 `kind` 取记录，多条时取 `(created_at, id)` 最小的一条，与 `sync_layers` 的保留规则一致 |
+| 稳定性 | 稳定（新增，后续只增字段） |
+
+**响应体**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `flat_layer_id` | UUID | `kind=flat` 的图层 id |
+| `iso_layer_id` | UUID | `kind=iso` 的图层 id |
+| `flat_to_iso` | `number[2][3]` | 素材 `flat_to_iso`，行优先；`iso_x = m00*flat_x + m01*flat_y + m02`，`iso_y = m10*flat_x + m11*flat_y + m12` |
+
+**响应示例**（当前正式素材矩阵，仅作文档示例，代码与测试不得引用该具体数值）
+
+```json
+{
+  "flat_layer_id": "6f0c1c1e-0d1a-4a1b-9a9e-2d6f0f6a1b11",
+  "iso_layer_id": "9b3a2f5c-7d64-4f0e-9a86-3c5d2e1f7a22",
+  "flat_to_iso": [[0.905975, -0.159694, 0.082007], [0.095489, 0.865271, -0.033368]]
+}
+```
+
+**错误**
+
+| 条件 | 状态码 | 代码 | 文案 |
+|---|---|---|---|
+| 未登录 | 401 | `UNAUTH` | 沿用现有鉴权文案 |
+| 缺 `flat` 图层 | 404 | `NOT_FOUND` | 「缺少室外平面图图层，请先初始化地图数据」 |
+| 缺 `iso` 图层 | 404 | `NOT_FOUND` | 「缺少 2.5D 选楼图层，请先初始化地图数据」 |
+| 素材文件缺失/无法解析 | 404 | `NOT_FOUND` | 「地图素材文件缺失，请执行素材导入」 |
+
+**调用示例**（前端，`api/layers.ts`）
+
+```ts
+const meta = await getMapMeta()
+const isoPoint = flatToIso({ x: building.label_position.x, y: building.label_position.y }, meta.flat_to_iso)
+// isoPoint 用于在 2.5D 图上定位标签/角标；不得写回后端
+```
+
+#### 2.28.7.2 路由注册
+
+`/map/meta` 与图层同源（都读 `layer` 表），实现放在 `api/v1/layers.py`：
+
+```python
+map_router = APIRouter(tags=["map"])
+
+@map_router.get("/meta", response_model=MapMetaOut)
+def get_map_meta(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return building_service.get_map_meta(db)
+```
+
+`api/v1/router.py` 增加一行 `api_router.include_router(layers.map_router, prefix="/map")`。该文件已获用户批准纳入本次改动清单（见 2.28.13.1），只新增这一行注册，不改动任何既有路由。
+
+### 2.28.8 推荐算法改动（`advice_service`）
+
+#### 2.28.8.1 排除规则
+
+推荐候选在查询阶段收窄（不改变返回结构、`MAX_LOCATIONS=5`、排序与降级矩阵）：
+
+| 排除项 | 判定 |
+|---|---|
+| 天桥 | `Building.category == "天桥"` |
+| 校门 | `Building.category == "校门"` |
+| 未命名建筑 | `Building.name == "未命名建筑"` |
+
+实现为在既有查询上追加 `filter(*recommendable_building_clauses())`，排序仍 `(-score, code)`。被排除的建筑在 `/buildings` 列表中仍可见、仍可被点击选中，只是不进入推荐结果。
+
+排除判定集中在 `building_service`，供 `advice_service` 与 `seed_demo.py` 共用，禁止两处各写一份：
+
+| 函数 | 形态 | 使用方 |
+|---|---|---|
+| `EXCLUDED_BUILDING_CATEGORIES = frozenset({"天桥", "校门"})`、`UNNAMED_BUILDING = "未命名建筑"` | 模块常量（唯一来源） | 两个函数都由它们派生 |
+| `def recommendable_building_clauses() -> tuple[ColumnElement[bool], ...]` | 查询条件，交给调用方既有查询（`db.query(Building).filter(*clauses)`） | `advice_service` 收窄候选 |
+| `def is_recommendable_building(building: Building) -> bool` | 纯函数，内存判定 | `seed_demo.py` 过滤候选建筑 |
+
+两者语义必须一致：`category ∉ EXCLUDED_BUILDING_CATEGORIES` 且 `name != UNNAMED_BUILDING`。测试用同一组夹具分别验证查询过滤与内存过滤结果相同。
+
+#### 2.28.8.2 建筑类别提示词补充
+
+| 建筑类别 | 物品提示 |
+|---|---|
+| 体育馆 | 水杯、耳机、钥匙、衣物、校园卡 |
+| 运动场 | 水杯、耳机、钥匙、衣物、校园卡 |
+| 球场 | 水杯、耳机、钥匙、衣物、校园卡 |
+| 生活服务 | 校园卡、钱包、雨伞 |
+| 图书馆/食堂/教学楼/宿舍 | 沿用现有映射，不修改 |
+
+匹配函数 `_category_hint` 不变（`hint in category or category in hint`）。
+
+#### 2.28.8.3 距离换米
+
+- 取 flat 图层：`kind=flat` 的 `width/height/pixels_per_meter/scale_calibrated`；`scale_calibrated=false` 或 `pixels_per_meter IS NULL` → 米数为 `None`。
+- 归一化距离是「圈选点 → 建筑标签点」的最小值；换算必须考虑 x/y 像素尺度：
+
+| 步骤 | 公式 |
+|---|---|
+| 归一化差 | `dx = x_point - x_building`、`dy = y_point - y_building` |
+| 像素差 | `px = dx * flat_layer.width`、`py = dy * flat_layer.height` |
+| 像素距离 | `p = sqrt(px² + py²)` |
+| 米数 | `round(p / pixels_per_meter)` |
+
+- 当前素材：`meters_per_pixel = 0.520366` ⇒ `pixels_per_meter ≈ 1.9217`；测试夹具用整数比例（如 `meters_per_pixel=0.5`），断言可手算。
+- `_score` 增加 `meters` 字段（`int | None`）：**评分仍用现有归一化 `distance`**，不改权重、不改排序，降低对 6.9 推荐流程的回归风险；`meters` 只用于理由文案与模型上下文。
+- 未标定比例尺：理由退回「距离较近/中/远」，不出现「米」（沿用 6.14 比例尺门控）。
+
+#### 2.28.8.4 理由生成
+
+| 来源 | 规则 |
+|---|---|
+| 规则（`source=rule`） | `_template_reason` 输出距离句 + 历史句 + 同类句 + 类型匹配句；距离句为「距你圈选的范围约 N 米」（`meters` 非空且存在圈选几何时），否则「距离较近/中/远」 |
+| 模型（`source=model`） | 模型解释作为**追加句**拼接在模板距离句之后，总长 ≤200；模板距离句始终保留，保证「米」一定出现且不被模型改写 |
+| 模型不可用/超时/解析失败 | 完全走规则，`degraded=true`，行为与现状一致 |
+
+模型上下文新增 `distance_meters`（整数），不发送精确坐标、联系方式、认领证据；提示词继续禁止编造联系方式与监控内容。
+
+**理由示例**（正式素材、已标定）：
+
+> 距你圈选的范围约 80 米；历史寻物 12 条、拾获 4 条；建筑类型与类别匹配。
+
+#### 2.28.8.5 对既有测试的影响
+
+- `tests/test_search_advice.py` 用夹具素材重写：断言推荐建筑均来自夹具、不含天桥/校门/未命名、理由含「米」。
+- 模型解释用例的断言从「理由等于模型返回」改为「理由包含模型片段」，避免与追加句策略冲突。
+
+### 2.28.9 演示数据生成（`seed_demo.py` 重写）
+
+#### 2.28.9.1 删除范围与顺序
+
+```plantuml
+@startuml
+title 演示数据重建
+start
+:统计现有 is_demo=true 的帖子;
+:按依赖顺序删除关联\ncandidate → route → item_feature → attachment;
+:存在 comment / like / favorite / helper / claim 时\n先删互动与认领（claim_evidence → claim）;
+:删除演示帖;
+:按固定种子从可推荐建筑中挑选\n（排除未命名/天桥/校门，与推荐同一判定）;
+:逐条写入（is_demo=true, is_simulated=true, layer=flat）;
+:输出 60 条与方向分布;
+stop
+@enduml
+```
+
+- 演示帖一律无照片、无认领、无工单；重建时若历史库中演示帖被认领或评论，先删关联再删帖，输出删除条数，避免外键失败。
+- 演示用户 `demo_poster` 保留（无密码可用，不参与登录）。
+
+#### 2.28.9.2 建筑加权与物品映射
+
+| 建筑类别 | 权重 | 物品类别池 |
+|---|---|---|
+| 食堂 | 5 | 校园卡、雨伞、水杯、钱包、餐具 |
+| 图书馆 | 5 | 书、笔记本电脑、校园卡、耳机、充电宝 |
+| 教学楼 | 5 | 手机、笔记本电脑、耳机、眼镜、充电宝、雨伞 |
+| 宿舍 | 2 | 钥匙、校园卡、衣物、钱包、耳机、雨伞 |
+| 体育馆 / 运动场 / 球场 | 2 | 水杯、耳机、钥匙、衣物、校园卡 |
+| 生活服务 | 1 | 校园卡、钱包、雨伞、钥匙 |
+| 其他 / 历史建筑 / 行政 / 园林 | 1 | 沿用现有 10 类物品 |
+
+- **候选建筑排除未命名建筑、天桥、校门**（已确认）：该过滤与 2.28.8.1 的推荐过滤共用同一套判定——统一调用 `building_service.is_recommendable_building`（或等价的 `recommendable_building_clauses`），不在此处另写类别字符串或名称判断。
+- 演示数据另有自身约束：`floors < 1`、`click_region` 点数 <3（这两项不属于推荐排除，只影响演示取点）。
+- 无可用建筑 → 抛 `RuntimeError`「没有可用于演示数据的建筑」，脚本非零退出（不生成空数据）。
+- 物品类别池在 `seed_demo.py` 内以常量映射维护；不在 `advice_service` 中，避免推荐与演示耦合。
+
+#### 2.28.9.3 抽样与坐标算法
+
+| 环节 | 规则 |
+|---|---|
+| 固定种子 | `random.Random(20261020)`；不使用全局 `random` |
+| 建筑抽样 | `choices(buildings, weights, k=30)`，同一次抽样生成一对（寻物 + 拾获），共 60 条；每对同楼，满足「每栋被选中的楼混合」 |
+| 方向 | 每对固定一条 `lost`、一条 `found` ⇒ 总数 30/30；顺序打乱后写入，避免整屏同向 |
+| 物品 | 按建筑类别从对应池中随机取 |
+| 坐标 | 在轮廓包围盒内均匀采样，用射线法判定落在多边形内（多边形按首尾相连闭合）；最多 200 次 |
+| 兜底 | 200 次失败 → 取轮廓第一个顶点（在边界上，属轮廓内）+ 警告；仍无轮廓 → 该建筑已被排除 |
+| 楼层 | `random.randint(1, max(1, building.floors))`；`location_area = f"{building.name}{floor}F"`，与建筑一致 |
+| 图层 | flat 图层 id（来自 `active_position_layer_id`） |
+| 状态 | 沿用现有 `_status`：约 1/3 进行中，其余已结束 |
+| 文本 | 标题 `演示：{建筑名}{物品}{寻物/拾获}记录{序号:02d}`；描述标注演示用途；`is_demo=true`、`is_simulated=true` |
+
+#### 2.28.9.4 输出与测试口径
+
+- 返回 `DemoResult(created=60, lost=30, found=30, buildings=去重建筑数, warnings=[...])`。
+- 测试断言：总数 60、重复执行仍 60、每条坐标在所属建筑 `click_region` 内、`direction` 两种均存在、图层为 flat。
+- 不依赖正式素材：测试用夹具 3~5 栋建筑，权重与类别映射按夹具类别生效。
+### 2.28.10 `seed.py` 初始化数据
+
+#### 2.28.10.1 图层规格
+
+图层名是允许写死的常量，但只用于新建记录时的展示名，**不参与幂等匹配**；图片名、尺寸、比例尺全部来自素材。
+
+| 图层 | `kind` | 底图 | 尺寸 | 比例尺 | 建筑/楼层 |
+|---|---|---|---|---|---|
+| 校园室外地图 | `flat` | 素材 `flat.image`（`campus_flat.webp`） | 素材 `flat.width/height` | `scale_calibrated=true`，`pixels_per_meter = round(1/meters_per_pixel, 4)` | — |
+| 校园 2.5D 选楼图 | `iso` | 素材 `iso.image`（`campus_25d.webp`） | 素材 `iso.width/height`（当前 2400×1842） | `false`，`pixels_per_meter=NULL` | — |
+| 综合楼 1F / 2F | `floor` | 无（素材未提供） | 占位 1000×1000 | `false` | 编号 21、楼层 1/2 |
+| 图文信息中心 1F | `floor` | 无 | 占位 1000×1000 | `false` | 编号 17、楼层 1 |
+
+`sync_layers` 的查找顺序：**只按 `kind`** 取 `flat`/`iso` 各一条（`created_at` 最早，并列取 `id` 最小），命中则更新名称、图片、尺寸与比例尺并保留原 `id`；未命中才按常量名新建。迁移后旧「校园 2.5D 底图」的 `kind` 已是 `flat`，`sync_layers` 会把它改名为「校园室外地图」并把底图换成 `campus_flat.webp`，不会因名称不同另建记录；旧楼层图层由 `import_floors` 按 `(building_id, floor)` 认领，不产生重复。同 `kind` 多余记录按 2.28.6.3 收敛（保留最早、无引用则删除、有引用则警告）。
+
+#### 2.28.10.2 求助点与模拟监控点
+
+| 点位 | 图层 | 位置来源 | 公开 | 说明 |
+|---|---|---|---|---|
+| 保卫处 | flat | 编号 19 的 `label_position` | 是 | 24 小时值班，可协助查询监控与登记失物 |
+| 失物招领处 | flat | 编号 19 的 `label_position`，`x = min(1, x + 0.01)`，`y` 不变 | 是 | 集中保管拾获物品；说明固定为「设于保卫处，位置待核实」 |
+| 校园服务台 | flat | 编号 16 的 `label_position` | 是 | 提供咨询与失物登记指引 |
+| `{校门名}监控（模拟）` ×4 | flat | `campus_roads.json` 中带 `gate` 字段的节点 `x/y` | 否 | `kind=monitor_point`、`is_simulated=true`；说明「模拟监控点位，仅工作人员可见」 |
+
+- 校门节点读取：只读顶层 `nodes`，筛选 `gate` 非空；标签为 `f"{gate}监控（模拟）"`（素材 gate 名已含「校门」，不重复拼接）。
+- 编号 19/16 在素材缺失或 `label_position` 为空时：跳过该点位 + 警告（不阻断 seed）。
+- 幂等：按 `(flat 图层, kind, label)` upsert；本次集合之外的种子点删除，条件是 `is_simulated=true` 且 `created_by IS NULL`；工作人员手工创建（`created_by` 非空）的点保留并警告。
+- 无校门节点：不创建监控点 + 警告，其余初始化继续（6.20.11 异常分支）。
+
+### 2.28.11 前端设计
+
+#### 2.28.11.1 三视图状态划分
+
+```plantuml
+@startuml
+title 地图页视图状态
+[*] --> 室外
+室外 --> 室内 : 点击「室内」
+室内 --> 室外 : 点击「室外」/「在室外地图定位」
+室外 --> 楼层 : 建筑卡片「进入楼层」
+室内 --> 楼层 : 建筑卡片「进入楼层」
+楼层 --> 楼层 : FloorSwitcher 切层
+楼层 --> 室外 : 「返回室外」
+note right of 室外
+  layer.kind = flat
+  全部图层 + 绘制工具
+end note
+note right of 室内
+  layer.kind = iso
+  选楼 / 角标 / 推荐高亮
+  监控点（有权限，标注模拟）
+  无绘制、求助点、热力
+end note
+note right of 楼层
+  layer.kind = floor
+  底图或网格占位
+  房间名 / 楼层帖
+end note
+@enduml
+```
+
+`MapView` 状态（全部 `useState`，不写 URL、不持久化视图）：
+
+| 状态 | 类型 | 初始值 | 说明 |
+|---|---|---|---|
+| `view` | `'flat' \| 'iso' \| 'floor'` | `'flat'` | 每次进入地图页默认室外（6.20.1）；不写入 sessionStorage |
+| `flatLayerId` / `isoLayerId` | `string \| null` | 来自 `/map/meta` | 缺 meta 时退回 `layers.kind` 推断 |
+| `activeLayerId` | `string \| null` | `flatLayerId` | 当前底图图层：flat/iso/floor 三选一 |
+| `selectedBuildingId` | `string \| null` | `null` | 两视图共用 |
+| `showLabels` | `boolean` | `false` | 楼名开关 |
+| 既有开关 | 同现状 | 同现状 | `showItems/showHelp/showMonitor/showAdvice/showHeatmap/showBuildings`；视图切换只影响渲染条件，不改数据 |
+
+派生：
+
+| 派生值 | 规则 |
+|---|---|
+| `activeLayer` | `layers.find(id === activeLayerId)` |
+| `flatLayer` / `isoLayer` | 按 `kind` 从 `layers` 取，meta 优先 |
+| `floorLayersOf(building)` | `kind==='floor' && building_id === building.id`，按 `floor` 升序 |
+| `activeCounts` | 进行中帖子按 `building_id` 计数，仅用于角标 |
+| `recommendedCodes` | `advice.locations.map(l => l.building_code)` |
+| `canDraw` | `view !== 'iso' && !(view === 'floor' && !activeLayer.image_path)` |
+| `canSeeMonitor` | `role === 'staff' \|\| 'admin'`（不变） |
+
+视图与图层的一致性：`view` 是唯一真值，`activeLayerId` 由视图推导（进入楼层时用所选楼层 id）；`FloorSwitcher` 切层只改 `activeLayerId`，不改 `view`。
+
+#### 2.28.11.2 组件与文件职责
+
+| 文件 | 改动 | 职责 |
+|---|---|---|
+| `types.ts` | 扩展 | `LayerKind`、`FlatToIsoMatrix`、`Room`、`MapMeta`；`Building` 增 4 字段；`Layer` 增 `kind`/`rooms` |
+| `api/layers.ts` | 扩展 | `getMapMeta(): Promise<MapMeta>`；其余不变 |
+| `api/buildings.ts` | 扩展 | `listAllBuildings(): Promise<Building[]>`：先取第 1 页，按 `total` 循环 `offset` 取完，单页 `limit=100` |
+| `components/CampusMap/coords.ts` | 扩展 | 保留现有两个换算；新增 `flatToIso`、`pointInRegion`、`flatBuildingAt`、`isoBuildingAt`、`BUILDING_LABEL_MIN_ZOOM` |
+| `components/CampusMap/BuildingLayer.tsx` + `.module.css` | 改造 | 平面视图：`click_region` 命中（`flatBuildingAt`）、默认不画轮廓、选中高亮、推荐高亮、楼名阈值、可选 `rooms` |
+| `components/CampusMap/IsoBuildingLayer.tsx` + `.module.css` | 新增 | 2.5D：`iso_hit_area` 高亮选中、推荐高亮（矩阵换算）、数量角标、楼名阈值；`canSeeMonitor` 时用 `flatToIso` 渲染监控点并标注「模拟」，求助点不渲染 |
+| `components/CampusMap/BuildingCard.tsx` + `.module.css` | 改造 | 三按钮（查看帖子 / 进入楼层仅在有楼层图层时渲染 / 在室外地图定位仅室内）；`filterFloor` 支持楼层过滤 |
+| `components/CampusMap/LayerToggles.tsx` + `.module.css` | 小幅 | 无结构改动（选项由 `MapView` 传入），补「显示楼名」选项；保持 44px 点击区 |
+| `components/CampusMap/FloorSwitcher.tsx` + `.module.css` | 小幅 | 「返回室外」改为回调 `onExit`（切回 flat）；楼层按钮展示 `{floor}F`；「楼层图整理中」提示不在此组件 |
+| `pages/MapView.tsx` + `.module.css` | 改造 | 三视图状态、视图切换、图层与数据编排、楼层占位遮罩、详情与错误态 |
+| `hooks/useCampusMapLayers.ts` | 改（已批准，见 2.28.13.4） | 将 `listBuildings({limit:100})` 改为 `listAllBuildings()`，全量加载约 137 栋，不再按现有切片/上限截断；`MapView` 继续复用该 hook，不另起数据获取逻辑 |
+
+#### 2.28.11.3 坐标换算（`coords.ts`）
+
+```ts
+export type FlatToIsoMatrix = [[number, number, number], [number, number, number]]
+export interface NormalizedPoint { x: number; y: number }
+
+// 平面归一化坐标 → 2.5D 归一化坐标（2×3 仿射，行优先）
+export function flatToIso(point: NormalizedPoint, matrix: FlatToIsoMatrix): NormalizedPoint
+
+// 多边形命中（射线法，首尾自动闭合；点数 <3 返回 false）
+export function pointInRegion(point: NormalizedPoint, region: NormalizedPoint[]): boolean
+
+// 平面视图按轮廓取建筑；室内视图按 iso 命中区取建筑，多个命中取 draw_order 最大
+export function flatBuildingAt(point: NormalizedPoint, buildings: Building[]): Building | null
+export function isoBuildingAt(point: NormalizedPoint, buildings: Building[]): Building | null
+
+// 楼名显示缩放阈值：集中配置，两个建筑层组件共用
+export const BUILDING_LABEL_MIN_ZOOM = 0.5
+```
+
+- `flatToIso` 不写死矩阵，参数来自 `/map/meta`；只用于渲染，不写回后端。
+- `isoBuildingAt` 的确定性：先收集全部命中，按 `(draw_order 降序, code 升序)` 取第一条；`draw_order` 相同也有稳定结果，不依赖 Leaflet 图层添加顺序。
+- 阈值取值理由：`CampusMap` 的 `minZoom=-3`、`maxZoom=3`，`fitBounds` 初始通常在 -1~0 之间；`0.5` 约相当于放大 3~4 档，130+ 楼名不会同时铺满。阈值只在 `coords.ts` 定义，组件不重复数字。
+- 既有 `buildingAt`（发布时反查建筑）保留在 `BuildingLayer.tsx`，内部改为调用 `pointInRegion`，避免两份实现；导出签名不变，`MapView` 的 `publish` 不变。
+
+#### 2.28.11.4 命中与选中
+
+| 视图 | 点击判定 | 高亮 | 说明 |
+|---|---|---|---|
+| flat | `flatBuildingAt`：`click_region` 命中，未命中取 0.08 内最近标签 | 选中建筑画 `click_region` 描边 + 低透明度填充；推荐建筑画描边 + 序号标签 | 默认不绘制任何轮廓（6.20.2） |
+| iso | `isoBuildingAt`：`iso_hit_area` 命中，`draw_order` 最大 | 选中建筑画 `iso_hit_area` 描边 + 浅填充；推荐建筑画描边 + 序号 | 默认不绘制轮廓（6.20.3） |
+| floor | 不选建筑（当前建筑固定为楼层所属建筑） | 楼层底图 | 房间名走 `rooms` |
+
+实现方式：`BuildingLayer` 与 `IsoBuildingLayer` 的命中多边形 `interactive=false`，点击统一由 `MapView` 传给 `CampusMap` 的 `onMapClick` 处理（`flat` 取建筑、`iso` 取建筑、`floor` 清空选中），避免依赖 Leaflet 的「后添加者优先」。绘制模式下（`flat`/`floor`）`onMapClick` 只清空选中，不抢绘制工具的点击。
+
+#### 2.28.11.5 楼名与数量角标
+
+| 元素 | 显示条件 | 位置 | 样式 |
+|---|---|---|---|
+| 楼名 | `showLabels=true` 且 `map.getZoom() >= BUILDING_LABEL_MIN_ZOOM` 且名称 ≠「未命名建筑」 | flat：`label_position`；iso：`iso_label_position` | `divIcon` 文本 + 浅底色，`pointer-events: none`，不遮挡点击 |
+| 数量角标 | `activeCounts[building.id] > 0`（仅 iso） | `iso_label_position` 上方偏移 | `--color-danger` 圆角胶囊，文本 `N`，`aria-label="{楼名}进行中 N 条"` |
+| 未命名建筑 | 永不显示楼名 | — | 避免 130+ 标签堆叠（6.20.5） |
+
+两个组件都在 `map.on('zoomend')` 里同步 `zoom` 状态（与 `ItemPointsLayer` 相同的写法），缩小到阈值以下自动隐藏，不需要用户再次操作开关。
+
+#### 2.28.11.6 建筑卡片
+
+```ts
+interface BuildingCardProps {
+  building: Building
+  mode: 'flat' | 'iso' | 'floor'
+  floorLayers: Layer[]
+  filterFloor?: number | null
+  onClose: () => void
+  onEnterFloor: (layerId: string) => void
+  onLocateOutdoor: () => void
+}
+```
+
+| 按钮 | 显示条件 | 行为 |
+|---|---|---|
+| 查看这栋楼的帖子 | 始终 | 首次点击拉取 `listItems({building_id, limit:5})`；`filterFloor` 非空时前端按 `floor` 过滤；空态文案「该建筑暂无相关帖子」 |
+| 进入楼层 | `floorLayers.length > 0` 才渲染（不渲染禁用态） | 打开 `FloorSwitcher`，默认进入最小楼层；`mode='floor'` 时隐藏该按钮 |
+| 在室外地图定位 | `mode === 'iso'` 才渲染 | 调 `onLocateOutdoor`：`view='flat'`、`activeLayerId=flatLayerId`、居中到该建筑轮廓（`MapView` 通过 `focus` 状态驱动，见 2.28.11.9） |
+
+数量为 0 时仍展示「进行中 0 条」，按钮可用并显示空态（6.20.4）。
+
+#### 2.28.11.7 楼层视图
+
+| 条件 | 渲染 |
+|---|---|
+| 楼层图层有 `image_path` | `CampusMap` 显示楼层底图；有 `rooms` 时在房间中心显示房间名；允许绘制工具（标点/圈范围/画路径） |
+| 楼层图层无 `image_path` | 地图区域内覆盖浅色网格遮罩 + 「楼层图整理中」；隐藏绘制工具（无基准坐标，避免产生无意义标点）；`FloorSwitcher` 与帖子列表照常可用 |
+| 进入方式 | 建筑卡片「进入楼层」；`FloorSwitcher` 切层；「返回室外」回 flat |
+| 帖子列表 | `BuildingCard` 以 `filterFloor=activeLayer.floor` 展示该楼层帖；无帖显示空态 |
+| 楼层帖在室外 | 由 `ItemPointsLayer` 按建筑中心聚合显示（沿用现有逻辑），不展示楼层坐标 |
+
+楼层占位遮罩放在 `MapView.module.css`（`position: absolute` 覆盖 `.mapArea` 内地图区），使用 `--color-border`/`--color-bg-2`/`--color-text-2` 画网格与文案，不写具体颜色值；`pointer-events: none` 让地图仍可平移缩放。
+
+#### 2.28.11.8 样式与 375px
+
+- 新增/修改的样式文件：`IsoBuildingLayer.module.css`（高亮、角标、楼名）、`BuildingLayer.module.css`（推荐高亮、楼名、房间名）、`BuildingCard.module.css`（三按钮换行）、`FloorSwitcher.module.css`（仅补强制换行）、`MapView.module.css`（`viewSwitch`、`floorPlaceholder`）。
+- 视图切换：两个 `button`，`min-height: 44px`、`flex-wrap: wrap`、`gap: var(--space-2)`；选中态用 `--color-primary`/`--color-text-inverse`，未选中 `--color-bg-1`；`aria-pressed` 标记当前视图。
+- 所有颜色、间距、圆角、字号只引用 `tokens.css` 变量；不新增内联 `style`。
+- 375px：视图切换、图层开关、绘制工具条均 `flex-wrap`；建筑卡片按钮纵向排列；地图高度保持现有 560px，不产生横向滚动。
+
+#### 2.28.11.9 数据获取与三态
+
+| 数据 | 来源 | 加载 | 出错 | 空 |
+|---|---|---|---|---|
+| 图层 | `useLayers` | 现有骨架 | `ErrorNotice`「图层加载失败」 | 「暂无图层，请先初始化地图数据」 |
+| 元数据 | `useAsync(getMapMeta)` | 视图切换按钮可用前不阻塞地图（flat 图层可从 `layers` 兜底） | `ErrorNotice`「地图元数据加载失败，室内视图不可用」；禁用「室内」按钮 | — |
+| 建筑（全量） | `listAllBuildings` | 地图占位 | `ErrorNotice` | 「暂无建筑数据」 |
+| 进行中帖子 | `listItems({limit:100})` | 不阻塞 | `ErrorNotice` | 无角标/无点位 |
+| 点位（求助/监控） | `listLayerPoints(flatLayerId)` | 不阻塞 | `ErrorNotice` | 空层 |
+| AI 推荐 | `useSearchAdvice`（既有） | 按钮 `loading` | `ErrorNotice` | 无推荐层 |
+
+- **`/map/meta` 缺失时的降级**：`flat` 视图仍可用（`layers.find(kind==='flat')`）；`iso` 视图禁用并提示，不静默回退错误底图（6.20.1 异常）。
+- **定位到楼**：`MapView` 维护 `focus` 状态 `{buildingId, nonce}`；`CampusMap` 以 `key={activeLayer.id}` 重挂载后，由 `BuildingLayer` 在 `focus` 变化时调用 `map.fitBounds(建筑轮廓)`，`nonce` 保证重复点击同一楼也会重新居中。该逻辑不改 `CampusMap.tsx`。
+- **视图切换不清数据**：`selectedBuildingId`、绘制结果、已加载帖子在切换时保留；切到 `iso` 时若绘制工具处于激活态，先 `tool.clear()` 并退出绘制模式（避免隐藏工具后仍有未提交的坐标）。
+### 2.28.12 测试设计
+
+#### 2.28.12.1 夹具组织
+
+测试不读取 `app/data/campus_buildings.json`、`campus_roads.json` 等正式素材，全部使用 `backend/tests/fixtures/` 下的固定小素材；`conftest.py` 只新增路径与导入夹具，不改现有 `clean_db`/`client` 行为。
+
+| 文件 | 内容 | 关键取值 |
+|---|---|---|
+| `tests/fixtures/map_asset.json` | 5 栋建筑 + flat/iso 元数据 | flat 800×600、`meters_per_pixel=0.5`（⇒ 2 px/m）、iso 1000×800、`flat_to_iso` 为单位矩阵 |
+| `tests/fixtures/map_floors.json` | 1 个楼层规格 | `T1` / 1F / 自习室，房间 1 间 |
+| `tests/fixtures/map_roads.json` | 1 个校门节点 | `gate=1`、名称「测试校门」 |
+
+夹具建筑刻意覆盖边界，且**不含**正式素材中的名称、编号、137 等数字：
+
+| 建筑 id | code | name | category | 设计意图 |
+|---|---|---|---|---|
+| `f001` | `T1` | 测试教学楼 | teaching | 正常楼，含 flat 轮廓/标签、iso 命中/标签、`draw_order=1`、`floors=3` |
+| `f002` | `T2` | 测试食堂 | life（名称含「食堂」） | 正常楼，iso 命中与 T1 重叠且 `draw_order=9`（验证上层优先） |
+| `f003` | `DUP` | 测试图书馆 | library | 与 `f004` 编号重复，验证改写为 `DUP-f003`/`DUP-f004` |
+| `f004` | `DUP` | null（`named=false`） | `unknown` | 验证未命名 + 未知类别 → 「其他」+ 警告 |
+| `f005` | null | 测试天桥 | bridge | 空编号改用 `b005`；只用于「推荐排除」与「不作为演示取点」 |
+
+`conftest.py` 新增夹具（只增不改）：
+
+```python
+@pytest.fixture
+def map_asset_path() -> Path
+@pytest.fixture
+def map_floors_path() -> Path
+@pytest.fixture
+def map_roads_path() -> Path
+@pytest.fixture
+def map_asset(map_asset_path: Path) -> MapAsset
+@pytest.fixture
+def import_map(map_asset: MapAsset) -> BuildingImportResult   # 调 import_buildings
+@pytest.fixture
+def seeded_map(import_map, map_floors_path, map_roads_path)   # 建筑 + 楼层 + 图层/点位
+```
+
+- 夹具只做「调用服务 + 断言返回类型」，不在夹具里写业务规则；需要统计的用例自行查库。
+- `seeded_map` 返回 `MapAsset` 与 `BuildingImportResult`，便于用例复用素材中的尺寸/比例尺。
+
+#### 2.28.12.2 用例矩阵
+
+新增 `tests/test_map_assets.py`（素材转换、导入、楼层、图层收敛、演示数据）与 `tests/test_map_layers.py`（元数据、位置校验、推荐），共 26 条：
+
+| 编号 | 文件 | 场景 | 关键断言 |
+|---|---|---|---|
+| T01 | test_map_assets | 正常转换 | 类别 teaching→教学楼、life→食堂；轮廓/标签/iso 字段点数正确 |
+| T02 | test_map_assets | 空编号与未命名 | `b005`；`f004` 名称为「未命名建筑」 |
+| T03 | test_map_assets | 未知类别 | 类别为「其他」，警告含 `f004` 与原类别 |
+| T04 | test_map_assets | 重复编号 | 两栋均存在，编号为 `DUP-f003`、`DUP-f004`，警告只出现一次 |
+| T05 | test_map_assets | 轮廓/标签缺失 | 无轮廓楼跳过或 `click_region=None` 且警告；标签用顶点均值兜底 |
+| T06 | test_map_assets | 楼层占位 | `import_floors` 创建 `T1`/1F 等占位；重复执行 `created=0`；无 `image_path` |
+| T07 | test_map_assets | 建筑导入幂等 | 首次 5 新增、0 更新；再次 0 新增、5 更新，总数仍 5 |
+| T08 | test_map_assets | 删除旧建筑（无用户引用） | 预置 `OLD1` + 演示帖，导入后 `OLD1` 与演示帖均消失，`deleted=1` |
+| T09 | test_map_assets | 旧建筑有用户引用 | 预置非演示帖引用 `OLD1`，导入后建筑保留、警告含编号与引用数 |
+| T10 | test_map_assets | `seed.py` 幂等 | 两次 `sync_layers`/`sync_points`，图层 5 个（flat/iso + 3 楼层）、点位数量不变；flat/iso 各 1 条且 `id` 与首次一致 |
+| T11 | test_map_layers | `/map/meta` 正常 | 200；`flat_layer_id`/`iso_layer_id` 与库中 flat/iso 图层一致；`flat_to_iso` 为 2×3 且等于素材矩阵 |
+| T12 | test_map_layers | `/map/meta` 未登录 | 401 + `UNAUTH` |
+| T13 | test_map_layers | `/map/meta` 缺图层 | 删除 iso 后 404 + `NOT_FOUND`，文案含「2.5D 选楼图层」 |
+| T14 | test_map_layers | iso 帖子标点 | `POST /items/{id}/map-anchor` 指定 iso 图层 → 400 + `VALIDATION` |
+| T15 | test_map_layers | iso/floor 路线 | `POST /items/{id}/route` 指定 iso 或 floor 图层 → 400 |
+| T16 | test_map_layers | iso/floor 求助点 | `POST /layers/{iso}/simulated-points`、floor 图层 → 400 |
+| T17 | test_map_layers | 楼层缺参 | 缺 `floor` 或 `building_id` → 400，错误信息指明缺失字段 |
+| T18 | test_map_layers | 楼层不匹配 | 帖子 `building_id=T2`，标点到 T1 的楼层图层 → 400 |
+| T19 | test_map_layers | 楼层成功 | 图层 `rooms` 出现在 `GET /layers`；iso 图层不返回 `rooms` |
+| T20 | test_map_layers | 推荐排除 | 结果不含天桥、校门、未命名；`MAX_LOCATIONS` 仍 ≤5 |
+| T21 | test_map_layers | 米数换算 | x 方向 0.05 归一化差 → 800×0.05=40px ⇒ 20m；理由含「米」 |
+| T22 | test_map_layers | 模型降级 | 超时 → `source=rule`、`degraded=true`、理由仍含距离句 |
+| T23 | test_map_layers | 序列化字段 | `BuildingOut` 含 `iso_hit_area`/`iso_label_position`/`draw_order`/`entrance_node`，与素材一致 |
+| T24 | test_map_assets | 同名旧 `flat` 图层复用 | 预置 `name="校园 2.5D 底图"`、`kind=flat`、旧底图的图层；`sync_layers` 后 `kind=flat` 仍只有 1 条，`id` 等于预置 id，名称/图片/宽高/比例尺已更新为素材值（不新建第二条） |
+| T25 | test_map_assets | 多条同 `kind` 图层·无引用 | 预置两条 `flat`（`created_at` 不同），后一条无帖子/路线/求助点引用；导入后只保留最早一条，`removed=1`，库里 `kind=flat` 计数为 1 |
+| T26 | test_map_assets | 多条同 `kind` 图层·有引用 | 预置两条 `flat`，较晚一条被演示帖或求助点引用；导入后两条都保留，`removed=0`，警告含该图层名称与 id，`/map/meta` 仍返回最早一条 |
+
+- T24–T26 归属 `test_map_assets`，编号追加在末尾以保持既有编号稳定；三条都不使用 `seeded_map`（该夹具会预先创建 flat/iso），改为直接建图层后调用 `sync_layers`，避免夹具与被测数据互相干扰。
+- T20–T22 复用 `tests/test_ai_draft.py` 的假客户端工具，不新增网络依赖。
+- 所有用例通过服务层或 HTTP 断言，不直接读 `app/data/`；涉及比例尺的断言只用夹具的 0.5。
+
+#### 2.28.12.3 既有测试修改
+
+| 文件 | 修改 |
+|---|---|
+| `tests/test_buildings.py` | `import_config()` 改为 `import_buildings(db, load_asset(map_asset_path))`；总数 8→5、`B01`→`T1`、食堂名称/层数/标签断言改为夹具值；`test_import_rejects_invalid_config` 改为「素材缺 flat 元数据 → `ValueError`」，不再依赖「缺 category 报错」；`load_config` 相关断言删除 |
+| `tests/test_demo_seed.py` | 用例增加 `seeded_map` 依赖；断言 `DemoResult`：`created=60`、`lost=30`、`found=30`；重复执行为 0；每对同楼；坐标落在对应 `click_region`；图层 kind 为 flat；不再断言 8 栋 |
+| `tests/test_search_advice.py` | 用例增加 `seeded_map` 依赖；`CIRCLE` 中心改为夹具 T2 标签；`B02` 改为 `T2`（食堂，分最高）；模型解释断言改为「包含」模型片段 |
+| `tests/test_layer_points.py` | 保持通过；若显式创建图层，补 `kind=LayerKind.flat`；新增的 400 场景放 `test_map_layers.py` |
+| `tests/test_acceptance.py`、`tests/test_ai_draft.py` | 不改；回归验证权限、私密字段、归还唯一性、降级 |
+
+- `conftest.py` 的 `clean_db` 仍用 `create_all`，因此模型列必须与迁移一致；新列需有 Python 侧默认，避免 `create_all` 后插入失败。
+- 测试不得依赖执行顺序：每个用例自行 `seeded_map` 或导入，未使用的用例不共享可变状态。
+
+#### 2.28.12.4 不依赖正式素材的保证
+
+1. 正式素材只出现在 `app/data/` 与运行脚本的默认参数中，测试通过显式路径覆盖。
+2. 断言中不出现正式建筑名、137、1899×2400、0.520366、矩阵具体值。
+3. 夹具用单位矩阵与整数比例尺，坐标换算可手算；避免浮点误差导致的脆弱断言。
+4. 演示数据使用固定种子，连续两次执行结果一致；测试只断言结构与范围，不断言具体抽样序列。
+### 2.28.13 改动文件清单
+
+#### 2.28.13.1 后端
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `app/models/enums.py` | 改 | 新增 `LayerKind`（flat/iso/floor） |
+| `app/models/building.py` | 改 | 新增 `iso_hit_area`、`iso_label_position`、`draw_order`、`entrance_node` |
+| `app/models/layer.py` | 改 | 新增 `kind`、`rooms`；`image_path` 缺失允许 |
+| `app/schemas/building.py` | 改 | `BuildingOut` 暴露 4 个新字段；写入校验拒绝越界坐标 |
+| `app/schemas/layer.py` | 改 | `LayerOut` 增加 `kind`、`rooms`；`image_path` 可空 |
+| `app/services/building_service.py` | 改 | 素材模型、转换、导入、楼层/图层/点位同步、`get_map_meta` 替代旧配置读取 |
+| `app/services/advice_service.py` | 改 | 排除规则、类别提示词、米数换算、理由追加 |
+| `app/services/item_service.py` | 改 | 仅在创建标点/路线时复用图层校验（不改变业务规则） |
+| `app/api/v1/buildings.py` | 改 | 返回新字段；分页上限不变 |
+| `app/api/v1/layers.py` | 改 | 楼层参数校验、iso/floor 写入拒绝、`rooms` 输出；新增 `map_router` 提供 `GET /map/meta` |
+| `app/api/v1/router.py` | 改（已批准） | 注册 `layers.map_router`（prefix `/map`），只新增一行，不改既有路由 |
+| `alembic/versions/20261020_x2a_map_views.py` | 新增 | revision `20261020_x2a_map`，`down_revision=20261020_f14_uniq` |
+| `seed.py` | 改 | 从素材同步图层（flat/iso + 3 占位楼层）与点位 |
+| `scripts/import_buildings.py` | 改 | 改为 `load_asset` + `import_buildings`，只导入建筑，保留旧入口 |
+| `scripts/import_map_assets.py` | 新增 | 5 步编排、统计打印、非零退出 |
+| `scripts/seed_demo.py` | 改 | 清空重建、30 对、固定种子、坐标落在轮廓内 |
+| `app/data/buildings.json` | 删除 | 旧 8 栋扁平配置，由 `campus_buildings.json` 取代 |
+| `storage/campus-2.5d.jpg` | 删除 | 旧底图，由 `campus_25d.webp` + `campus_flat.webp` 取代 |
+
+#### 2.28.13.2 前端
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `src/types.ts` | 改 | `LayerKind`、`MapMeta`、`Building` 新字段、`Room` |
+| `src/api/layers.ts` | 改 | 新增 `getMapMeta`，返回类型显式声明，不用 `any` |
+| `src/api/buildings.ts` | 改 | 新增 `listAllBuildings`（按 limit 分页累加） |
+| `src/components/CampusMap/coords.ts` | 改 | 新增 `flatToIso`、`pointInRegion`、`flatBuildingAt`、`isoBuildingAt` |
+| `src/components/CampusMap/BuildingLayer.tsx` + `.module.css` | 改 | 楼名阈值、推荐高亮、房间名、focus 定位 |
+| `src/components/CampusMap/IsoBuildingLayer.tsx` + `.module.css` | 新增 | 2.5D 命中多边形、上层优先、楼名与角标 |
+| `src/components/CampusMap/BuildingCard.tsx` + `.module.css` | 改 | 「进入楼层」「定位」「关闭」三按钮 |
+| `src/components/CampusMap/LayerToggles.tsx` + `.module.css` | 改 | 楼名开关，移动端换行 |
+| `src/components/CampusMap/FloorSwitcher.tsx` + `.module.css` | 改 | 楼层列表来自图层，强制换行 |
+| `src/pages/MapView.tsx` + `.module.css` | 改 | 三视图状态、视图切换、楼层占位、绘制禁用、数据三态 |
+| `src/hooks/useCampusMapLayers.ts` | 改（已批准） | `listAllBuildings` 全量加载约 137 栋，不再按现有切片/上限截断 |
+
+- `CampusMap.tsx`、`MapContext.tsx`、`AIRecommendLayer.tsx`、`ItemPointsLayer.tsx` 不改；新增逻辑通过 props 或图层组件完成。
+
+#### 2.28.13.3 资源、文档与测试
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| 根 `.gitignore` | 改 | 在 `backend/storage/*` 下增加 `!backend/storage/campus_flat.webp`、`!backend/storage/campus_25d.webp`、`!backend/storage/floors/` |
+| `backend/.dockerignore` | 改（已批准） | 保留 `!storage/outdoor.jpg`，在 `storage/*` 白名单中新增 `!storage/campus_flat.webp`、`!storage/campus_25d.webp`、`!storage/floors/`，否则容器内新底图与楼层图 404 |
+| `README.md` | 改 | 新增素材导入命令、双视图说明、迁移命令 |
+| `tests/conftest.py` | 改 | 新增 6 个夹具，不改 `clean_db`/`client` |
+| `tests/fixtures/map_asset.json` | 新增 | 5 栋夹具建筑 |
+| `tests/fixtures/map_floors.json` | 新增 | 1 个楼层规格 |
+| `tests/fixtures/map_roads.json` | 新增 | 1 个校门节点 |
+| `tests/test_map_assets.py` | 新增 | T01–T10、T24–T26（图层同步与同 kind 收敛） |
+| `tests/test_map_layers.py` | 新增 | T11–T23 |
+| `tests/test_buildings.py` 等 4 个既有测试 | 改 | 见 2.28.12.3 |
+
+#### 2.28.13.4 已批准并纳入改动文件清单（原越界项）
+
+以下 3 处原不在 `spec.md` 6.20 的允许修改清单内，**用户已批准**，现已分别列入 2.28.13.1 / 2.28.13.2 / 2.28.13.3，按最小改动执行：
+
+| 文件 | 不改的后果 | 最小改法 | 状态 |
+|---|---|---|---|
+| `app/api/v1/router.py` | `/map/meta` 无法访问 | 增加 1 行 `api_router.include_router(layers.map_router, prefix="/map")` | 已批准，纳入 2.28.13.1 |
+| `backend/.dockerignore` | 新底图与楼层图不进入镜像，容器内 404 | 在 `storage/*` 白名单新增 `!storage/campus_flat.webp`、`!storage/campus_25d.webp`、`!storage/floors/`（保留 `!storage/outdoor.jpg`） | 已批准，纳入 2.28.13.3 |
+| `frontend/src/hooks/useCampusMapLayers.ts` | 接口上限 100，137 栋只加载前 100 栋，室内缺楼 | 将 `listBuildings({limit:100})` 改为 `listAllBuildings()`，全量加载约 137 栋 | 已批准，纳入 2.28.13.2 |
+
+三项均不改变业务规则与公共契约，只补齐接线；`useCampusMapLayers` 的改动只替换建筑数据来源，帖子仍为 `listItems({limit:100})`（既有分页限制，见 2.28.14 范围外问题第 3 条），不扩大该 hook 的职责。
+
+### 2.28.14 风险与裁决
+
+| 编号 | 风险 | 影响 | 裁决 |
+|---|---|---|---|
+| R1 | SQLite 降级删除列需重建表 | `alembic downgrade` 失败 | 迁移用 `batch_alter_table`；降级只删新增列，不恢复旧数据 |
+| R2 | 旧图层 `kind` 回填错误 | `/map/meta` 找不到 flat 或把楼层当 flat | 回填规则：`building_id IS NULL` → `flat`；`building_id IS NOT NULL` → `floor`；**不**按名称猜 `iso` |
+| R3 | 建筑接口上限 100 | 137 栋缺 37 栋 | 前端 `listAllBuildings` 分页；后端上限不变，避免影响其他调用方 |
+| R4 | 重复编号改写后仍可能冲突 | 唯一索引报错导致整批失败 | 截断/改写后再查重，仍冲突则追加 `id` 后缀；最终冲突整栋跳过并警告 |
+| R5 | 素材质量（12 栋未命名、15 栋空编号、2 栋重复、`draw_order=-1`、`floors=0`、轮廓首尾不闭合） | 前端显示异常或点击命中失败 | 转换层逐条兜底（2.28.4.3）；渲染层闭合多边形；`floors=0` 不生成楼层入口 |
+| R6 | 旧 `storage/campus-2.5d.jpg` 被旧图层引用 | 删文件后图片 404 | 导入脚本更新 flat/iso 的 `image_path`；seed 幂等覆盖；旧文件删除前先在测试库验证无引用 |
+| R7 | 删除旧建筑误删用户数据 | 数据丢失 | 仅删 `is_demo=true` 且无认领/评论的帖；有非演示引用则保留建筑并警告 |
+| R8 | 五步导入顺序错误 | 楼层找不到建筑、点位找不到图层 | 固定顺序：建筑 → 楼层 → 图层 → 点位 → 演示；整批一个事务，失败回滚 |
+| R9 | 2.5D 命中区重叠 | 点选命中小楼 | 命中候选按 `draw_order` 降序，最大者优先；无 `draw_order` 用 0 |
+| R10 | 推荐改动引入回归 | 6.9 排序/降级行为变化 | 仅增加排除与 `meters`，评分权重与排序键不变；保留既有降级矩阵测试 |
+| R11 | 视图切换后残留绘制状态 | 在 iso 提交无意义坐标 | 切到 iso 先 `tool.clear()` 并退出绘制；iso 不渲染绘制工具 |
+| R12 | 并行开发产生多个 Alembic head | `upgrade head` 报错 | 迁移 `down_revision` 固定为 `20261020_f14_uniq`；合并前执行 `alembic heads` 检查单头 |
+| R13 | 历史库存在同 `kind` 多条图层（如旧「校园 2.5D 底图」与新建 flat 并存） | `/map/meta` 选错图层、地图出现两个平面底图 | 幂等键只用 `kind`；复用 `created_at` 最早记录的 `id`，其余无引用删除、有引用保留并警告（2.28.6.3） |
+
+**发现但不在本次范围的问题**（不修改，交付时说明）：
+
+1. 素材含 OSM `attribution`，前端当前没有展示；6.20 未要求，建议后续在页脚补充版权声明。
+2. 2.15.6 对地图底色的文字描述与 `tokens.css` 实际变量相反；本次只引用变量，不改文档与变量。
+3. 地图帖子列表固定 `limit=100`，超过 100 条时地图点位与角标可能少计；属既有分页限制，本次不改。
+4. `20261018_v2_incremental.py` 未执行文档所述的 `1 - ny` 坐标转换；当前前端与素材按左下角语义一致，但历史库若按左上角写入需单独校正，X2a 不处理。
+
+### 2.28.15 验证与手工检查
+
+#### 2.28.15.1 命令清单
+
+在项目根目录按顺序执行（Windows Git Bash / cmd 均可）。首次执行 `seed.py` 前需在 `backend/.env` 配置 `ADMIN_PASSWORD`，并确保数据库已迁移：
+
+```bash
+cd backend
+.venv/Scripts/python -m alembic upgrade head
+.venv/Scripts/python -m alembic check
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m ruff format --check .
+.venv/Scripts/python seed.py
+.venv/Scripts/python scripts/import_map_assets.py
+.venv/Scripts/python scripts/import_map_assets.py
+.venv/Scripts/python -m pytest tests/ -q
+cd ../frontend
+npm run lint
+npm run build
+```
+
+| 命令 | 通过标准 |
+|---|---|
+| `alembic upgrade head` | 无报错；`alembic current` 为 `20261020_x2a_map` |
+| `alembic check` | 输出「No new upgrade operations detected」 |
+| `ruff check` / `ruff format --check` | 0 错误、0 待格式化文件 |
+| `seed.py` | 输出图层与点位写入统计；重复执行不新增，flat/iso 图层 `id` 不变 |
+| `import_map_assets.py` 第一次 | 建筑 137、楼层 3、图层 flat 1 / iso 1、警告逐条列出；退出码 0 |
+| `import_map_assets.py` 第二次 | 建筑新增 0、更新 137；楼层新增 0；图层新建 0、删除 0，flat/iso 的 `id` 与首次一致；退出码 0 |
+| `pytest` | 全部通过，无 skip 掩盖新增用例 |
+| `npm run lint` | 无 error；warning 需说明来源 |
+| `npm run build` | TypeScript 编译通过，产物生成 |
+
+#### 2.28.15.2 浏览器手工检查
+
+启动后端（先 `seed.py`）与前端，使用学生账号与工作人员账号各检查一次：
+
+1. 登录进入地图，默认 flat 视图，底图比例正确、无拉伸，楼名在缩放阈值以上显示。
+2. 切换「室内」显示 2.5D 底图，楼名位置与建筑轮廓一致；缩放低于阈值时楼名隐藏。
+3. 点击 2.5D 图两栋命中区重叠处，命中绘制层级更高的一栋，卡片名称与编号正确。
+4. 切回 flat，之前选中的建筑仍高亮，列表与卡片不丢失。
+5. 建筑卡片「定位」让地图居中该楼；重复点击仍重新居中。
+6. 有楼层图的建筑「进入楼层」显示底图与房间名；无楼层图的建筑显示网格占位与「楼层图整理中」。
+7. 楼层视图「返回室外」回到 flat；楼层切换器只显示该楼楼层。
+8. 在 iso 视图绘制工具不可用；从 flat 带绘制结果切到 iso 时绘制状态被清空。
+9. 375px 宽度下视图切换、图层开关、卡片按钮不溢出，点击目标不小于 44px。
+10. AI 推荐结果不含天桥/校门/未命名建筑，理由出现「约 N 米」；断开模型后仍返回规则结果。
+11. 连续执行两次导入脚本后刷新页面，建筑、楼层、演示帖数量不变；图层列表中室外平面图与 2.5D 选楼图各只有一条且 `id` 不变；旧底图请求无 404。
+
+#### 2.28.15.3 交付说明要求
+
+- 写明迁移文件名 `20261020_x2a_map_views.py`、revision `20261020_x2a_map`、`down_revision`。
+- 写明 2.28.13.4 三项已批准改动的实际落点（路由注册、镜像素材白名单、前端全量加载），并说明均已纳入改动文件清单。
+- 未执行的命令一律标注「未执行」，不得用设计推演代替真实测试结果。
+- 设计文档只描述架构、契约与规则，不粘贴实现代码；实现阶段以本设计为准。
+---
+
+## 2.29 修复批次 R1–R3：AI 对话测试夹具、后端格式收敛、地图控件避让（2026-10-23）
+
+### 2.29.1 本轮输入与边界
+
+| 项 | 内容 |
+|---|---|
+| 上游输入 | 用户本轮修复请求 + 上一阶段已确认要点 R1/R2/R3；`spec.md` 不再修改 |
+| 任务性质 | 测试可重复性修复、代码质量门禁收敛、375px 触控可用性修复；不含业务功能变更 |
+| 已落地且不重复处理 | 冲突标记清除、迁移单 head、两种数据库升级与导入、前端构建通过、浏览器双视图切换正常 |
+| 允许修改 | `backend/tests/test_ai_chat.py`、`backend/` 下 ruff 格式化与拆行涉及的 Python 文件、`frontend/src/components/CampusMap/CampusMap.tsx`、`frontend/src/pages/MapView.module.css` |
+| 明确不修改 | `spec.md`、`tasks.md`、`backend/pyproject.toml`、任何表结构/迁移、任何接口契约、抽屉与图层行为、`tokens.css` |
+| 新增依赖 | 无（后端 httpx/Pillow、前端依赖均不变） |
+| 数据模型与接口 | **本轮不新增、不修改任何接口与数据模型**；无 Alembic 迁移 |
+| 执行边界 | 本阶段只做设计与只读调研；不执行 `ruff format .`、`ruff check --fix`、`npm run build`、`pytest` 等会写入工作区的命令 |
+
+### 2.29.2 需求与存量功能关系分析
+
+#### 2.29.2.1 已实现功能（可直接复用）
+
+| 需求功能 | 存量功能 | 代码位置 | 匹配度 |
+|---|---|---|---|
+| 测试素材路径与导入夹具 | `map_asset_path` / `map_asset` / `import_map` 三个 pytest 夹具，按用例建库并导入 fixture 素材 | `backend/tests/conftest.py:47-75` | 100% |
+| 模型桩与请求捕获写法 | `configure_model`、`FakeResponse`、`install_fake_client`，含超时与异常注入 | `backend/tests/test_ai_draft.py:13-52` | 100% |
+| 测试素材的建筑编码来源 | `f003` 的 `code=DUP` 与 `f004` 重码，`_resolve_code` 追加素材 id 得到 `DUP-f003`/`DUP-f004` | `backend/tests/fixtures/map_asset.json`、`backend/app/services/building_service.py:314-356` | 100% |
+| 规则分支的建筑匹配 | `_match_building` 用 `building.name in text` 或编码匹配数据库建筑 | `backend/app/services/ai_service.py:109-114` | 100% |
+| ruff 行宽与规则集 | `line-length=120`、`select=["E","F","I","UP","B"]`、排除 `.venv`/`alembic` | `backend/pyproject.toml:1-9` | 100% |
+| Leaflet 地图实例 | `L.map` 单一实例、`minZoom=-3`/`maxZoom=3`、`fitBounds`、`maxBounds` | `frontend/src/components/CampusMap/CampusMap.tsx:63-128` | 75%（控件位置与命中区需扩展） |
+| 抽屉收起高度 | 移动端 `bottom:60px`、`height:190px`；桌面 `bottom:0`、`height:220px` | `frontend/src/components/CampusMap/MapDrawer.module.css:1-45`、`MapDrawer.tsx:26-33` | 100%（作为避让基准） |
+| 触控尺寸基线 | 分段按钮 `min-width:72px`、`min-height:44px` | `frontend/src/components/CampusMap/MapTopBar.module.css:10-35` | 100% |
+| 设计变量 | 间距 `--space-*`、字号 `--font-*`、层级 `--z-sticky` | `frontend/src/styles/tokens.css` | 100% |
+
+#### 2.29.2.2 需要扩展的功能
+
+| 需求功能 | 存量功能 | 差异说明 | 扩展方向 |
+|---|---|---|---|
+| `test_ai_chat.py` 4 个模型/规则用例使用隔离素材 | 4 个用例调用 `import_config()`（定义在 `test_buildings.py:13`，必填 `map_asset_path`） | 入参差异：无参调用 → `TypeError`；数据差异：断言依赖正式素材的 `B02`/`图书馆3F`，测试库为空时模型与规则分支都无法回填建筑 | 删除 `import_config` 导入与调用，4 个用例签名增加 `import_map` 夹具；编码常量与断言改为 `DUP-f003`；规则分支用例的输入文案改用素材建筑名 |
+| 地图缩放控件避让 | Leaflet 默认 `zoomControl` 位于左上角，按钮 26/30px | 位置差异：与左上角「室外/室内」分段切换重叠；尺寸差异：命中区不足 44×44 | 控件改右下角并抬升到抽屉收起上沿之上；按钮覆盖为 44×44；层级低于抽屉 |
+| 后端格式门禁 | 22 个文件未格式化、6 处 E501、1 处 F401 | 仅格式与未使用导入，无逻辑差异 | 自动格式化 + 自动修复 F401 + 6 处手工拆行 |
+
+#### 2.29.2.3 需要新增的功能或接口
+
+- **无新增接口、无新增表、无新增配置项。**
+- 新增的仅是：`CampusMap` 内缩放控件定位选项（`zoomControl: false` + `bottomright`）、`MapView.module.css` 中两条 Leaflet 控件覆盖规则、以及测试文件的夹具接入方式。
+
+#### 2.29.2.4 存量约束（设计必须遵守）
+
+1. `conftest.py` 的 `clean_db` 为 autouse，每个用例重建全部表；素材只有在用例参数中显式请求 `import_map` 时才导入。
+2. 测试默认 `model_disabled=True`（`conftest.py:31-39`），模型用例必须在函数内用 `configure_model` 重新打开，并保持既有桩写法。
+3. `_match_building` 按 `Building.code` 升序遍历，且用建筑全名做子串匹配；素材建筑名为「测试图书馆」，输入「图书馆」不含该全名，规则分支不会命中。
+4. Leaflet 版本为 `^1.9.4`，控件容器类为 `.leaflet-bottom.leaflet-right`，按钮默认尺寸规则为 `.leaflet-bar a` 与 `.leaflet-touch .leaflet-bar a`。
+5. 抽屉收起高度在 CSS 与 `MapDrawer.tsx` 的 `drawerAnchors()` 中各有一份（190/220），避让偏移必须与这两处保持一致，不能只改其中一处。
+6. 前端样式只允许 `.module.css` + `tokens.css` 变量，禁止内联 `style`；不得改 `tokens.css` 与抽屉拖拽逻辑。
+
+### 2.29.3 R1 设计：`test_ai_chat.py` 改用测试素材夹具
+
+#### 2.29.3.1 失败根因
+
+| 失败用例 | 当前调用 | 根因 |
+|---|---|---|
+| `test_chat_returns_locked_json_and_strips_markdown` | `import_config()`（第 46 行） | `import_config` 声明为 `def import_config(map_asset_path)`（`test_buildings.py:13`），缺少位置参数直接 `TypeError`，用例在发请求前中断 |
+| `test_chat_degrades_on_model_timeout` | `import_config()`（第 91 行） | 同上；且规则分支断言 `building_code == "B02"`，测试库无该建筑时永远为 `None` |
+| `test_chat_form_patch_skips_unmentioned_fields` | `import_config()`（第 165 行） | 同上 |
+| `test_chat_draft_action_forces_extraction` | `import_config()`（第 193 行） | 同上 |
+
+同时，`CHAT_MODEL_JSON` 中的 `building_code="B02"` 依赖正式素材；在隔离测试库中 `_chat_form_patch` 查不到该编码，`building_code` 会被置空，断言必然失败。
+
+#### 2.29.3.2 依赖关系
+
+```mermaid
+flowchart LR
+  T[pytest 用例] -->|请求 import_map| C[conftest.import_map]
+  C --> A[building_service.load_asset<br/>tests/fixtures/map_asset.json]
+  C --> B[building_service.import_buildings]
+  B --> D[(测试库 building 表)]
+  T -->|POST /api/v1/ai/chat| S[ai_service._chat_form_patch / _rule_chat]
+  S -->|按 building_code 查 Building| D
+  S --> R[响应 form_patch: DUP-f003 / floor=3]
+```
+
+#### 2.29.3.3 改动点（精确到行）
+
+| 位置 | 现状 | 改为 |
+|---|---|---|
+| `backend/tests/test_ai_chat.py:5` | `from tests.test_buildings import import_config` | 删除该导入（改为使用 `import_map` 夹具参数，无需导入） |
+| `CHAT_MODEL_JSON`（第 10-11 行） | `"location_area":"图书馆3F","building_code":"B02"` | `"location_area":"测试图书馆3F","building_code":"DUP-f003"` |
+| 第 45 行函数签名 | `test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch)` | 追加 `import_map` 参数 |
+| 第 46 行 | `import_config()` | 删除 |
+| 第 68 行断言 | `body["form_patch"]["building_code"] == "B02"` | `"DUP-f003"`（断言强度不变） |
+| 第 90 行函数签名 | `test_chat_degrades_on_model_timeout(client, monkeypatch)` | 追加 `import_map` 参数 |
+| 第 91 行 | `import_config()` | 删除 |
+| 第 99 行请求文案 | `"图书馆3楼丢了一把雨伞"` | `"测试图书馆3楼丢了一把雨伞"`（规则分支需命中素材建筑全名） |
+| 第 110 行断言 | `== "B02"` | `== "DUP-f003"` |
+| 第 164 行函数签名 | `test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch)` | 追加 `import_map` 参数 |
+| 第 165 行 | `import_config()` | 删除 |
+| 第 191 行函数签名 | `test_chat_draft_action_forces_extraction(client, monkeypatch)` | 追加 `import_map` 参数 |
+| 第 193 行 | `import_config()` | 删除 |
+
+> 行号为**修改前基线**（删除第 5 行导入后，其下所有行号顺移 1；删除 4 处 `import_config()` 调用后继续顺移）。执行时按内容定位，不要只按行号改动。
+
+补充说明：
+
+- `DUP-f003` 不是手写常量，而是素材 `f003(code=DUP)` 与 `f004(code=DUP)` 重码后由 `_resolve_code` 生成的确定值（`counts[DUP]=2` → `DUP-f003`）；与 `test_ai_draft.py` 既有断言一致。
+- 第 54 行（locked 用例）的输入文案建议同步改为「今天下午三点在测试图书馆3楼靠窗位置丢了一把蓝色折叠伞」，与素材建筑名一致；该用例走模型分支，改与不改都不影响断言，但可避免文案与素材脱节。
+- 保留 `import_config` 在 `test_buildings.py` 中的定义，其他测试仍在使用，**不删除、不改签名**。
+
+#### 2.29.3.4 断言强度守恒
+
+| 用例 | 保留的强断言 | 变更的断言值 | 强度结论 |
+|---|---|---|---|
+| locked JSON | 响应键集合、`intent`、`source`、`degraded`、Markdown 剥离、`reply` 前缀、`actions == ["prefill_form"]`、`timeout == 10` | `building_code: B02 → DUP-f003` | 不变（仍为具体值，不是 `is not None`） |
+| timeout 降级 | `intent`、`source == "rule"`、`degraded is True`、`reply` 非空、`floor == 3`、`actions` | `building_code: B02 → DUP-f003` | 不变 |
+| 未提及字段 | `building_code`/`location_area`/`floor`/`time_occurred` 均为 `None`、`actions`、`source` | 无 | 不变 |
+| draft 动作 | `intent`、`source`、`category`、`title`、system 提示含「整理草稿」 | 无 | 不变 |
+
+不使用 `pytest.skip`、`xfail`、`or True` 等放宽手段；不删除任何断言。
+
+#### 2.29.3.5 用例与夹具矩阵
+
+| 用例 | 是否需要模型桩 | 是否需要 `import_map` | 素材依赖点 |
+|---|---|---|---|
+| `test_chat_returns_locked_json_and_strips_markdown` | 是 | 是 | 模型返回 `DUP-f003`，需查库回填 |
+| `test_chat_degrades_on_model_timeout` | 是（注入超时） | 是 | 规则分支按建筑名匹配 |
+| `test_chat_form_patch_skips_unmentioned_fields` | 是 | 是 | 夹具保证与真实运行环境一致（该用例本身不依赖建筑） |
+| `test_chat_draft_action_forces_extraction` | 是 | 是 | 同上 |
+| 其余 chat 用例（plain/vague/private/greeting/action 校验） | 视用例 | 否 | 不涉及建筑回填，保持现状 |
+### 2.29.4 R2 设计：后端格式收敛
+
+#### 2.29.4.1 基线（本阶段只读实测）
+
+| 检查 | 实测结果 |
+|---|---|
+| `ruff check .` | 7 errors：6 处 `E501` + 1 处 `F401`（`tests/test_prompt_eval.py` 未使用的 `pytest` 导入） |
+| `ruff format --check .` | `22 files would be reformatted, 95 files already formatted` |
+
+22 个待格式化文件（执行后用于核对，路径相对 `backend/`）：
+
+| 分组 | 文件 |
+|---|---|
+| `app/api/v1/`（5） | `admin.py`、`announcements.py`、`comments.py`、`praises.py`、`router.py` |
+| `app/models/`（4） | `__init__.py`、`announcement.py`、`praise.py`、`user.py` |
+| `app/schemas/`（4） | `announcement.py`、`comment.py`、`praise.py`、`stats.py` |
+| `app/services/`（6） | `announcement_service.py`、`comment_service.py`、`item_service.py`、`praise_service.py`、`stats_service.py`、`user_service.py` |
+| `tests/`（3） | `test_admin_features.py`、`test_content_modules.py`、`test_prompt_eval.py` |
+
+变化性质：ruff format 只做括号内换行合并/拆分、空行与尾随逗号调整。实测样例：`tests/test_content_modules.py:118-119` 的三行 `client.post(...)` 会合并为一行；`tests/test_praise` 相关断言会由三行合并为一行。均为布局变化，不改变表达式、字符串内容或控制流。
+
+#### 2.29.4.2 执行顺序（避免二次抖动）
+
+| 步骤 | 命令/动作 | 目的 |
+|---|---|---|
+| 1 | 完成 R1 的 `test_ai_chat.py` 修改 | 避免格式化后再改测试产生二次 diff |
+| 2 | `ruff check . --fix` | 只自动删除 `test_prompt_eval.py` 的未使用导入，其余 6 处 E501 不可自动修复 |
+| 3 | `ruff format .` | 收敛 22 个文件的格式 |
+| 4 | 重新 `ruff check .` | 获取格式化后的真实 E501 行号与数量（部分长行可能已被 format 拆分） |
+| 5 | 按 2.29.4.3 手工拆行 | 只处理第 4 步仍报 E501 的位置 |
+| 6 | `ruff format .` → `ruff check .` → `ruff format --check .` | 确认手工拆行不会被 format 合并回超长行 |
+
+说明：第 4 步若发现某处 E501 已被 format 消除（例如 `stats_service.py:80`），**跳过该处**，不重复改动，避免制造无意义 diff。
+
+#### 2.29.4.3 E501 手工拆行策略（当前基线 6 处）
+
+| 文件:行 | 当前长度 | 拆法 | 注意 |
+|---|---|---|---|
+| `app/services/announcement_service.py:80` | 124 | `return _serialize(...)` 的 4 个实参各占一行，右括号独占一行并保留尾随逗号 | 不改调用顺序与参数表达式 |
+| `app/services/praise_service.py:10` | 123 | `_serialize` 函数签名的 5 个参数各占一行，`-> dict:` 另起一行 | 保持类型标注原样 |
+| `app/services/stats_service.py:80` | 122 | 列表推导内的字典展开为 3 个键各占一行并加尾随逗号，`for status in _STATUS_ORDER` 另起一行 | 若 format 已自动拆分则跳过 |
+| `tests/test_admin_features.py:185` | 130 | 先赋值 `response = client.patch(` 三参数多行，再 `assert response.status_code == 409` | 断言目标仍为 409 |
+| `tests/test_admin_features.py:186` | 132 | 先赋值 `peer_response = client.patch(` 三参数多行，再 `assert peer_response.status_code == 409` | 与上一条使用不同变量名，避免覆盖 |
+| `tests/test_content_modules.py:39` | 121 | `r = client.post(` 三参数多行，再 `assert r.status_code == 200, r.text` | 保留 `r.text` 失败信息 |
+
+拆行原则：只在括号/参数边界换行，使用尾随逗号让 ruff format 保持多行；不引入中间变量改变逻辑（除上表为缩短 assert 行而先赋值响应对象，该做法与仓库既有风格一致，且不改变断言）。**禁止**使用 `# noqa: E501`、不要改 `line-length`、不要改 `pyproject.toml`。
+
+#### 2.29.4.4 自动修复与禁止项
+
+| 项 | 处置 |
+|---|---|
+| `tests/test_prompt_eval.py` 的 F401 | 由 `ruff check . --fix` 删除未使用导入；文件仅剩模块 docstring，属预期结果，不补测试、不删除文件 |
+| `pyproject.toml` | 不改（行宽保持 120，规则集不变） |
+| `alembic/` 与 `.venv/` | 已在 exclude 中，不参与检查，不格式化 |
+| 逻辑 | 不改任何条件、返回值、字符串内容、异常类型、请求参数 |
+| 测试 | 不删除、不跳过、不放宽断言；R2 涉及的测试文件只做格式与拆行 |
+
+#### 2.29.4.5 预期结果
+
+| 检查 | 预期 |
+|---|---|
+| `ruff check .` | `All checks passed!` |
+| `ruff format --check .` | `0 files would be reformatted`（总数以实际扫描为准） |
+| `git diff --stat` | 本轮仅涉及 22 个格式化文件中的实际变更 + R1 的 `test_ai_chat.py` + R3 两个前端文件；`pyproject.toml` 不在 diff 中 |
+
+### 2.29.5 R3 设计：Leaflet 缩放控件移右下并避让抽屉
+
+#### 2.29.5.1 现状与重叠定位
+
+- `CampusMap.tsx:65` 创建地图时未传 `zoomControl`，Leaflet 默认在左上角生成 `.leaflet-top.leaflet-left` 控件。
+- `MapTopBar.module.css` 的 `.overlayTop` 为 `top: var(--space-3); left: var(--space-3)`（12px），`.segment` 左对齐、按钮 `min-width:72px`、`min-height:44px`。
+- 375px 宽度下：缩放控件约 `x=10..40`、`y=10..72`（触屏 30px×2，加控件边框）；分段切换约 `x=12..170`、`y=12..56`。两者在左上角重叠，缩放按钮被压住，无法完整点击。
+
+#### 2.29.5.2 方案选择
+
+| 方案 | 结论 | 理由 |
+|---|---|---|
+| A. 缩放控件移右下角 + 抬升到抽屉收起上沿之上（**采用**） | 采用 | 一次性解决遮挡；左上角完整留给视图切换；不改变分段切换的视觉基线 |
+| B. 室外/室内切换整体右移 | 不采用（仅作回滚备选） | 右移后与搜索框、卡片的左对齐关系被破坏；窄屏（320px）仍可能与控件相邻过近；且未解决缩放控件压住地图内容的问题 |
+| C. 隐藏缩放控件、只保留双指缩放 | 不采用 | 桌面鼠标用户失去缩放入口，属功能退化 |
+
+采用方案 A 后不改动分段切换的尺寸与位置，因此 `MapTopBar.tsx` / `MapTopBar.module.css` 不在改动范围。
+
+#### 2.29.5.3 几何计算（关键）
+
+抽屉收起时上沿相对地图容器底部的距离：
+
+| 视口 | 地图容器（`.mapWrap`）高 | 抽屉参数 | 抽屉上沿相对容器底 | 控件 `bottom` | 控件实际底边（含 10px margin） |
+|---|---|---|---|---|---|
+| 375×667（safe=0） | `667 - 76 = 591` | `bottom:60`、`height:190` | `60 + 190 - 76 = 174` | `174px` | `184px` |
+| 375×568（safe=0） | `568 - 76 = 492` | 同上 | `174` | `174px` | `184px` |
+| ≥768 宽 | `100vh` | `bottom:0`、`height:220` | `220` | `220px` | `230px` |
+
+`safe-area-inset-bottom` 在「抽屉 bottom」与「地图容器高度」中同时出现，相减时抵消，因此偏移量无需按机型调整。
+
+控件可点击区域（375×667）：
+
+| 元素 | 水平范围 | 垂直范围（距容器顶） | 与分段切换是否重叠 |
+|---|---|---|---|
+| 分段切换 | `12..170` | `12..56` | — |
+| 缩放控件（44×44 ×2） | `321..365` | `319..407` | 否（垂直间隔 ≥263px） |
+
+375×568 时控件垂直范围为 `220..308`，仍与 `12..56` 无交集；横屏 375 高时控件约 `27..115`，与分段切换垂直相交，但水平范围相隔 ≥151px，仍不重叠。
+
+#### 2.29.5.4 改动点
+
+| 文件 | 位置 | 改动 | 约束 |
+|---|---|---|---|
+| `frontend/src/components/CampusMap/CampusMap.tsx` | 第 65 行地图创建 | 选项增加 `zoomControl: false`；创建实例后调用 `L.control.zoom({ position: 'bottomright' }).addTo(map)` | 必须同时关闭默认控件，否则出现两个缩放控件；`minZoom/maxZoom` 不变；清理逻辑仍由 `map.remove()` 负责 |
+| `frontend/src/pages/MapView.module.css` | 文件末尾新增规则 | `.mapWrap :global(.leaflet-bottom.leaflet-right)`：`bottom:174px`、`z-index:calc(var(--z-sticky) - 100)`；`@media (min-width:768px)` 下 `bottom:220px` | 只影响地图页；偏移量加注释说明来自抽屉 190/220 与底栏 60 |
+| 同上 | 文件末尾新增规则 | `.mapWrap :global(.leaflet-control-zoom a)` 与 `.mapWrap :global(.leaflet-touch .leaflet-bar a)`：`width/height/line-height:44px`、`font-size:var(--font-xl)` | 用更高特异性覆盖 Leaflet 的 26/30px；不改控件配色与图标 |
+
+样式合规说明：
+
+- 使用 `.module.css` + `:global(...)` 覆盖第三方类，不新增内联 `style`。
+- 字号引用 `var(--font-xl)`，层级引用 `var(--z-sticky)`；`44px` 为触控最小尺寸，与 `MapTopBar.module.css` 的既有写法一致。
+- 不为抽屉高度新增 token：190/220 已存在于 `MapDrawer.module.css` 与 `MapDrawer.tsx`，本轮只做避让，不重构该常量来源（重构会扩大范围并影响抽屉行为）。
+
+#### 2.29.5.5 层级与遮挡关系
+
+| 元素 | z-index | 与缩放控件关系 |
+|---|---|---|
+| 缩放控件（覆盖后） | `calc(var(--z-sticky) - 100)` = 700 | 基准 |
+| 建筑卡片 | `--z-dropdown` = 500 | 控件在上 |
+| 顶部悬浮区 / 底部抽屉 | `--z-sticky` = 800 | 控件在下：抽屉展开时覆盖控件，不出现穿透 |
+| 绘制工具层 | `--z-overlay` = 1100 | 保持原行为；本轮**不**给 `.mapWrap` 加 `isolation`，避免改变绘制层与抽屉的既有层级 |
+
+抽屉三态下的表现：
+
+| 抽屉状态 | 控件可见性 | 说明 |
+|---|---|---|
+| 收起（190/220） | 完整可见、可点击 | 控件底边距抽屉上沿 10px |
+| 半展（40vh/45vh） | 被抽屉覆盖 | 抽屉 800 > 控件 700，无穿透；双指缩放仍可用 |
+| 展开（68vh/72vh） | 被抽屉覆盖 | 同上；符合「抽屉展开时不占用地图操作区」的既有设计 |
+
+#### 2.29.5.6 不改项
+
+- 不改 `minZoom=-3`、`maxZoom=3`、`fitBounds`、`maxBounds`、`panTo` 逻辑。
+- 不改「室外/室内」切换的逻辑、禁用条件与按钮尺寸。
+- 不改抽屉的拖拽、吸附、三态高度与 DOM 结构。
+- 不改图层叠加顺序、绘制工具、点击坐标换算。
+- 不引入新的前端依赖，不改 `tokens.css`。
+### 2.29.6 改动文件清单
+
+| 文件 | 改动 | 类型 |
+|---|---|---|
+| `backend/tests/test_ai_chat.py` | 删除 `import_config` 导入；`CHAT_MODEL_JSON` 改用 `DUP-f003`；4 个用例增加 `import_map` 夹具并删除无参调用；超时用例输入改素材建筑名；2 处断言值改为 `DUP-f003` | 测试 |
+| `backend/tests/test_prompt_eval.py` | ruff 自动删除未使用的 `pytest` 导入；格式化空行 | 格式 |
+| `backend/app/api/v1/{admin,announcements,comments,praises,router}.py` | 仅 ruff format 布局调整 | 格式 |
+| `backend/app/models/{__init__,announcement,praise,user}.py` | 仅 ruff format 布局调整 | 格式 |
+| `backend/app/schemas/{announcement,comment,praise,stats}.py` | 仅 ruff format 布局调整 | 格式 |
+| `backend/app/services/{announcement,comment,item,praise,stats,user}_service.py` | ruff format 布局调整；另含 3 处 E501 手工拆行（`announcement_service.py:80`、`praise_service.py:10`、`stats_service.py:80`，以 format 后复检结果为准） | 格式 |
+| `backend/tests/test_admin_features.py` | ruff format 布局调整；2 处 E501 手工拆行（第 185-186 行） | 格式 |
+| `backend/tests/test_content_modules.py` | ruff format 布局调整；1 处 E501 手工拆行（第 39 行） | 格式 |
+| `frontend/src/components/CampusMap/CampusMap.tsx` | `L.map` 增加 `zoomControl: false`；创建 `bottomright` 缩放控件；缩放范围不变 | 功能（仅控件位置） |
+| `frontend/src/pages/MapView.module.css` | 新增 Leaflet 右下控件抬升、层级与 44×44 命中区规则（含桌面 media query） | 样式 |
+
+**不修改**：`backend/pyproject.toml`、`backend/alembic/`、`frontend/src/components/CampusMap/MapDrawer.*`、`MapTopBar.*`、`frontend/src/styles/tokens.css`、`spec.md`、`tasks.md`、`README.md`。
+
+### 2.29.7 实现步骤（按序执行）
+
+1. **R1**：编辑 `backend/tests/test_ai_chat.py`，按 2.29.3.3 的 13 个点位修改；保存后用 `grep -n "import_config" backend/tests/test_ai_chat.py` 确认无残留。
+2. **R2 自动修复**：`cd backend && .venv/Scripts/python -m ruff check . --fix`，确认只剩 6 处 E501（或更少）。
+3. **R2 格式化**：`.venv/Scripts/python -m ruff format .`，确认 22 个文件被格式化。
+4. **R2 复检**：`.venv/Scripts/python -m ruff check .`，记录仍存在的 E501 行号。
+5. **R2 手工拆行**：按 2.29.4.3 逐处拆行；每处仅调整换行与尾随逗号。
+6. **R2 收敛**：再次执行 `ruff format .`、`ruff check .`、`ruff format --check .`，三者均须通过。
+7. **R3**：编辑 `CampusMap.tsx` 的地图创建段（关闭默认控件 + 添加 bottomright 控件），再在 `MapView.module.css` 追加 2.29.5.4 的规则。
+8. **R3 自检**：`cd frontend && npm run lint && npm run build`。
+9. **整体复核**：`git diff --stat` 与 `git status --short` 核对改动文件均在 2.29.6 清单内；**不提交**。
+
+### 2.29.8 风险与回滚
+
+| 编号 | 风险 | 影响 | 处置/回滚 |
+|---|---|---|---|
+| K1 | 断言值 `DUP-f003` 依赖素材重码去重规则 | 素材调整后测试失效 | 编码来源写入测试注释；回滚：恢复 `B02` 与 `import_config` 调用（不推荐，会重现 TypeError） |
+| K2 | 规则分支未命中素材建筑名 | `building_code` 为 `None`，用例失败 | 输入文案改为「测试图书馆3楼…」；若素材改名需同步 |
+| K3 | `ruff format .` 产生大面积 diff | 影响 code review 与 blame | 纯布局变化；用 `git diff -w` 复核无逻辑差异；回滚见 K7 |
+| K4 | 手工拆行改变表达式语义 | 行为变化或语法错误 | 每处只动换行/尾随逗号；由 `ruff check` + 全量 pytest 兜底；逐处人工对照原表达式 |
+| K5 | `:global` 选择器被 Leaflet 内部样式覆盖 | 控件仍为 30px 或仍在左上 | 选择器使用 `.mapWrap :global(.leaflet-touch .leaflet-bar a)` 提高特异性；浏览器实测 44×44 |
+| K6 | 避让偏移与抽屉高度耦合 | 抽屉改高后控件被遮 | CSS 注释标注 190/60/220 来源；后续改抽屉高度须同步 `bottom` |
+| K7 | 回滚误伤工作区其他未提交改动 | 丢失既有未提交成果 | **禁止** `git checkout -- backend` 或 `git checkout -- frontend`；回滚前先 `git diff -- <file> > rollback-<file>.patch`，再 `git apply -R`，仅作用于本轮文件 |
+| K8 | 抽屉展开时控件不可点被误判为缺陷 | 验收争议 | 设计明确三态矩阵：收起可点、半展/展开被覆盖；双指缩放仍可用 |
+
+回滚顺序：先删 `MapView.module.css` 新增块 → 恢复 `CampusMap.tsx` 单行 `L.map` 调用 → 恢复 `test_ai_chat.py` → 对格式文件使用格式化前的补丁反向应用。回滚后重跑 2.29.9.2 的全部检查。
+
+### 2.29.9 验证清单
+
+#### 2.29.9.1 本阶段已执行（只读）
+
+| 命令 | 实际结果 |
+|---|---|
+| `cd backend && .venv/Scripts/python -m ruff check . --output-format=concise` | 7 errors（6 × E501 + 1 × F401） |
+| `cd backend && .venv/Scripts/python -m ruff format --check .` | `22 files would be reformatted, 95 files already formatted` |
+| 代码检索（grep/sed/read） | 已确认 4 处无参 `import_config()`、`B02` 断言、Leaflet 默认控件、抽屉高度常量 |
+
+**未执行**（按任务要求不修改工作区）：`ruff format .`、`ruff check . --fix`、`pytest`、`npm run lint`、`npm run build`。因此本轮不声称任何测试或构建已通过。
+
+#### 2.29.9.2 用户本地命令（按顺序）
+
+```bash
+cd backend
+.venv/Scripts/python -m ruff check . --fix
+.venv/Scripts/python -m ruff format .
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m ruff format --check .
+.venv/Scripts/python -m pytest tests/test_ai_chat.py tests/test_ai_draft.py -q
+.venv/Scripts/python -m pytest tests/ -q
+
+cd ../frontend
+npm run lint
+npm run build
+```
+
+如需手工复现 R1 的单文件验证，可先只跑：
+
+```bash
+cd backend
+.venv/Scripts/python -m pytest tests/test_ai_chat.py -q
+```
+
+#### 2.29.9.3 通过标准
+
+| 命令 | 通过标准 |
+|---|---|
+| `ruff check .` | `All checks passed!`，0 error、0 warning |
+| `ruff format --check .` | 无 `would be reformatted` |
+| `pytest tests/test_ai_chat.py -q` | 全部通过；4 个目标用例不再出现 `TypeError: import_config() missing 1 required positional argument` |
+| `pytest tests/ -q` | 全部通过，无新增 skip/xfail |
+| `npm run lint` | 无 error |
+| `npm run build` | TypeScript 编译与 Vite 构建成功 |
+| `git diff --stat` | 仅 2.29.6 清单内文件 |
+
+#### 2.29.9.4 浏览器手工检查（375px）
+
+1. 打开 `/map`，缩放控件位于右下角，抽屉收起时 `+`/`-` 完整可见。
+2. `+` 与 `-` 各点击一次，缩放生效且范围仍为 `-3..3`。
+3. 「室外」「室内」两个按钮完整可见、无遮挡，点击可切换；按钮命中区不小于 44×44。
+4. 缩放按钮命中区实测不小于 44×44（DevTools 元素尺寸）。
+5. 展开抽屉，缩放控件被抽屉覆盖，不出现按钮穿透抽屉可点击的情况。
+6. 页面无横向滚动；控制台无 Leaflet/React 报错。
+7. 768px 及以上宽度复查：控件仍位于右下角、位于抽屉上沿之上。
+
+#### 2.29.9.5 交付说明要求
+
+- 本轮无表结构变更，**无新增 Alembic 迁移**；不得声称执行过迁移。
+- 只报告实际执行的命令与真实输出；未执行项标注「未执行」。
+- 不提交（按用户要求）；提交信息建议：`fix(backend): 修复 AI 对话测试夹具并收敛 ruff 格式`、`fix(frontend): 地图缩放控件移至右下并避让抽屉`（按任务拆分提交时使用）。

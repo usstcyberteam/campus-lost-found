@@ -3,7 +3,19 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from app.models.enums import RouteKind, SimulatedPointKind, Visibility
+from app.models.enums import LayerKind, RouteKind, SimulatedPointKind, Visibility
+
+
+class RoomOut(BaseModel):
+    name: str
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+
+class MapMetaOut(BaseModel):
+    flat_layer_id: uuid.UUID
+    iso_layer_id: uuid.UUID
+    flat_to_iso: list[list[float]]
 
 
 class LayerOut(BaseModel):
@@ -18,6 +30,8 @@ class LayerOut(BaseModel):
     image_path: str | None
     building_id: uuid.UUID | None
     floor: int | None
+    kind: LayerKind
+    rooms: list[RoomOut] | None
 
 
 class CalibrateRequest(BaseModel):

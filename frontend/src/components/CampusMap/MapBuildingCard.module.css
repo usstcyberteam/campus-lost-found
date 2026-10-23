@@ -1,0 +1,24 @@
+.wrap {
+  position: absolute;
+  top: calc(var(--space-3) + 156px);
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + 190px);
+  left: var(--space-3);
+  z-index: var(--z-dropdown);
+  pointer-events: none;
+}
+
+.wrap > * {
+  pointer-events: auto;
+}
+
+/* 楼层视图顶部有楼层切换条，卡片整体下移 */
+.belowTopBar {
+  top: calc(var(--space-3) + 240px);
+}
+
+@media (min-width: 768px) {
+  .wrap {
+    bottom: calc(var(--space-3) + 220px);
+  }
+}

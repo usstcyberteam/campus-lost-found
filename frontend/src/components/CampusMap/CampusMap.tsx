@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
 import type { Map as LeafletMap } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -30,10 +30,16 @@ export interface CampusMapProps {
   children?: ReactNode
 }
 
+interface MapInstance {
+  map: LeafletMap
+  layerId: string
+}
+
 export default function CampusMap({ layer, markers, onMapClick, onImageError, focus, children }: CampusMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // map 用 useState 供 Context 订阅；mapRef 供 markers 副作用读取最新实例，避免闭包拿到已销毁旧实例
-  const [map, setMap] = useState<LeafletMap | null>(null)
+  // 记录实例当前承载的图层：切换视图时子图层仍可能持有旧实例引用，只有与当前图层匹配的实例才交给子图层
+  const [instance, setInstance] = useState<MapInstance | null>(null)
+  // mapRef 供 effect 读取最新实例，避免闭包拿到已销毁旧实例
   const mapRef = useRef<LeafletMap | null>(null)
   const markerGroupRef = useRef<L.LayerGroup | null>(null)
   const overlayRef = useRef<L.ImageOverlay | null>(null)
@@ -47,20 +53,28 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
 
   // 列表点击“回定位”：仅在实例存在时平滑移动，不触碰地图生命周期
   useEffect(() => {
-    const instance = mapRef.current
-    if (!instance || !focus) return
-    instance.panTo(normToLatLng(focus.x, focus.y, layerRef.current))
-  }, [focus, map])
+    const map = mapRef.current
+    if (!map || !focus) return
+    map.panTo(normToLatLng(focus.x, focus.y, layerRef.current))
+  }, [focus, instance])
 
   // 地图实例只在挂载时创建、卸载时销毁：切换图层不重建实例。
   // 否则切换瞬间子图层 effect 会拿到即将被销毁的旧实例并向其添加图层，Leaflet 抛错导致整页白屏。
   useEffect(() => {
     if (!containerRef.current) return
-    const instance = L.map(containerRef.current, { crs: L.CRS.Simple, minZoom: -3, maxZoom: 3 })
-    mapRef.current = instance
-    setMap(instance)
+    // 缩放控件放右下：左上已被「室外/室内」切换占用，默认位置会互相遮挡
+    const map = L.map(containerRef.current, {
+      crs: L.CRS.Simple,
+      minZoom: -3,
+      maxZoom: 3,
+      zoomControl: false,
+    })
+    L.control.zoom({ position: 'bottomright' }).addTo(map)
+    mapRef.current = map
+    setInstance({ map, layerId: layerRef.current.id })
 
-    instance.on('click', (e) => {
+    // 点击处理只注册一次，通过 ref 取当前图层做坐标换算
+    map.on('click', (e) => {
       onClickRef.current?.(latLngToNorm(e.latlng, layerRef.current))
     })
 
@@ -68,18 +82,21 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
       mapRef.current = null
       markerGroupRef.current = null
       overlayRef.current = null
-      instance.remove()
-      setMap(null)
+      map.remove()
+      setInstance(null)
     }
   }, [])
 
   // 图层切换只更新底图与视野，不销毁地图实例
   useEffect(() => {
-    const instance = mapRef.current
-    if (!instance) return
+    const map = mapRef.current
+    if (!map) return
     let active = true
     let objectUrl: string | null = null
     const controller = new AbortController()
+
+    // 先把实例标记为当前图层，子图层才会拿到有效地图实例
+    setInstance({ map, layerId: layer.id })
 
     const bounds = L.latLngBounds([0, 0], [layer.height, layer.width])
     // 先铺占位矩形，底图缺失或加载失败时地图仍可操作，不会白屏
@@ -87,23 +104,23 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
       color: cssVar('--color-border-strong'),
       weight: 1,
       fillOpacity: 0.03,
-    }).addTo(instance)
+    }).addTo(map)
 
     if (layer.image_path) {
       getLayerImage(layer.id, controller.signal)
         .then((blob) => {
-          if (!active || mapRef.current !== instance) return
+          if (!active || mapRef.current !== map) return
           const url = URL.createObjectURL(blob)
           objectUrl = url
-          overlayRef.current = L.imageOverlay(url, bounds).addTo(instance)
+          overlayRef.current = L.imageOverlay(url, bounds).addTo(map)
         })
         .catch((e) => {
           if (active) onErrorRef.current?.(errorMessage(e, '底图加载失败'))
         })
     }
 
-    instance.fitBounds(bounds)
-    instance.setMaxBounds(bounds.pad(0.2))
+    map.fitBounds(bounds)
+    map.setMaxBounds(bounds.pad(0.2))
 
     return () => {
       active = false
@@ -117,34 +134,37 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
     }
   }, [layer])
 
+  // 只有实例与当前图层一致时才向子图层提供地图，避免子图层向已销毁或待切换的实例绘制
+  const activeMap = instance !== null && instance.layerId === layer.id ? instance.map : null
+
   useEffect(() => {
-    const instance = mapRef.current
-    if (!instance) return
+    if (!activeMap) return
     let group = markerGroupRef.current
     if (!group) {
-      group = L.layerGroup().addTo(instance)
+      group = L.layerGroup().addTo(activeMap)
       markerGroupRef.current = group
     }
     group.clearLayers()
     markers.forEach((m) => {
       L.circleMarker(normToLatLng(m.x, m.y, layer), { color: m.color }).bindTooltip(m.label).addTo(group)
     })
-  }, [markers, map, layer])
+  }, [markers, activeMap, layer])
 
-  const value = useMemo<CampusMapContextValue>(
+  const contextValue = useMemo<CampusMapContextValue>(
     () => ({
-      map,
+      map: activeMap,
       layer,
       toMap: (nx, ny) => normToLatLng(nx, ny, layer),
       toNorm: (latlng) => latLngToNorm(latlng, layer),
     }),
-    [map, layer],
+    [activeMap, layer],
   )
 
   return (
-    <CampusMapContext.Provider value={value}>
+    <CampusMapContext.Provider value={contextValue}>
       <div ref={containerRef} className={styles.map} />
-      {children}
+      {/* 图层切换时整体重挂载子图层，避免旧图层的实例与清理函数跨图层残留 */}
+      <Fragment key={layer.id}>{children}</Fragment>
     </CampusMapContext.Provider>
   )
 }

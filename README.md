@@ -13,8 +13,8 @@
 
 ## ✨ 功能特性
 
-- **失物/拾获发布与浏览**：分类筛选、关键词搜索、物品详情、编辑与删除
-- **地图可视化**：Leaflet 图片地图展示失物位置，室内外图层切换、坐标查看、工作人员模拟点位
+- **失物/拾获发布与浏览**：分类筛选、关键词搜索、物品详情、编辑与删除、规则候选推荐
+- **地图可视化**：室外平面图（flat）、2.5D 选楼图（iso）与楼层图（floor）三视图。平面图支持图层开关、坐标查看、绘制与工作人员模拟点位；点击建筑可进入楼层或回到室外，楼层暂无底图时显示整理中占位。2.5D 图只用于选楼，不用于标点或绘制路线
 - **认领与核验流程**：私密认领证据提交（不进入公共接口）、工作人员审核、事务 + 行锁保证同一物品仅完成一次归还
 - **协助工单**：无候选时转协助工单，接单授权、处理反馈闭环
 - **社区互动**：评论（含审核）、点赞、表扬墙、积分体系
@@ -27,6 +27,8 @@
   - 模型不可用时自动降级为规则模式，不阻断手动发布
 - **用户认证与权限管理**：JWT 鉴权，学生/工作人员/管理员三角色，权限全部在后端执行
 - **响应式设计**：适配桌面与移动端
+
+> 当前范围说明：推荐明确标为规则；特征提取适配器明确返回手动降级，排序不代表找回概率，AI 不决定所有权。工作人员必须由管理员创建；公开接口不返回认领证据或联系方式。路线须由本人授权且工单分配后才供处理人员访问。尚未实现：图片上传与理解、真实模型调用、特征确认、语义匹配、委托地图标记、范围与路线绘制、完整游戏化视觉。
 
 ## 🛠 技术栈
 
@@ -86,13 +88,18 @@
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux/macOS
-pip install -r requirements.txt
+.venv\Scripts\activate                 # Windows
+# source .venv/bin/activate            # Linux/macOS
+.venv/Scripts/python -m pip install -r requirements-dev.txt
 .venv/Scripts/python -m alembic upgrade head   # 建表
-.venv/Scripts/python seed.py                    # 初始化管理员与图层
-.venv/Scripts/uvicorn app.main:app --reload --port 8000
+.venv/Scripts/python seed.py                   # 初始化管理员、图层、建筑与楼层占位
+.venv/Scripts/python scripts/import_map_assets.py  # 导入地图素材（可重复执行，幂等）
+.venv/Scripts/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+地图素材位于 `backend/app/data/`：`campus_buildings.json`（建筑轮廓、2.5D 命中区与底图尺寸/比例尺）、`campus_floors.json`（楼层与房间）、`campus_roads.json`（路网节点，校门模拟监控点来源）；底图为 `backend/storage/campus_flat.webp`、`campus_25d.webp`，楼层图放在 `backend/storage/floors/`。
+
+`seed.py` 创建管理员、图层与点位，并按素材导入建筑与楼层占位；`scripts/import_map_assets.py` 可单独重导建筑与楼层素材（`--dry-run` 只打印差异），重复执行结果幂等。演示数据由 `python -m scripts.seed_demo` 另行生成。平面图素材带 `meters_per_pixel` 时，推荐理由才会显示实际米数；2.5D 图未标定比例尺，不输出米数。
 
 ### 前端启动
 
@@ -102,7 +109,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。学生可在网页注册；管理员用户名 `admin`（密码为 `ADMIN_PASSWORD` 配置值）；工作人员须由管理员通过 `POST /api/v1/admin/staff` 创建。
+打开 `http://127.0.0.1:5173`。学生可在网页注册；管理员用户名 `admin`（密码为 `ADMIN_PASSWORD` 配置值）；工作人员须由管理员通过 `POST /api/v1/admin/staff` 创建。首次初始化还会创建室外与 2.5D 图层、占位楼层；重复初始化不会覆盖已有管理员密码。
 
 ### Docker Compose（可选）
 

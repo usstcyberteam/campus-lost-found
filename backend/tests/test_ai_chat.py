@@ -2,13 +2,12 @@ import httpx
 
 from tests.test_acceptance import auth, register
 from tests.test_ai_draft import configure_model, install_fake_client
-from tests.test_buildings import import_config
 
 CHAT_MODEL_JSON = (
     "```json\n"
-    '{"intent":"draft","reply":"**已整理**出草稿，请确认：\\n- 类别：雨伞\\n- 地点：图书馆3F",'
+    '{"intent":"draft","reply":"**已整理**出草稿，请确认：\\n- 类别：雨伞\\n- 地点：测试图书馆3F",'
     '"form_patch":{"category":"雨伞","title":"图书馆丢了一把蓝色雨伞","description":"蓝色折叠伞，伞柄有划痕",'
-    '"location_area":"图书馆3F","building_code":"B02","floor":3,"time_occurred":"2026-10-18T15:00:00"},'
+    '"location_area":"测试图书馆3F","building_code":"DUP-f003","floor":3,"time_occurred":"2026-10-18T15:00:00"},'
     '"actions":["prefill_form","hack_action"]}'
     "\n```"
 )
@@ -42,8 +41,7 @@ def test_chat_rejects_blank_message(client):
     assert response.json()["code"] == "VALIDATION"
 
 
-def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
-    import_config()
+def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
@@ -51,7 +49,7 @@ def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
 
     response = client.post(
         "/api/v1/ai/chat",
-        json={"message": "今天下午三点在图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
+        json={"message": "今天下午三点在测试图书馆3楼靠窗位置丢了一把蓝色折叠伞"},
         headers=auth(token),
     )
 
@@ -65,7 +63,7 @@ def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch):
     assert "```" not in body["reply"]
     assert body["reply"].startswith("已整理")
     assert body["form_patch"]["category"] == "雨伞"
-    assert body["form_patch"]["building_code"] == "B02"
+    assert body["form_patch"]["building_code"] == "DUP-f003"
     assert body["form_patch"]["floor"] == 3
     assert body["actions"] == ["prefill_form"]
     assert captured["timeout"] == 10
@@ -87,8 +85,7 @@ def test_chat_plain_intent_has_no_form_patch(client, monkeypatch):
     assert body["reply"].startswith("你好")
 
 
-def test_chat_degrades_on_model_timeout(client, monkeypatch):
-    import_config()
+def test_chat_degrades_on_model_timeout(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, error=httpx.ReadTimeout("timeout"))
@@ -96,7 +93,7 @@ def test_chat_degrades_on_model_timeout(client, monkeypatch):
 
     response = client.post(
         "/api/v1/ai/chat",
-        json={"message": "图书馆3楼丢了一把雨伞"},
+        json={"message": "测试图书馆3楼丢了一把雨伞"},
         headers=auth(token),
     )
 
@@ -107,7 +104,7 @@ def test_chat_degrades_on_model_timeout(client, monkeypatch):
     assert body["degraded"] is True
     assert body["reply"]
     assert body["form_patch"]["category"] == "雨伞"
-    assert body["form_patch"]["building_code"] == "B02"
+    assert body["form_patch"]["building_code"] == "DUP-f003"
     assert body["form_patch"]["floor"] == 3
     assert body["actions"] == ["prefill_form"]
 
@@ -161,8 +158,7 @@ def test_chat_vague_description_guides_instead_of_prefill(client, monkeypatch):
     assert "颜色" in body["reply"]
 
 
-def test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch):
-    import_config()
+def test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PARTIAL)
@@ -188,8 +184,7 @@ def test_chat_form_patch_skips_unmentioned_fields(client, monkeypatch):
     assert body["source"] == "model"
 
 
-def test_chat_draft_action_forces_extraction(client, monkeypatch):
-    import_config()
+def test_chat_draft_action_forces_extraction(client, monkeypatch, import_map):
     configure_model(monkeypatch)
     captured: dict = {}
     install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PARTIAL)

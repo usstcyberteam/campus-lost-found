@@ -12,6 +12,22 @@ export async function listBuildings(params: ListBuildingsParams = {}): Promise<P
   return res.data
 }
 
+export async function listAllBuildings(
+  params: Omit<ListBuildingsParams, 'limit' | 'offset'> = {},
+): Promise<Building[]> {
+  const collected: Building[] = []
+  let offset = 0
+  let total = Number.POSITIVE_INFINITY
+  while (collected.length < total) {
+    const page = await listBuildings({ ...params, limit: 100, offset })
+    collected.push(...page.items)
+    total = page.total
+    if (page.items.length === 0) break
+    offset += page.items.length
+  }
+  return collected
+}
+
 export async function getBuilding(id: string): Promise<Building> {
   const res = await client.get<Building>(`/buildings/${id}`)
   return res.data

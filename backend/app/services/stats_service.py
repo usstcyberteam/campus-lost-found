@@ -26,10 +26,7 @@ def overview(db: Session) -> dict:
     returned_count = visible.filter(Item.status == ItemStatus.returned).count()
 
     status_rows = (
-        db.query(Item.status, func.count(Item.id))
-        .filter(Item.status != ItemStatus.deleted)
-        .group_by(Item.status)
-        .all()
+        db.query(Item.status, func.count(Item.id)).filter(Item.status != ItemStatus.deleted).group_by(Item.status).all()
     )
     status_counts = {status: count for status, count in status_rows}
 
@@ -77,6 +74,7 @@ def overview(db: Session) -> dict:
         "by_building": [{"key": str(bid), "name": name, "count": count} for bid, name, count in building_rows],
         "by_category": [{"key": category, "name": category, "count": count} for category, count in category_rows[:10]],
         "by_status": [
-            {"key": status.value, "name": status.value, "count": status_counts.get(status, 0)} for status in _STATUS_ORDER
+            {"key": status.value, "name": status.value, "count": status_counts.get(status, 0)}
+            for status in _STATUS_ORDER
         ],
     }

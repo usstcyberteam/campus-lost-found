@@ -1,0 +1,128 @@
+{
+  "version": 2,
+  "flat": {
+    "image": "test_flat.webp",
+    "width": 800,
+    "height": 600,
+    "meters_per_pixel": 0.5
+  },
+  "iso": {
+    "image": "test_iso.webp",
+    "width": 1000,
+    "height": 800
+  },
+  "flat_to_iso": [
+    [1, 0, 0],
+    [0, 1, 0]
+  ],
+  "buildings": [
+    {
+      "id": "f001",
+      "code": "T1",
+      "name": "测试教学楼",
+      "category": "teaching",
+      "floors": 3,
+      "draw_order": 1,
+      "entrance_node": 2,
+      "flat": {
+        "footprint": [
+          [0.1, 0.1],
+          [0.25, 0.1],
+          [0.25, 0.22],
+          [0.1, 0.22]
+        ],
+        "label_anchor": [0.175, 0.16]
+      },
+      "iso": {
+        "hit_area": [
+          [0.12, 0.12],
+          [0.27, 0.12],
+          [0.27, 0.24],
+          [0.12, 0.24]
+        ],
+        "label_anchor": [0.195, 0.18]
+      }
+    },
+    {
+      "id": "f002",
+      "code": "T2",
+      "name": "测试食堂",
+      "category": "life",
+      "floors": 2,
+      "draw_order": 9,
+      "flat": {
+        "footprint": [
+          [0.3, 0.1],
+          [0.45, 0.1],
+          [0.45, 0.22],
+          [0.3, 0.22]
+        ],
+        "label_anchor": [0.375, 0.16]
+      },
+      "iso": {
+        "hit_area": [
+          [0.18, 0.14],
+          [0.33, 0.14],
+          [0.33, 0.26],
+          [0.18, 0.26]
+        ],
+        "label_anchor": [0.255, 0.2]
+      }
+    },
+    {
+      "id": "f003",
+      "code": "DUP",
+      "name": "测试图书馆",
+      "category": "library",
+      "floors": 4,
+      "draw_order": 2,
+      "entrance_node": 7,
+      "flat": {
+        "footprint": [
+          [0.5, 0.1],
+          [0.65, 0.1],
+          [0.65, 0.22],
+          [0.5, 0.22]
+        ],
+        "label_anchor": [0.575, 0.16]
+      },
+      "iso": {
+        "hit_area": [
+          [0.5, 0.3],
+          [0.65, 0.3],
+          [0.65, 0.42],
+          [0.5, 0.42]
+        ],
+        "label_anchor": [0.575, 0.36]
+      }
+    },
+    {
+      "id": "f004",
+      "code": "DUP",
+      "name": null,
+      "named": false,
+      "category": "unknown",
+      "floors": 0,
+      "draw_order": 0,
+      "flat": {},
+      "iso": {}
+    },
+    {
+      "id": "b005",
+      "code": null,
+      "name": "测试天桥",
+      "category": "bridge",
+      "floors": 1,
+      "draw_order": 3,
+      "flat": {
+        "footprint": [
+          [0.7, 0.1],
+          [0.8, 0.1],
+          [0.8, 0.16],
+          [0.7, 0.16]
+        ]
+      },
+      "iso": {}
+    }
+  ]
+}

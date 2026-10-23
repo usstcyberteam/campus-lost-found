@@ -10,3 +10,6 @@ __pycache__
 !.env.example
 storage/*
 !storage/outdoor.jpg
+!storage/campus_flat.webp
+!storage/campus_25d.webp
+!storage/floors/

@@ -18,6 +18,7 @@ import {
   type ClaimStatus,
   type HelpingItem,
   type Item,
+  type ItemStatus,
   type MyClaim,
   type MyComment,
   type Page,
@@ -55,6 +56,26 @@ const TICKET_TONES: Record<TicketStatus, TagTone> = {
   pending: 'warning',
   processing: 'primary',
   feedback: 'success',
+}
+
+const ONGOING_STATUS: ReadonlySet<ItemStatus> = new Set(['searching', 'reviewing'])
+const THANKED_LABEL = '已被致谢'
+
+interface HelperBadge {
+  label: string
+  tone: TagTone
+  showThankedTag: boolean
+}
+
+function helperBadge(item: HelpingItem): HelperBadge {
+  if (item.helper_status === 'abandoned') {
+    return { label: helperStatusLabels.abandoned, tone: 'neutral', showThankedTag: item.thanked }
+  }
+  if (ONGOING_STATUS.has(item.status)) {
+    return { label: helperStatusLabels.active, tone: 'primary', showThankedTag: item.thanked }
+  }
+  if (item.thanked) return { label: THANKED_LABEL, tone: 'success', showThankedTag: false }
+  return { label: '已结束', tone: 'neutral', showThankedTag: false }
 }
 
 const KIND_CONFIG: Record<string, KindConfig> = {
@@ -106,15 +127,14 @@ function summary(content: string): string {
 function renderRow(kind: string, row: Row) {
   if (kind === 'helping') {
     const item = row as HelpingItem
+    const badge = helperBadge(item)
     return (
       <ItemCard
         item={item}
         extra={
           <>
-            <Tag tone={item.helper_status === 'active' ? 'primary' : 'neutral'}>
-              {helperStatusLabels[item.helper_status]}
-            </Tag>
-            {item.thanked && <Tag tone="success">已被致谢</Tag>}
+            <Tag tone={badge.tone}>{badge.label}</Tag>
+            {badge.showThankedTag && <Tag tone="success">{THANKED_LABEL}</Tag>}
             <span>接取于 {formatDate(item.taken_at)}</span>
           </>
         }
