@@ -199,7 +199,11 @@ export default function AiFloatWidget() {
   })
 
   function onMicClick() {
-    if (!voice.supported) return
+    if (!voice.supported) {
+      // 不支持的浏览器（Firefox/旧 Safari）也渲染按钮：点击给出明确提示而非静默
+      setError('当前浏览器不支持语音输入，建议使用 Chrome 或 Edge')
+      return
+    }
     if (!voice.listening) voiceBaseRef.current = text
     voice.toggle()
   }
@@ -475,19 +479,17 @@ export default function AiFloatWidget() {
               readOnly={voice.listening}
               aria-label="发给 AI 助手的消息"
             />
-            {voice.supported && (
-              <button
-                type="button"
-                className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
-                onClick={onMicClick}
-                disabled={busy}
-                title="语音输入"
-                aria-label={voice.listening ? '停止语音输入' : '语音输入'}
-                aria-pressed={voice.listening}
-              >
-                {voice.listening ? '⏹' : '🎤'}
-              </button>
-            )}
+            <button
+              type="button"
+              className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
+              onClick={onMicClick}
+              disabled={busy}
+              title={voice.supported ? '语音输入' : '当前浏览器不支持语音输入，建议使用 Chrome 或 Edge'}
+              aria-label={voice.listening ? '停止语音输入' : '语音输入'}
+              aria-pressed={voice.listening}
+            >
+              {voice.listening ? '⏹' : '🎤'}
+            </button>
             <button type="submit" className={styles.send} disabled={busy || !text.trim()}>
               发送
             </button>
