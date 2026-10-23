@@ -67,6 +67,8 @@ export interface VoiceInput {
   listening: boolean
   error: string
   toggle: () => void
+  /** 立即结束识别（发送消息时用，避免识别回调继续写回输入框） */
+  stop: () => void
 }
 
 /**
@@ -154,5 +156,5 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
     [clearSilenceTimer],
   )
 
-  return { supported, listening, error, toggle }
+  return { supported, listening, error, toggle, stop }
 }

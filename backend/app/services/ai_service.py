@@ -455,6 +455,12 @@ def chat(
                         result["form_patch"] = {"description": result["form_patch"].get("description")}
                 return result
             logger.warning("模型输出无法解析，已降级")
+    # 规则降级同样要吃进多轮信息：把历史用户消息拼接进提取文本，
+    # 避免模型不可用时只按最后一轮提取（信息分散在几轮补充里会被丢弃）。
+    # polish 的 message 是字段摘要格式，拼接历史会破坏解析，跳过。
+    if history and action != "polish":
+        user_texts = [_sanitize(item["text"]) for item in history if item.get("role") == "user"]
+        cleaned = _clip(" ".join([*user_texts, cleaned]), 2000)
     return _rule_chat(db, cleaned, action)
 
 

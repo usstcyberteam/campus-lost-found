@@ -385,3 +385,45 @@ def test_chat_polish_degrades_to_rule_template(client):
     assert "图书馆3F" in body["reply"]
     assert body["form_patch"]["description"] == body["reply"]
     assert body["actions"] == []
+
+
+def test_chat_rule_degradation_uses_history_context(client):
+    """模型不可用降级：历史用户消息拼接进提取文本，多轮信息不丢失。"""
+    token = register(client, "chat_rule_history")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "黑色，图书馆",
+            "history": [{"role": "user", "text": "丢了一把雨伞"}],
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "rule"
+    assert body["degraded"] is True
+    # "雨伞"只出现在历史里：拼接后规则提取应命中类别
+    assert body["form_patch"]["category"] == "雨伞"
+
+
+def test_chat_rule_degradation_polish_ignores_history(client):
+    """polish 降级：message 是字段摘要，不拼接历史（保持格式可解析）。"""
+    token = register(client, "chat_polish_hist")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "类型：丢失\n类别：雨伞\n标题：蓝色折叠伞",
+            "action": "polish",
+            "history": [{"role": "user", "text": "无关历史内容"}],
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "rule"
+    assert "雨伞" in body["reply"]
+    assert "无关历史内容" not in body["reply"]

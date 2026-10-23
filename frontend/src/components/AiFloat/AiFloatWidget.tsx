@@ -124,24 +124,32 @@ function hasPrefillValue(patch: FormPatch): boolean {
   return Object.values(patch).some((value) => value !== null && value !== undefined && value !== '')
 }
 
-/** 前端意图规则：丢/捡优先于地图；命中时跳发布页并带预填，或跳地图页。 */
-function routeFor(message: string): RouteTarget | null {
-  if (/(丢了|丢失|遗失)/.test(message)) return { path: '/publish', direction: 'lost' }
-  if (/(捡到|拾获|捡了)/.test(message)) return { path: '/publish', direction: 'found' }
-  if (/(地图|位置)/.test(message)) return { path: '/map' }
+
+/**
+ * 多轮对话意图判定：方向词可能出现在此前任何一轮（用户首轮说"捡到钱包"，
+ * 后续只补充"黑色、一食堂2楼"），须扫描全部用户消息，否则 direction 会错误回落为 lost。
+ */
+function routeForConversation(allUserTexts: string[]): RouteTarget | null {
+  for (const text of allUserTexts) {
+    if (/(丢了|丢失|遗失)/.test(text)) return { path: '/publish', direction: 'lost' }
+    if (/(捡到|拾获|捡了)/.test(text)) return { path: '/publish', direction: 'found' }
+  }
+  for (const text of allUserTexts) {
+    if (/(地图|位置)/.test(text)) return { path: '/map' }
+  }
   return null
 }
 
 /** 消息与 form_patch 归位为可跳转的 toast 状态（发送与"整理草稿"共用）。 */
 function applyResult(
   result: AiChatResult,
-  sourceText: string,
+  userTexts: string[],
   setTarget: (t: RouteTarget | null) => void,
   setNotice: (n: string) => void,
   navigate: (path: string) => void,
   closePanel: () => void,
 ) {
-  const route = routeFor(sourceText)
+  const route = routeForConversation(userTexts)
   if (result.form_patch && hasPrefillValue(result.form_patch)) {
     if (route?.path === '/publish' && route.direction) {
       setTarget({ ...route, patch: result.form_patch })
@@ -312,6 +320,11 @@ export default function AiFloatWidget() {
     e.preventDefault()
     const value = text.trim()
     if (!value || busy) return
+    // 语音识别中直接发送：先停止识别并清基线，避免识别回调把已发送内容写回输入框
+    if (voice.listening) {
+      voice.stop()
+      voiceBaseRef.current = ''
+    }
     setText('')
     setError('')
     setNotice('')
@@ -326,7 +339,9 @@ export default function AiFloatWidget() {
       }))
       const result: AiChatResult = await aiChat(value, location.pathname, undefined, history)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
-      applyResult(result, value, setTarget, setNotice, navigate, () => setOpen(false))
+      // 方向词可能在历史任一轮：传全部用户文本判定，避免多轮补充时 direction 回落 lost
+      const userTexts = [...messages.filter((m) => m.role === 'user').map((m) => m.text), value]
+      applyResult(result, userTexts, setTarget, setNotice, navigate, () => setOpen(false))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -337,25 +352,28 @@ export default function AiFloatWidget() {
   /** P2：把最近一条用户消息强制整理为发布草稿（action=draft，后端强制提取）。 */
   async function onDraftClick() {
     if (draftBusy || busy) return
-    const lastUser = [...messages].reverse().find((message) => message.role === 'user')
-    if (!lastUser) {
+    const lastUserIndex = messages.map((m) => m.role === 'user').lastIndexOf(true)
+    if (lastUserIndex === -1) {
       setError('先在下方输入物品描述，再点整理草稿。')
       return
     }
+    const lastUser = messages[lastUserIndex]
     setError('')
     setNotice('')
     setTarget(null)
     setDraftBusy(true)
     try {
-      // 整理草稿同样带多轮历史：信息分散在几轮问答里时也能攒齐
+      // history 取 lastUser 之前的消息（不重复传入 lastUser 本身），多轮信息也能攒齐
       const history = messages
-        .slice(0, -1)
+        .slice(0, lastUserIndex)
         .slice(-10)
         .map((message) => ({ role: message.role, text: message.text }))
       const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft', history)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
       if (result.form_patch && hasPrefillValue(result.form_patch)) {
-        const route = routeFor(lastUser.text)
+        // 方向词可能在历史任一轮用户消息：扫描全部用户文本，避免 direction 回落 lost
+        const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text)
+        const route = routeForConversation(userTexts)
         setTarget({
           path: '/publish',
           direction: route?.direction ?? 'lost',

@@ -1,0 +1,710 @@
+diff --git a/backend/app/api/v1/ai.py b/backend/app/api/v1/ai.py
+index 565d0a8..1657fa7 100644
+--- a/backend/app/api/v1/ai.py
++++ b/backend/app/api/v1/ai.py
+@@ -3,17 +3,20 @@ from sqlalchemy.orm import Session
+ 
+ from app.core.deps import get_current_user
+ from app.database import get_db
+-from app.models import User
++from app.errors import ApiError
++from app.models import Item, Role, User
+ from app.schemas.ai import (
+     ChatOut,
+     ChatRequest,
+     DraftPostOut,
+     DraftPostRequest,
++    MatchOut,
++    MatchRequest,
+     SearchAdviceOut,
+     SearchAdviceRequest,
+     SuggestLocationsOut,
+ )
+-from app.services import ai_service
++from app.services import ai_service, match_push_service
+ 
+ router = APIRouter(tags=["ai"])
+ 
+@@ -24,7 +27,30 @@ def chat(
+     db: Session = Depends(get_db),
+     user: User = Depends(get_current_user),
+ ):
+-    return ai_service.chat(db, body.message, body.action, user)
++    history = [{"role": item.role, "text": item.text} for item in body.history]
++    return ai_service.chat(db, body.message, body.action, user, history)
++
++
++@router.post("/match", response_model=MatchOut)
++def match(
++    body: MatchRequest,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    # 手动触发匹配仅限帖主与管理员：避免他人借接口探测别人帖子的匹配关系
++    item = db.get(Item, body.item_id)
++    if item is None:
++        raise ApiError(404, "NOT_FOUND", "帖子不存在")
++    if item.owner_user_id != user.id and user.role != Role.admin:
++        raise ApiError(403, "FORBIDDEN", "只能对自己的帖子触发匹配")
++    results = match_push_service.push_matches(db, item)
++    return {
++        "item_id": str(item.id),
++        "matched": len(results),
++        "notified": sum(1 for r in results if r["notified"]),
++        "items": results,
++        "source": "rule",
++    }
+ 
+ 
+ @router.get("/suggest-locations", response_model=SuggestLocationsOut)
+diff --git a/backend/app/api/v1/items.py b/backend/app/api/v1/items.py
+index f6e4e64..a067047 100644
+--- a/backend/app/api/v1/items.py
++++ b/backend/app/api/v1/items.py
+@@ -1,6 +1,6 @@
+ import uuid
+ 
+-from fastapi import APIRouter, Depends, Query
++from fastapi import APIRouter, BackgroundTasks, Depends, Query
+ from sqlalchemy.orm import Session
+ 
+ from app.core.deps import get_current_user
+@@ -18,14 +18,22 @@ from app.schemas.item import (
+ )
+ from app.schemas.layer import MapAnchorOut, MapAnchorRequest, RouteCreate, RouteDetail, RouteOut
+ from app.schemas.upload import PhotoBindRequest
+-from app.services import item_service
++from app.services import item_service, match_push_service
+ 
+ router = APIRouter(tags=["items"])
+ 
+ 
+ @router.post("", response_model=ItemPublic)
+-def create_item(body: ItemCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+-    return item_service.create_item(db, user, body)
++def create_item(
++    body: ItemCreate,
++    background_tasks: BackgroundTasks,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    result = item_service.create_item(db, user, body)
++    # 发布成功后异步匹配历史帖；推送失败只记日志，不影响发布结果
++    background_tasks.add_task(match_push_service.run_match_push, result["id"])
++    return result
+ 
+ 
+ @router.patch("/{item_id}", response_model=ItemDetail)
+diff --git a/backend/app/api/v1/me.py b/backend/app/api/v1/me.py
+index cc46c9c..e479301 100644
+--- a/backend/app/api/v1/me.py
++++ b/backend/app/api/v1/me.py
+@@ -9,6 +9,7 @@ from app.schemas.claim import ClaimOut, MyClaimOut
+ from app.schemas.comment import MyCommentOut
+ from app.schemas.common import Page
+ from app.schemas.item import ItemPublic, MyHelpingOut
++from app.schemas.notification import NotificationOut
+ from app.schemas.points import MyPointsOut, PointRecordOut
+ from app.schemas.staff_application import StaffApplicationCreate
+ from app.schemas.ticket import TicketOut
+@@ -17,6 +18,7 @@ from app.services import (
+     comment_service,
+     helper_service,
+     item_service,
++    match_push_service,
+     points_service,
+     reaction_service,
+     staff_application_service,
+@@ -71,6 +73,17 @@ def submit_staff_application(
+     return staff_application_service.submit_application(db, user, body)
+ 
+ 
++@router.get("/notifications", response_model=Page[NotificationOut])
++def my_notifications(
++    limit: int = Query(20, ge=1, le=100),
++    offset: int = Query(0, ge=0),
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    rows, total = match_push_service.list_notifications(db, user.id, limit, offset)
++    return Page(items=rows, total=total, limit=limit, offset=offset)
++
++
+ @router.get("/items", response_model=Page[ItemPublic])
+ def my_items(
+     limit: int = Query(20, ge=1, le=100),
+diff --git a/backend/app/models/__init__.py b/backend/app/models/__init__.py
+index 80e7b0f..982e51e 100644
+--- a/backend/app/models/__init__.py
++++ b/backend/app/models/__init__.py
+@@ -23,6 +23,7 @@ from app.models.item_favorite import ItemFavorite
+ from app.models.item_helper import ItemHelper
+ from app.models.item_like import ItemLike
+ from app.models.layer import Layer, SimulatedPoint
++from app.models.notification import Notification
+ from app.models.point_record import PointRecord
+ from app.models.praise import Praise
+ from app.models.ticket import Ticket
+@@ -60,6 +61,7 @@ __all__ = [
+     "Praise",
+     "Route",
+     "Layer",
++    "Notification",
+     "SimulatedPoint",
+     "Ticket",
+     "Badge",
+diff --git a/backend/app/schemas/ai.py b/backend/app/schemas/ai.py
+index 2a93acf..bc9a897 100644
+--- a/backend/app/schemas/ai.py
++++ b/backend/app/schemas/ai.py
+@@ -2,7 +2,7 @@ import uuid
+ from datetime import datetime
+ from typing import Annotated, Literal
+ 
+-from pydantic import BaseModel, StringConstraints
++from pydantic import BaseModel, Field, StringConstraints
+ 
+ from app.models.enums import Source
+ 
+@@ -42,10 +42,16 @@ class SearchAdviceOut(BaseModel):
+     degraded: bool
+ 
+ 
++class ChatHistoryItem(BaseModel):
++    role: Literal["user", "assistant"]
++    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
++
++
+ class ChatRequest(BaseModel):
+     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+     page: str | None = None
+-    action: Literal["draft"] | None = None
++    action: Literal["draft", "polish"] | None = None
++    history: list[ChatHistoryItem] = Field(default_factory=list, max_length=10)
+ 
+ 
+ class SuggestLocationsOut(BaseModel):
+@@ -69,3 +75,24 @@ class ChatOut(BaseModel):
+     actions: list[str]
+     source: Source
+     degraded: bool
++
++
++class MatchRequest(BaseModel):
++    item_id: uuid.UUID
++
++
++class MatchedItemOut(BaseModel):
++    item_id: str
++    title: str
++    category: str
++    location_area: str
++    # False 表示该组合此前已推送过（去重生效），本次未新建通知
++    notified: bool
++
++
++class MatchOut(BaseModel):
++    item_id: str
++    matched: int
++    notified: int
++    items: list[MatchedItemOut]
++    source: Source
+diff --git a/backend/app/services/ai_service.py b/backend/app/services/ai_service.py
+index e81dd9f..492075c 100644
+--- a/backend/app/services/ai_service.py
++++ b/backend/app/services/ai_service.py
+@@ -69,6 +69,17 @@ _CHAT_SYSTEM_PROMPT = (
+     'actions 为字符串数组，仅在 intent 为 draft 且 form_patch 至少一个字段非 null 时包含 "prefill_form"，否则为空数组。'
+     "禁止输出精确到座位、柜号的私密位置、联系方式、认领证据或他人路线。"
+ )
++_CHAT_HISTORY_PROMPT = (
++    "历史消息会提供此前几轮对话：结合上下文累积理解用户信息，用户已回答过的问题不要重复追问；"
++    "当物品名称及颜色样式、时间、建筑楼层等信息攒齐时，输出 intent=draft 并返回完整 form_patch；"
++    "仍缺关键信息时，一次只追问 1-2 个最关键的缺失项，form_patch 保持 null。"
++)
++_CHAT_POLISH_PROMPT = (
++    "用户要求润色发布描述：message 是表单字段摘要（类型/类别/标题/地点/时间/现有描述）。"
++    "基于这些信息写一段 60-120 字、有温度的失物或招领描述：交代时间地点、物品特征，"
++    "结尾加一句自然的求助或致谢。reply 放润色后的完整描述；form_patch 仅含 description 字段"
++    "（与 reply 相同的润色文案）；intent 为 draft；actions 为空数组。不得编造摘要中没有的信息。"
++)
+ _CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
+ _CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
+ _FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
+@@ -244,7 +255,10 @@ def draft_post(db: Session, text: str) -> dict:
+ 
+ 
+ def _chat_messages(
+-    text: str, action: str | None = None, history_places: list[str] | None = None
++    text: str,
++    action: str | None = None,
++    history_places: list[str] | None = None,
++    history: list[dict[str, str]] | None = None,
+ ) -> list[dict[str, str]]:
+     # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
+     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+@@ -254,12 +268,17 @@ def _chat_messages(
+             "用户明确要求整理草稿：无论信息是否完整，都输出 intent=draft，"
+             "把能识别到的字段全部填入 form_patch（能提取多少提取多少），不要追问。"
+         )
++    if action == "polish":
++        system += _CHAT_POLISH_PROMPT
++    if history:
++        system += _CHAT_HISTORY_PROMPT
+     if history_places:
+         system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
+-    return [
+-        {"role": "system", "content": system},
+-        {"role": "user", "content": _sanitize(text)},
+-    ]
++    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
++    for item in history or []:
++        messages.append({"role": item["role"], "content": _sanitize(item["text"])})
++    messages.append({"role": "user", "content": _sanitize(text)})
++    return messages
+ 
+ 
+ def _chat_intent(payload: dict) -> str:
+@@ -331,7 +350,39 @@ def _model_chat(db: Session, text: str, payload: dict) -> dict:
+     }
+ 
+ 
++_POLISH_FIELD_PATTERN = re.compile(r"(类型|类别|标题|地点|时间|现有描述)：(.*)")
++
++
++def _rule_polish(text: str) -> dict:
++    """润色降级：从字段摘要正则抽取，套固定模板拼一段基础描述。"""
++    fields = {key.strip(): value.strip() for key, value in _POLISH_FIELD_PATTERN.findall(text)}
++    kind = "不慎遗失" if "丢失" in fields.get("类型", "") else "拾获"
++    lead = ""
++    if fields.get("时间"):
++        lead += fields["时间"]
++    if fields.get("地点"):
++        lead += f"在{fields['地点']}"
++    sentence = f"{lead}{kind}了{fields.get('类别') or '一件物品'}"
++    if fields.get("标题"):
++        sentence += f"（{fields['标题']}）"
++    parts = [sentence.rstrip()]
++    if fields.get("现有描述"):
++        parts.append(fields["现有描述"])
++    parts.append("如有同学发现，恳请与我联系，非常感谢！")
++    reply = _clip("，".join(part for part in parts if part), 2000)
++    return {
++        "intent": "draft",
++        "reply": reply,
++        "form_patch": {"description": reply},
++        "actions": [],
++        "source": Source.rule,
++        "degraded": True,
++    }
++
++
+ def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
++    if action == "polish":
++        return _rule_polish(text)
+     draft = _rule_draft(db, text)
+     has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
+     if action == "draft":
+@@ -380,17 +431,29 @@ def _user_history_places(db: Session, user: User, limit: int = 3) -> list[str]:
+     return [row[0] for row in rows]
+ 
+ 
+-def chat(db: Session, message: str, action: str | None = None, user: User | None = None) -> dict:
++def chat(
++    db: Session,
++    message: str,
++    action: str | None = None,
++    user: User | None = None,
++    history: list[dict[str, str]] | None = None,
++) -> dict:
+     cleaned = _sanitize(message.strip())
+     history_places = _user_history_places(db, user) if user is not None else []
+     if model_client.is_available():
+-        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places))
++        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places, history))
+         if content is not None:
+             payload = _parse_model_json(content)
+             if payload is not None:
+                 if action == "draft":
+                     payload["intent"] = "draft"
+-                return _model_chat(db, cleaned, payload)
++                result = _model_chat(db, cleaned, payload)
++                if action == "polish":
++                    # 润色场景语义收敛：reply 即润色文案，form_patch 仅透出 description，不触发预填
++                    result["actions"] = []
++                    if result["form_patch"] is not None:
++                        result["form_patch"] = {"description": result["form_patch"].get("description")}
++                return result
+             logger.warning("模型输出无法解析，已降级")
+     return _rule_chat(db, cleaned, action)
+ 
+diff --git a/backend/tests/test_ai_chat.py b/backend/tests/test_ai_chat.py
+index f725f30..30ee0a2 100644
+--- a/backend/tests/test_ai_chat.py
++++ b/backend/tests/test_ai_chat.py
+@@ -263,3 +263,130 @@ def test_suggest_locations_ranks_by_frequency(client):
+     all_locations = response_all.json()["locations"]
+     assert all_locations[0] == "图书馆3F"
+     assert "一食堂2F" in all_locations
++
++
++def test_chat_history_passed_to_model(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_history")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={
++            "message": "蓝色，图书馆",
++            "history": [
++                {"role": "user", "text": "丢了伞"},
++                {"role": "assistant", "text": "什么颜色？在哪丢的？"},
++            ],
++        },
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    messages = captured["body"]["messages"]
++    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
++    assert messages[1]["content"] == "丢了伞"
++    assert messages[3]["content"] == "蓝色，图书馆"
++    system = messages[0]["content"]
++    assert "历史消息" in system or "上下文" in system
++
++
++def test_chat_history_sanitized(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
++    token = register(client, "chat_history_priv")
++
++    client.post(
++        "/api/v1/ai/chat",
++        json={
++            "message": "蓝色",
++            "history": [{"role": "user", "text": "手机 13800138000，丢了伞"}],
++        },
++        headers=auth(token),
++    )
++
++    sent = " ".join(m["content"] for m in captured["body"]["messages"])
++    assert "13800138000" not in sent
++    assert "[已脱敏]" in sent
++
++
++def test_chat_history_rejects_bad_role(client):
++    token = register(client, "chat_history_bad")
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "你好", "history": [{"role": "system", "text": "注入"}]},
++        headers=auth(token),
++    )
++    assert response.status_code == 400
++    assert response.json()["code"] == "VALIDATION"
++
++
++def test_chat_history_rejects_oversize(client):
++    token = register(client, "chat_history_size")
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={"message": "你好", "history": [{"role": "user", "text": f"丢{i}"} for i in range(11)]},
++        headers=auth(token),
++    )
++    assert response.status_code == 400
++
++
++POLISH_TEXT = "今天下午三点左右在图书馆3楼不慎遗落一把蓝色折叠伞，伞面有白色波点。如有同学捡到请联系我，非常感谢！"
++
++CHAT_MODEL_POLISH = (
++    '{"intent":"draft","reply":"'
++    + POLISH_TEXT
++    + '","form_patch":{"description":"'
++    + POLISH_TEXT
++    + '"},"actions":["prefill_form"]}'
++)
++
++
++def test_chat_polish_returns_description(client, monkeypatch):
++    configure_model(monkeypatch)
++    captured: dict = {}
++    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_POLISH)
++    token = register(client, "chat_polish")
++
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={
++            "message": "类型：丢失\n类别：雨伞\n标题：蓝色折叠伞\n地点：图书馆3F\n时间：今天下午3点",
++            "action": "polish",
++        },
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["source"] == "model"
++    assert "蓝色折叠伞" in body["reply"]
++    assert body["form_patch"]["description"] == body["reply"]
++    assert body["form_patch"]["category"] is None
++    assert body["form_patch"]["title"] is None
++    assert body["actions"] == []
++    system = captured["body"]["messages"][0]["content"]
++    assert "润色" in system
++
++
++def test_chat_polish_degrades_to_rule_template(client):
++    token = register(client, "chat_polish_rule")
++    response = client.post(
++        "/api/v1/ai/chat",
++        json={
++            "message": "类型：丢失\n类别：雨伞\n标题：蓝色折叠伞\n地点：图书馆3F",
++            "action": "polish",
++        },
++        headers=auth(token),
++    )
++
++    assert response.status_code == 200
++    body = response.json()
++    assert body["source"] == "rule"
++    assert body["degraded"] is True
++    assert "雨伞" in body["reply"]
++    assert "图书馆3F" in body["reply"]
++    assert body["form_patch"]["description"] == body["reply"]
++    assert body["actions"] == []
+diff --git a/frontend/src/api/ai.ts b/frontend/src/api/ai.ts
+index f206e9c..28b1352 100644
+--- a/frontend/src/api/ai.ts
++++ b/frontend/src/api/ai.ts
+@@ -8,12 +8,18 @@ export interface SearchAdviceInput {
+   category?: string | null
+ }
+ 
++export interface ChatHistoryItem {
++  role: 'user' | 'assistant'
++  text: string
++}
++
+ export async function aiChat(
+   message: string,
+   page?: string,
+-  action?: 'draft',
++  action?: 'draft' | 'polish',
++  history?: ChatHistoryItem[],
+ ): Promise<AiChatResult> {
+-  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action })
++  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action, history })
+   return res.data
+ }
+ 
+diff --git a/frontend/src/components/AiFloat/AiFloatWidget.tsx b/frontend/src/components/AiFloat/AiFloatWidget.tsx
+index db0a719..6fd5eda 100644
+--- a/frontend/src/components/AiFloat/AiFloatWidget.tsx
++++ b/frontend/src/components/AiFloat/AiFloatWidget.tsx
+@@ -319,7 +319,12 @@ export default function AiFloatWidget() {
+     setMessages((prev) => [...prev, { role: 'user', text: value }])
+     setBusy(true)
+     try {
+-      const result: AiChatResult = await aiChat(value, location.pathname)
++      // 多轮上下文：带最近 5 轮（10 条）历史，模型累积理解信息再决定追问或出草稿
++      const history = messages.slice(-10).map((message) => ({
++        role: message.role,
++        text: message.text,
++      }))
++      const result: AiChatResult = await aiChat(value, location.pathname, undefined, history)
+       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
+       applyResult(result, value, setTarget, setNotice, navigate, () => setOpen(false))
+     } catch (err) {
+@@ -342,7 +347,12 @@ export default function AiFloatWidget() {
+     setTarget(null)
+     setDraftBusy(true)
+     try {
+-      const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft')
++      // 整理草稿同样带多轮历史：信息分散在几轮问答里时也能攒齐
++      const history = messages
++        .slice(0, -1)
++        .slice(-10)
++        .map((message) => ({ role: message.role, text: message.text }))
++      const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft', history)
+       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
+       if (result.form_patch && hasPrefillValue(result.form_patch)) {
+         const route = routeFor(lastUser.text)
+diff --git a/frontend/src/pages/ItemForm.module.css b/frontend/src/pages/ItemForm.module.css
+index c1d4e77..710ccfb 100644
+--- a/frontend/src/pages/ItemForm.module.css
++++ b/frontend/src/pages/ItemForm.module.css
+@@ -283,3 +283,73 @@
+     scroll-snap-align: start;
+   }
+ }
++
++/* AI 润色：按钮 + 预览卡片（用户点"采用"才写入描述，不自动覆盖） */
++.polishBlock {
++  display: grid;
++  gap: var(--space-2);
++  margin-bottom: var(--space-2);
++}
++
++.polishButton {
++  justify-self: start;
++  min-height: 32px;
++  padding: 0 var(--space-3);
++  border: 1px dashed var(--color-primary);
++  border-radius: var(--radius-full);
++  background: transparent;
++  color: var(--color-primary);
++  font-size: var(--font-sm);
++}
++
++.polishButton:hover:not(:disabled) {
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++}
++
++.polishButton:disabled {
++  opacity: 0.6;
++  cursor: not-allowed;
++}
++
++.polishPreview {
++  display: grid;
++  gap: var(--space-2);
++  padding: var(--space-2) var(--space-3);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-md);
++  background: var(--color-bg-2);
++}
++
++.polishText {
++  margin: 0;
++  color: var(--color-text-1);
++  font-size: var(--font-sm);
++  line-height: 1.6;
++  white-space: pre-wrap;
++}
++
++.polishActions {
++  display: flex;
++  gap: var(--space-2);
++}
++
++.polishApply {
++  min-height: 32px;
++  padding: 0 var(--space-3);
++  border: none;
++  border-radius: var(--radius-md);
++  background: var(--color-primary);
++  color: var(--color-text-inverse);
++  font-size: var(--font-sm);
++}
++
++.polishDiscard {
++  min-height: 32px;
++  padding: 0 var(--space-3);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-md);
++  background: transparent;
++  color: var(--color-text-2);
++  font-size: var(--font-sm);
++}
+diff --git a/frontend/src/pages/ItemForm.tsx b/frontend/src/pages/ItemForm.tsx
+index 5ab979c..c63eaf9 100644
+--- a/frontend/src/pages/ItemForm.tsx
++++ b/frontend/src/pages/ItemForm.tsx
+@@ -11,7 +11,7 @@ import {
+   type PolylineGeometry,
+ } from '../api/items'
+ import { useAsync } from '../hooks/useAsync'
+-import { suggestLocations } from '../api/ai'
++import { aiChat, suggestLocations } from '../api/ai'
+ import { directionLabels, type Direction, type Item, type Photo, type RouteKind, type Visibility } from '../types'
+ import Button from '../components/Button'
+ import ErrorNotice from '../components/ErrorNotice'
+@@ -100,6 +100,8 @@ export default function ItemForm() {
+   const [templateHint, setTemplateHint] = useState('')
+   const [busy, setBusy] = useState(false)
+   const [suggestions, setSuggestions] = useState<string[]>([])
++  const [polishBusy, setPolishBusy] = useState(false)
++  const [polishPreview, setPolishPreview] = useState<string | null>(null)
+   // AI 预填交互：实际填入的字段 key（用于高亮）、顶部提示条可见性
+   const [prefilledKeys, setPrefilledKeys] = useState<string[]>([])
+   const [aiToastVisible, setAiToastVisible] = useState(false)
+@@ -120,6 +122,35 @@ export default function ItemForm() {
+     }
+   }
+ 
++  /** AI 润色：把表单字段拼成摘要发给 chat(action=polish)，结果先预览、用户点"采用"才写入。 */
++  async function onPolishClick() {
++    if (polishBusy) return
++    if (!title.trim()) {
++      setTemplateHint('先填写标题，再使用 AI 润色')
++      return
++    }
++    setPolishBusy(true)
++    setPolishPreview(null)
++    setTemplateHint('')
++    try {
++      const lines = [
++        `类型：${direction === 'lost' ? '丢失' : '拾获'}`,
++        category.trim() ? `类别：${category.trim()}` : null,
++        `标题：${title.trim()}`,
++        locationArea.trim() ? `地点：${locationArea.trim()}` : null,
++        aiExtra?.time_occurred ? `时间：${aiExtra.time_occurred}` : null,
++        description.trim() ? `现有描述：${description.trim()}` : null,
++      ].filter((line): line is string => line !== null)
++      const result = await aiChat(lines.join('\n'), undefined, 'polish')
++      const polished = result.form_patch?.description ?? result.reply
++      setPolishPreview(polished)
++    } catch (err) {
++      setTemplateHint(errorMessage(err))
++    } finally {
++      setPolishBusy(false)
++    }
++  }
++
+   useEffect(() => {
+     if (!editing || !loaded) return
+     setDirection(loaded.direction)
+@@ -398,6 +429,41 @@ export default function ItemForm() {
+                 />
+               </Field>
+             </div>
++            <div className={styles.polishBlock}>
++              <button
++                type="button"
++                className={styles.polishButton}
++                onClick={onPolishClick}
++                disabled={polishBusy || !title.trim()}
++              >
++                {polishBusy ? '润色中…' : '✨ AI 润色描述'}
++              </button>
++              {polishPreview !== null && (
++                <div className={styles.polishPreview}>
++                  <p className={styles.polishText}>{polishPreview}</p>
++                  <div className={styles.polishActions}>
++                    <button
++                      type="button"
++                      className={styles.polishApply}
++                      onClick={() => {
++                        setDescription(polishPreview)
++                        setPolishPreview(null)
++                        setTemplateHint('已采用 AI 润色描述，可继续修改')
++                      }}
++                    >
++                      {description.trim() ? '替换现有描述' : '采用'}
++                    </button>
++                    <button
++                      type="button"
++                      className={styles.polishDiscard}
++                      onClick={() => setPolishPreview(null)}
++                    >
++                      放弃
++                    </button>
++                  </div>
++                </div>
++              )}
++            </div>
+             {!editing && (
+               <div className={styles.templates}>
+                 <span className={styles.templatesLabel}>快捷模板</span>

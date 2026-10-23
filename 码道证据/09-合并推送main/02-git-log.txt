@@ -1,0 +1,10 @@
+5ec9820 chore: ruff format 对方合并文件 + 修复 alembic 迁移链分叉
+0c36075 merge: 合并 AI 多轮对话/润色与匹配推送/语音/聚合两条功能线
+07753fa Merge branch 'feature/ai-chat-upgrade'
+c22a2f9 feat(backend,frontend): 通知已读闭环——标记已读接口、未读数徽标与通知页未读视觉
+3363720 feat(backend,frontend): 相似帖聚合——发布时规则聚类标记 group_id，列表折叠卡片可展开
+9609661 feat(ai): 多轮对话逐步追问 + 文案润色(polish)
+ed91099 feat(backend,frontend): 智能匹配推送——发布后异步匹配历史帖写通知，含手动触发接口与通知列表
+8172fa9 feat(frontend): AiFloatWidget 移动端语音输入（Web Speech API，3s 静音停止）
+3ebc613 wip(ai): checkpoint parallel session frontend chat changes
+7da05e2 wip(ai): checkpoint in-progress chat upgrade work from parallel session
