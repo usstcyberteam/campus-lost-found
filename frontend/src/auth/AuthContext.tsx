@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     setToken(null)
-    sessionStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(STORAGE_KEY)
     setTokenState(null)
     setUser(null)
     setReady(true)
@@ -44,7 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
     window.addEventListener('auth-expired', logout)
-    const saved = sessionStorage.getItem(STORAGE_KEY)
+    // localStorage 持久化：跨标签页与关浏览器后仍保留，避免云端预览反复要求登录
+    const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
       setToken(saved)
       fetchMe()
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(token)
     try {
       const me = await fetchMe()
-      sessionStorage.setItem(STORAGE_KEY, token)
+      localStorage.setItem(STORAGE_KEY, token)
       setTokenState(token)
       setUser(me)
       setReady(true)

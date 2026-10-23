@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { errorMessage } from '../utils/error'
 import BlobStudio from '../components/BlobStudio/BlobStudio'
@@ -11,6 +11,7 @@ import styles from './Login.module.css'
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -20,7 +21,9 @@ export default function Login() {
     setError('')
     try {
       await login(username, password)
-      navigate('/hall')
+      // 跳回来源页：RequireAuth 拦截时带 from state，避免"登录→大厅→再触发登录"循环
+      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+      navigate(from && from !== '/login' ? from : '/hall', { replace: true })
     } catch (err) {
       setError(errorMessage(err, '登录失败，请检查用户名或密码'))
     }
