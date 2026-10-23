@@ -86,6 +86,8 @@ export interface Item {
   building_id: string | null
   building_name: string | null
   floor: number | null
+  group_id: string | null
+  group_count: number
   first_photo: Photo | null
   like_count: number
   comment_count: number

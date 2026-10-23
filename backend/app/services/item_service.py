@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
@@ -24,7 +24,7 @@ from app.models import (
 )
 from app.schemas.item import ItemCreate, ItemUpdate
 from app.schemas.layer import MapAnchorRequest, RouteCreate
-from app.services import helper_service, reaction_service, upload_service
+from app.services import helper_service, item_group_service, reaction_service, upload_service
 from app.services.matching_service import find_candidates
 from app.services.model import extract_features
 
@@ -69,12 +69,27 @@ def _first_photo_map(db: Session, items: list[Item], user: User) -> dict[uuid.UU
     return first
 
 
+def _group_counts(db: Session, items: list[Item]) -> dict[uuid.UUID, int]:
+    """每组可见（未删除）帖子数：折叠卡片"N条相关帖子"的数据来源。"""
+    ids = {item.group_id for item in items if item.group_id is not None}
+    if not ids:
+        return {}
+    rows = (
+        db.query(Item.group_id, func.count(Item.id))
+        .filter(Item.group_id.in_(ids), Item.status != ItemStatus.deleted)
+        .group_by(Item.group_id)
+        .all()
+    )
+    return {gid: count for gid, count in rows}
+
+
 def serialize_items(db: Session, items: list[Item], user: User) -> list[dict]:
     buildings = _building_map(db, items)
     photos = _first_photo_map(db, items, user)
     item_ids = [item.id for item in items]
     counts = reaction_service.counts_for_items(db, item_ids, user.id)
     helper_stats = helper_service.stats_for_items(db, item_ids, user.id)
+    group_counts = _group_counts(db, items)
     result = []
     for item in items:
         building = buildings.get(item.building_id) if item.building_id is not None else None
@@ -95,6 +110,8 @@ def serialize_items(db: Session, items: list[Item], user: User) -> list[dict]:
                 "is_demo": item.is_demo,
                 "source": item.source,
                 "created_at": item.created_at,
+                "group_id": item.group_id,
+                "group_count": group_counts.get(item.group_id, 1) if item.group_id is not None else 1,
                 "building_id": item.building_id,
                 "building_name": building.name if building else None,
                 "floor": item.floor,
@@ -143,6 +160,8 @@ def create_item(db: Session, user: User, body: ItemCreate) -> dict:
     )
     db.add(item)
     db.flush()
+    # 相似帖聚合与发布同事务：命中即标记同一 group_id（纯规则，不依赖模型）
+    item_group_service.assign_group(db, item)
     if body.photo_ids:
         upload_service.bind_photos_to_item(db, user, item, body.photo_ids)
     db.commit()
@@ -159,6 +178,7 @@ def list_items(
     status: ItemStatus | None = None,
     q: str | None = None,
     building_id: uuid.UUID | None = None,
+    group_id: uuid.UUID | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -179,6 +199,8 @@ def list_items(
         query = query.filter(Item.status == status)
     if building_id is not None:
         query = query.filter(Item.building_id == building_id)
+    if group_id is not None:
+        query = query.filter(Item.group_id == group_id)
     total = query.count()
     items = query.order_by(Item.created_at.desc()).offset(offset).limit(limit).all()
     return serialize_items(db, items, user), total
@@ -213,6 +235,7 @@ def get_item_detail(db: Session, user: User, item_id: uuid.UUID) -> dict:
         "is_demo": item.is_demo,
         "source": item.source,
         "created_at": item.created_at,
+        "group_id": item.group_id,
         "norm_x": item.norm_x,
         "norm_y": item.norm_y,
         "layer_id": item.layer_id,

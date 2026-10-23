@@ -28,7 +28,7 @@ _WORD_RE = re.compile(r"[A-Za-z0-9]+")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 
 
-def _extract_keywords(*texts: str) -> set[str]:
+def extract_keywords(*texts: str) -> set[str]:
     """关键词提取：英文/数字按词、中文按相邻双字，统一小写去重。"""
     keywords: set[str] = set()
     for text in texts:
@@ -65,12 +65,12 @@ def find_matches(db: Session, new_item: Item) -> list[Item]:
         )
         .all()
     )
-    new_keywords = _extract_keywords(new_item.title, new_item.description)
+    new_keywords = extract_keywords(new_item.title, new_item.description)
     if len(new_keywords) < KEYWORD_MIN_OVERLAP:
         return []
     matched: list[Item] = []
     for candidate in candidates:
-        overlap = new_keywords & _extract_keywords(candidate.title, candidate.description)
+        overlap = new_keywords & extract_keywords(candidate.title, candidate.description)
         if len(overlap) >= KEYWORD_MIN_OVERLAP:
             matched.append(candidate)
     return matched

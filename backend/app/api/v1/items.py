@@ -56,13 +56,14 @@ def list_items(
     status: ItemStatus | None = None,
     q: str | None = None,
     building_id: uuid.UUID | None = None,
+    group_id: uuid.UUID | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     items, total = item_service.list_items(
-        db, user, direction, category, location_area, status, q, building_id, limit, offset
+        db, user, direction, category, location_area, status, q, building_id, group_id, limit, offset
     )
     return Page(items=items, total=total, limit=limit, offset=offset)
 

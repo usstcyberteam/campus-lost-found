@@ -8,7 +8,7 @@ import { errorMessage } from '../utils/error'
 import { statusLabels, type Building, type Direction, type Item, type ItemStatus } from '../types'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
-import ItemCard from '../components/ItemCard/ItemCard'
+import ItemGroup from '../components/ItemCard/ItemGroup'
 import PageContainer from '../components/PageContainer'
 import PageHeader from '../components/AppShell/PageHeader'
 import Input from '../components/ui/Input'
@@ -18,6 +18,26 @@ import styles from './Hall.module.css'
 
 const PAGE_SIZE = 20
 const QUICK_CATEGORIES = ['雨伞', '水杯', '手机', '校园卡', '钥匙']
+
+interface ItemCluster {
+  primary: Item
+  siblings: Item[]
+}
+
+// 相似帖聚类：组首帖保持原位，同组其余帖折叠到首帖下（group_id 由后端发布时规则判定）
+function clusterByGroup(items: Item[]): ItemCluster[] {
+  const clusters: ItemCluster[] = []
+  const index = new Map<string, number>()
+  for (const item of items) {
+    if (item.group_id && index.has(item.group_id)) {
+      clusters[index.get(item.group_id) as number].siblings.push(item)
+    } else {
+      if (item.group_id) index.set(item.group_id, clusters.length)
+      clusters.push({ primary: item, siblings: [] })
+    }
+  }
+  return clusters
+}
 
 function greeting(): string {
   const hour = new Date().getHours()
@@ -104,14 +124,14 @@ export default function Hall() {
     }
   }
 
-  // 逻辑分组：按寻物 / 失物招领分隔，避免一条无边界的信息流
+  // 逻辑分组：按寻物 / 失物招领分隔，避免一条无边界的信息流；组内再做相似帖聚类
   const groups = useMemo(() => {
-    const lost = items.filter((item) => item.direction === 'lost')
-    const found = items.filter((item) => item.direction === 'found')
+    const lost = clusterByGroup(items.filter((item) => item.direction === 'lost'))
+    const found = clusterByGroup(items.filter((item) => item.direction === 'found'))
     return [
-      { key: 'lost', title: '寻物启事', items: lost },
-      { key: 'found', title: '失物招领', items: found },
-    ].filter((group) => group.items.length > 0)
+      { key: 'lost', title: '寻物启事', clusters: lost },
+      { key: 'found', title: '失物招领', clusters: found },
+    ].filter((group) => group.clusters.length > 0)
   }, [items])
 
   return (
@@ -203,12 +223,12 @@ export default function Hall() {
           <section key={group.key} className={styles.group} aria-label={group.title}>
             <h2 className={styles.groupTitle}>
               {group.title}
-              <span className={styles.groupCount}>{group.items.length}</span>
+              <span className={styles.groupCount}>{group.clusters.length}</span>
             </h2>
             <ul className={styles.list}>
-              {group.items.map((item) => (
-                <li key={item.id} className={styles.item}>
-                  <ItemCard item={item} />
+              {group.clusters.map((cluster) => (
+                <li key={cluster.primary.id} className={styles.item}>
+                  <ItemGroup item={cluster.primary} siblings={cluster.siblings} />
                 </li>
               ))}
             </ul>
