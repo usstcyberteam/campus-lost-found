@@ -135,3 +135,45 @@
   gap: var(--space-2);
   justify-content: center;
 }
+/* AI 能力首见引导条：localStorage 关闭后不再出现 */
+.aiGuide {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-2);
+}
+
+.aiGuideText {
+  margin: 0;
+  flex: 1;
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  line-height: 1.6;
+}
+
+.aiGuideKey {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.aiGuideClose {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.aiGuideClose:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}

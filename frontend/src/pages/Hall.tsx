@@ -51,6 +51,14 @@ function greeting(): string {
 export default function Hall() {
   const navigate = useNavigate()
   const { displayName } = useAuth()
+  // 首次进入的 AI 能力轻引导：localStorage 标记关闭后不再出现
+  const [aiGuideOpen, setAiGuideOpen] = useState(() => {
+    try {
+      return !localStorage.getItem('ai_guide_dismissed')
+    } catch {
+      return false
+    }
+  })
   const [direction, setDirection] = useState<Direction | ''>('')
   const [category, setCategory] = useState('')
   const [status, setStatus] = useState<ItemStatus | ''>('')
@@ -144,6 +152,30 @@ export default function Hall() {
         </h2>
         <p className={styles.heroSub}>看看大家都在找什么、捡到了什么</p>
       </section>
+
+      {aiGuideOpen && (
+        <aside className={styles.aiGuide} aria-label="AI 功能引导">
+          <p className={styles.aiGuideText}>
+            AI 助手已上线：侧边悬浮条可<span className={styles.aiGuideKey}>对话找物</span>
+            （支持语音）、发布页可<span className={styles.aiGuideKey}>一键润色描述</span>
+            ，相似帖子自动聚合展示，有匹配结果会推送通知（底部"我的"显示未读数）。
+          </p>
+          <button
+            type="button"
+            className={styles.aiGuideClose}
+            onClick={() => {
+              try {
+                localStorage.setItem('ai_guide_dismissed', '1')
+              } catch {
+                /* 隐私模式下写失败也不影响当次关闭 */
+              }
+              setAiGuideOpen(false)
+            }}
+          >
+            知道了
+          </button>
+        </aside>
+      )}
 
       <div className={styles.searchBar}>
         <Input

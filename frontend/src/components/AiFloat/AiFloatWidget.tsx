@@ -475,17 +475,19 @@ export default function AiFloatWidget() {
               readOnly={voice.listening}
               aria-label="发给 AI 助手的消息"
             />
-            <button
-              type="button"
-              className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
-              onClick={onMicClick}
-              disabled={!voice.supported || busy}
-              title={voice.supported ? undefined : '当前浏览器不支持语音输入'}
-              aria-label={voice.listening ? '停止语音输入' : '语音输入'}
-              aria-pressed={voice.listening}
-            >
-              {voice.listening ? '⏹' : '🎤'}
-            </button>
+            {voice.supported && (
+              <button
+                type="button"
+                className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
+                onClick={onMicClick}
+                disabled={busy}
+                title="语音输入"
+                aria-label={voice.listening ? '停止语音输入' : '语音输入'}
+                aria-pressed={voice.listening}
+              >
+                {voice.listening ? '⏹' : '🎤'}
+              </button>
+            )}
             <button type="submit" className={styles.send} disabled={busy || !text.trim()}>
               发送
             </button>

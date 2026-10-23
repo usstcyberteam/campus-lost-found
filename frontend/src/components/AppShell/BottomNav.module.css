@@ -33,6 +33,23 @@
 .icon {
   display: flex;
   line-height: 0;
+  position: relative;
+}
+
+/* 未读通知徽标：挂在"我的"图标右上角 */
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -14px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
 }
 
 .label {
