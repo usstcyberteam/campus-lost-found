@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
@@ -13,13 +14,19 @@ import styles from './AiFloatWidget.module.css'
 
 const POS_KEY = 'ai-float-pos-side'
 const PREFILL_QUERY = 'ai_prefill'
-const BAR_W = 48
-const BAR_H = 132
+const DESKTOP_BAR_W = 48
+const DESKTOP_BAR_H = 132
+const MOBILE_BAR_W = 44
+const MOBILE_BAR_H = 100
 const PANEL_W = 340
 const PANEL_H = 460
 const DRAG_THRESHOLD = 5
 const NOTICE_MS = 6000
 const Y_MIN = 60
+const BOTTOM_NAV_H = 60
+const HANDLE_CLOSE_PX = 72
+// 与团队断点一致：min-width: 768px 及以上为桌面布局
+const DESKTOP_QUERY = '(min-width: 768px)'
 
 type Side = 'left' | 'right'
 
@@ -50,35 +57,65 @@ const WELCOME: ChatMessage = {
   text: '你好，我是校园失物招领助手。描述你丢失或拾获的物品，我帮你整理成发帖草稿。',
 }
 
-function clampY(y: number): number {
-  const yMax = Math.max(Y_MIN, window.innerHeight - 140)
+function isDesktopViewport(): boolean {
+  return window.matchMedia(DESKTOP_QUERY).matches
+}
+
+let safeBottomCache: number | null = null
+
+/** env() 只在 CSS 内求值，用一次性探针元素读出安全区像素值。 */
+function getSafeBottom(): number {
+  if (safeBottomCache !== null) return safeBottomCache
+  const probe = document.createElement('div')
+  probe.style.cssText =
+    'position:fixed;bottom:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden'
+  document.body.appendChild(probe)
+  safeBottomCache = parseFloat(getComputedStyle(probe).paddingBottom) || 0
+  probe.remove()
+  return safeBottomCache
+}
+
+function barSize(desktop: boolean): { w: number; h: number } {
+  return desktop ? { w: DESKTOP_BAR_W, h: DESKTOP_BAR_H } : { w: MOBILE_BAR_W, h: MOBILE_BAR_H }
+}
+
+function clampY(y: number, barH: number, desktop: boolean): number {
+  // 移动端须让出底部导航（60px + 安全区）
+  const yMax = desktop
+    ? Math.max(Y_MIN, window.innerHeight - 140)
+    : Math.max(Y_MIN, window.innerHeight - BOTTOM_NAV_H - getSafeBottom() - barH - 12)
   return Math.min(Math.max(Y_MIN, y), yMax)
 }
 
-function clampPos(pos: Pos): Pos {
+function clampPos(pos: Pos, barW: number, barH: number, desktop: boolean): Pos {
   return {
-    x: Math.min(Math.max(0, pos.x), Math.max(0, window.innerWidth - BAR_W)),
-    y: clampY(pos.y),
+    x: Math.min(Math.max(0, pos.x), Math.max(0, window.innerWidth - barW)),
+    y: clampY(pos.y, barH, desktop),
   }
 }
 
-function sideX(side: Side): number {
-  return side === 'left' ? 0 : Math.max(0, window.innerWidth - BAR_W)
+function sideX(side: Side, barW: number): number {
+  return side === 'left' ? 0 : Math.max(0, window.innerWidth - barW)
 }
 
-function defaultStored(): StoredPos {
-  return { side: 'left', y: clampY((window.innerHeight - BAR_H) / 2) }
+function defaultStored(desktop: boolean): StoredPos {
+  const { h } = barSize(desktop)
+  if (desktop) return { side: 'left', y: clampY((window.innerHeight - h) / 2, h, true) }
+  // 移动端默认右下角：侧边垂直居中停靠在窄屏易误触
+  return { side: 'right', y: clampY(window.innerHeight - BOTTOM_NAV_H - getSafeBottom() - h - 12, h, false) }
 }
 
 function loadStored(): StoredPos {
+  const desktop = isDesktopViewport()
+  const { h } = barSize(desktop)
   try {
     const raw = localStorage.getItem(POS_KEY)
-    if (!raw) return defaultStored()
+    if (!raw) return defaultStored(desktop)
     const parsed = JSON.parse(raw) as StoredPos
-    if (typeof parsed.y !== 'number') return defaultStored()
-    return { side: parsed.side === 'right' ? 'right' : 'left', y: clampY(parsed.y) }
+    if (typeof parsed.y !== 'number') return defaultStored(desktop)
+    return { side: parsed.side === 'right' ? 'right' : 'left', y: clampY(parsed.y, h, desktop) }
   } catch {
-    return defaultStored()
+    return defaultStored(desktop)
   }
 }
 
@@ -133,12 +170,16 @@ export default function AiFloatWidget() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [target, setTarget] = useState<RouteTarget | null>(null)
+  const [isDesktop, setIsDesktop] = useState(() => isDesktopViewport())
+  const [viewportH, setViewportH] = useState(() => window.visualViewport?.height ?? window.innerHeight)
   const [side, setSide] = useState<Side>(() => loadStored().side)
   const [pos, setPos] = useState<Pos>(() => {
     const stored = loadStored()
-    return { x: sideX(stored.side), y: stored.y }
+    const { w } = barSize(isDesktopViewport())
+    return { x: sideX(stored.side, w), y: stored.y }
   })
   const drag = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0, distance: 0 })
+  const handleDrag = useRef({ active: false, startY: 0, dy: 0 })
   const posRef = useRef(pos)
   const listRef = useRef<HTMLOListElement>(null)
   const noticeTimer = useRef(0)
@@ -161,13 +202,37 @@ export default function AiFloatWidget() {
     return () => window.clearTimeout(noticeTimer.current)
   }, [notice])
 
+  // 视口跨过 768px 断点时按当前停靠侧重置坐标，避免旧尺寸坐标越界
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_QUERY)
+    function onChange() {
+      setIsDesktop(mq.matches)
+      const stored = loadStored()
+      const { w } = barSize(mq.matches)
+      setSide(stored.side)
+      setPos({ x: sideX(stored.side, w), y: stored.y })
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  // 键盘避让：visualViewport 高度注入 CSS 变量，压缩移动端面板高度
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onVvResize = () => setViewportH(vv.height)
+    vv.addEventListener('resize', onVvResize)
+    return () => vv.removeEventListener('resize', onVvResize)
+  }, [])
+
   useEffect(() => {
     function onResize() {
-      setPos((prev) => clampPos({ ...prev, x: sideX(side) }))
+      const { w, h } = barSize(isDesktop)
+      setPos((prev) => clampPos({ ...prev, x: sideX(side, w) }, w, h, isDesktop))
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [side])
+  }, [side, isDesktop])
 
   function onPointerDown(e: ReactPointerEvent<HTMLButtonElement>) {
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -187,7 +252,8 @@ export default function AiFloatWidget() {
     const dx = e.clientX - drag.current.startX
     const dy = e.clientY - drag.current.startY
     drag.current.distance = Math.max(Math.abs(dx), Math.abs(dy))
-    setPos(clampPos({ x: drag.current.origX + dx, y: drag.current.origY + dy }))
+    const { w, h } = barSize(isDesktop)
+    setPos(clampPos({ x: drag.current.origX + dx, y: drag.current.origY + dy }, w, h, isDesktop))
   }
 
   function onPointerUp() {
@@ -198,14 +264,36 @@ export default function AiFloatWidget() {
       setOpen((value) => !value)
       return
     }
+    const { w, h } = barSize(isDesktop)
     // 按松手时中心点 x 判断吸附侧，吸附并持久化 {side, y}
-    const centerX = posRef.current.x + BAR_W / 2
+    const centerX = posRef.current.x + w / 2
     const snappedSide: Side = centerX < window.innerWidth / 2 ? 'left' : 'right'
-    const snapped = clampPos({ x: sideX(snappedSide), y: posRef.current.y })
+    // 移动端松手吸附到下角，避免侧边条长期遮挡内容中部
+    const snappedY = isDesktop
+      ? posRef.current.y
+      : clampY(window.innerHeight - BOTTOM_NAV_H - getSafeBottom() - h - 12, h, false)
+    const snapped = clampPos({ x: sideX(snappedSide, w), y: snappedY }, w, h, isDesktop)
     setSide(snappedSide)
     setPos(snapped)
     posRef.current = snapped
     localStorage.setItem(POS_KEY, JSON.stringify({ side: snappedSide, y: snapped.y } satisfies StoredPos))
+  }
+
+  /** 移动端把手：下拉超过阈值关闭面板。 */
+  function onHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    handleDrag.current = { active: true, startY: e.clientY, dy: 0 }
+  }
+
+  function onHandlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!handleDrag.current.active) return
+    handleDrag.current.dy = Math.max(0, e.clientY - handleDrag.current.startY)
+  }
+
+  function onHandlePointerUp() {
+    if (!handleDrag.current.active) return
+    handleDrag.current.active = false
+    if (handleDrag.current.dy >= HANDLE_CLOSE_PX) setOpen(false)
   }
 
   async function onSubmit(e: FormEvent) {
@@ -290,26 +378,42 @@ export default function AiFloatWidget() {
 
   if (hidden) return null
 
+  const barW = isDesktop ? DESKTOP_BAR_W : MOBILE_BAR_W
+  const barH = isDesktop ? DESKTOP_BAR_H : MOBILE_BAR_H
   const panelH = Math.min(PANEL_H, window.innerHeight - 24)
-  const panelW = Math.min(PANEL_W, window.innerWidth - BAR_W - 24)
-  const panelX = side === 'left' ? BAR_W + 16 : Math.max(8, pos.x - panelW - 16)
+  const panelW = Math.min(PANEL_W, window.innerWidth - barW - 24)
+  const panelX = side === 'left' ? barW + 16 : Math.max(8, pos.x - panelW - 16)
   const panelY = Math.min(
-    Math.max(8, pos.y + BAR_H / 2 - panelH / 2),
+    Math.max(8, pos.y + barH / 2 - panelH / 2),
     Math.max(8, window.innerHeight - panelH - 8),
   )
 
   return (
     <>
       <div
-        className={`${styles.panelAnchor} ${dragging ? '' : styles.anchorSnap}`}
-        style={{ transform: `translate(${panelX}px, ${panelY}px)` }}
+        className={`${styles.panelAnchor} ${dragging && isDesktop ? '' : styles.anchorSnap}`}
+        style={
+          isDesktop
+            ? { transform: `translate(${panelX}px, ${panelY}px)` }
+            : ({ '--aifloat-vvh': `${viewportH}px` } as CSSProperties)
+        }
       >
         <section
           className={`${styles.panel} ${side === 'right' ? styles.panelRight : ''} ${
             open ? styles.panelOpen : ''
-          }`}
+          } ${isDesktop ? '' : styles.panelMobile}`}
           aria-hidden={!open}
         >
+          {!isDesktop && (
+            <div
+              className={styles.handle}
+              aria-label="下拉关闭"
+              onPointerDown={onHandlePointerDown}
+              onPointerMove={onHandlePointerMove}
+              onPointerUp={onHandlePointerUp}
+              onPointerCancel={onHandlePointerUp}
+            />
+          )}
           {notice && (
             <button type="button" className={styles.notice} onClick={onNoticeClick}>
               {notice} →
@@ -360,7 +464,7 @@ export default function AiFloatWidget() {
         className={`${styles.bar} ${side === 'right' ? styles.barRight : ''} ${
           dragging ? '' : styles.barSnap
         }`}
-        style={{ transform: `translate(${pos.x}px, ${pos.y}px)`, width: BAR_W, height: BAR_H }}
+        style={{ transform: `translate(${pos.x}px, ${pos.y}px)`, width: barW, height: barH }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
