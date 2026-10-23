@@ -11,7 +11,7 @@ import {
   type PolylineGeometry,
 } from '../api/items'
 import { useAsync } from '../hooks/useAsync'
-import { suggestLocations } from '../api/ai'
+import { aiChat, suggestLocations } from '../api/ai'
 import { directionLabels, type Direction, type Item, type Photo, type RouteKind, type Visibility } from '../types'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
@@ -100,6 +100,8 @@ export default function ItemForm() {
   const [templateHint, setTemplateHint] = useState('')
   const [busy, setBusy] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
+  const [polishBusy, setPolishBusy] = useState(false)
+  const [polishPreview, setPolishPreview] = useState<string | null>(null)
   // AI 预填交互：实际填入的字段 key（用于高亮）、顶部提示条可见性
   const [prefilledKeys, setPrefilledKeys] = useState<string[]>([])
   const [aiToastVisible, setAiToastVisible] = useState(false)
@@ -117,6 +119,35 @@ export default function ItemForm() {
       setSuggestions(locations.slice(0, 5))
     } catch {
       setSuggestions([])
+    }
+  }
+
+  /** AI 润色：把表单字段拼成摘要发给 chat(action=polish)，结果先预览、用户点"采用"才写入。 */
+  async function onPolishClick() {
+    if (polishBusy) return
+    if (!title.trim()) {
+      setTemplateHint('先填写标题，再使用 AI 润色')
+      return
+    }
+    setPolishBusy(true)
+    setPolishPreview(null)
+    setTemplateHint('')
+    try {
+      const lines = [
+        `类型：${direction === 'lost' ? '丢失' : '拾获'}`,
+        category.trim() ? `类别：${category.trim()}` : null,
+        `标题：${title.trim()}`,
+        locationArea.trim() ? `地点：${locationArea.trim()}` : null,
+        aiExtra?.time_occurred ? `时间：${aiExtra.time_occurred}` : null,
+        description.trim() ? `现有描述：${description.trim()}` : null,
+      ].filter((line): line is string => line !== null)
+      const result = await aiChat(lines.join('\n'), undefined, 'polish')
+      const polished = result.form_patch?.description ?? result.reply
+      setPolishPreview(polished)
+    } catch (err) {
+      setTemplateHint(errorMessage(err))
+    } finally {
+      setPolishBusy(false)
     }
   }
 
@@ -397,6 +428,41 @@ export default function ItemForm() {
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </Field>
+            </div>
+            <div className={styles.polishBlock}>
+              <button
+                type="button"
+                className={styles.polishButton}
+                onClick={onPolishClick}
+                disabled={polishBusy || !title.trim()}
+              >
+                {polishBusy ? '润色中…' : '✨ AI 润色描述'}
+              </button>
+              {polishPreview !== null && (
+                <div className={styles.polishPreview}>
+                  <p className={styles.polishText}>{polishPreview}</p>
+                  <div className={styles.polishActions}>
+                    <button
+                      type="button"
+                      className={styles.polishApply}
+                      onClick={() => {
+                        setDescription(polishPreview)
+                        setPolishPreview(null)
+                        setTemplateHint('已采用 AI 润色描述，可继续修改')
+                      }}
+                    >
+                      {description.trim() ? '替换现有描述' : '采用'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.polishDiscard}
+                      onClick={() => setPolishPreview(null)}
+                    >
+                      放弃
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             {!editing && (
               <div className={styles.templates}>

@@ -369,11 +369,11 @@ def _rule_polish(text: str) -> dict:
     if fields.get("现有描述"):
         parts.append(fields["现有描述"])
     parts.append("如有同学发现，恳请与我联系，非常感谢！")
-    reply = "，".join(part for part in parts if part)
+    reply = _clip("，".join(part for part in parts if part), 2000)
     return {
         "intent": "draft",
-        "reply": _clip(reply, 2000),
-        "form_patch": {"description": _clip(reply, 2000)},
+        "reply": reply,
+        "form_patch": {"description": reply},
         "actions": [],
         "source": Source.rule,
         "degraded": True,
