@@ -175,6 +175,7 @@ def test_direction_pairing_is_opposite_only(client):
 
     assert my_notifications(client, token_a)["total"] == 0
 
+
 def get_unread_count(client, token: str) -> int:
     r = client.get("/api/v1/me/notifications/unread-count", headers=auth(token))
     assert r.status_code == 200, r.text

@@ -80,9 +80,7 @@ def test_high_keyword_overlap_groups_without_place_or_category(client):
     token_a = register(client, "kw_a")
     post_item(client, token_a, "lost", category="雨伞", location_area="图书馆")
     token_b = register(client, "kw_b")
-    second = post_item(
-        client, token_b, "found", category="水杯", location_area="食堂", title="蓝色折叠伞一把"
-    )
+    second = post_item(client, token_b, "found", category="水杯", location_area="食堂", title="蓝色折叠伞一把")
 
     # 类别与地点均不同，但标题关键词重叠率>50% + 时间差<7天，两条命中聚合
     assert second["group_id"] is not None
@@ -93,9 +91,7 @@ def test_same_category_old_post_not_grouped(client):
     old = post_item(client, token_a, "lost", category="雨伞", location_area="图书馆")
     age_item(old["id"], days=8)
     token_b = register(client, "old_b")
-    second = post_item(
-        client, token_b, "found", title="捡到不锈钢保温壶", description="银色壶身", location_area="食堂"
-    )
+    second = post_item(client, token_b, "found", title="捡到不锈钢保温壶", description="银色壶身", location_area="食堂")
 
     # 仅同类别一条命中（时间差≥7天、地点不同、关键词无重叠），不聚合
     assert second["group_id"] is None

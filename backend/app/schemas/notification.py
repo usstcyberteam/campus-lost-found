@@ -19,5 +19,6 @@ class NotificationOut(BaseModel):
     read: bool
     created_at: datetime
 
+
 class UnreadCountOut(BaseModel):
     count: int

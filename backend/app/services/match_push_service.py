@@ -144,9 +144,7 @@ def list_notifications(db: Session, user_id: uuid.UUID, limit: int, offset: int)
 def mark_notification_read(db: Session, user_id: uuid.UUID, notification_id: uuid.UUID) -> Notification | None:
     """标记自己的通知为已读；不属于该用户或不存在返回 None（幂等：已读直接返回）。"""
     notification = (
-        db.query(Notification)
-        .filter(Notification.id == notification_id, Notification.user_id == user_id)
-        .first()
+        db.query(Notification).filter(Notification.id == notification_id, Notification.user_id == user_id).first()
     )
     if notification is None or notification.read:
         return notification

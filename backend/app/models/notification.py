@@ -25,8 +25,6 @@ class Notification(Base):
         SAEnum(Source, native_enum=False, length=8), nullable=False, default=Source.rule
     )
     read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     # 去重键：同一触发帖+命中帖组合只推一次（如 ai_match:{new_id}:{matched_id}）
     dedup_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
