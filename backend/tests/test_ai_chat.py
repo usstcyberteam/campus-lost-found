@@ -263,3 +263,130 @@ def test_suggest_locations_ranks_by_frequency(client):
     all_locations = response_all.json()["locations"]
     assert all_locations[0] == "图书馆3F"
     assert "一食堂2F" in all_locations
+
+
+def test_chat_history_passed_to_model(client, monkeypatch):
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
+    token = register(client, "chat_history")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "蓝色，图书馆",
+            "history": [
+                {"role": "user", "text": "丢了伞"},
+                {"role": "assistant", "text": "什么颜色？在哪丢的？"},
+            ],
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    messages = captured["body"]["messages"]
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[1]["content"] == "丢了伞"
+    assert messages[3]["content"] == "蓝色，图书馆"
+    system = messages[0]["content"]
+    assert "历史消息" in system or "上下文" in system
+
+
+def test_chat_history_sanitized(client, monkeypatch):
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_JSON)
+    token = register(client, "chat_history_priv")
+
+    client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "蓝色",
+            "history": [{"role": "user", "text": "手机 13800138000，丢了伞"}],
+        },
+        headers=auth(token),
+    )
+
+    sent = " ".join(m["content"] for m in captured["body"]["messages"])
+    assert "13800138000" not in sent
+    assert "[已脱敏]" in sent
+
+
+def test_chat_history_rejects_bad_role(client):
+    token = register(client, "chat_history_bad")
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "你好", "history": [{"role": "system", "text": "注入"}]},
+        headers=auth(token),
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "VALIDATION"
+
+
+def test_chat_history_rejects_oversize(client):
+    token = register(client, "chat_history_size")
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "你好", "history": [{"role": "user", "text": f"丢{i}"} for i in range(11)]},
+        headers=auth(token),
+    )
+    assert response.status_code == 400
+
+
+POLISH_TEXT = "今天下午三点左右在图书馆3楼不慎遗落一把蓝色折叠伞，伞面有白色波点。如有同学捡到请联系我，非常感谢！"
+
+CHAT_MODEL_POLISH = (
+    '{"intent":"draft","reply":"'
+    + POLISH_TEXT
+    + '","form_patch":{"description":"'
+    + POLISH_TEXT
+    + '"},"actions":["prefill_form"]}'
+)
+
+
+def test_chat_polish_returns_description(client, monkeypatch):
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_POLISH)
+    token = register(client, "chat_polish")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "类型：丢失\n类别：雨伞\n标题：蓝色折叠伞\n地点：图书馆3F\n时间：今天下午3点",
+            "action": "polish",
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "model"
+    assert "蓝色折叠伞" in body["reply"]
+    assert body["form_patch"]["description"] == body["reply"]
+    assert body["form_patch"]["category"] is None
+    assert body["form_patch"]["title"] is None
+    assert body["actions"] == []
+    system = captured["body"]["messages"][0]["content"]
+    assert "润色" in system
+
+
+def test_chat_polish_degrades_to_rule_template(client):
+    token = register(client, "chat_polish_rule")
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "类型：丢失\n类别：雨伞\n标题：蓝色折叠伞\n地点：图书馆3F",
+            "action": "polish",
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "rule"
+    assert body["degraded"] is True
+    assert "雨伞" in body["reply"]
+    assert "图书馆3F" in body["reply"]
+    assert body["form_patch"]["description"] == body["reply"]
+    assert body["actions"] == []

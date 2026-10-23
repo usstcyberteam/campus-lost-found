@@ -69,6 +69,17 @@ _CHAT_SYSTEM_PROMPT = (
     'actions 为字符串数组，仅在 intent 为 draft 且 form_patch 至少一个字段非 null 时包含 "prefill_form"，否则为空数组。'
     "禁止输出精确到座位、柜号的私密位置、联系方式、认领证据或他人路线。"
 )
+_CHAT_HISTORY_PROMPT = (
+    "历史消息会提供此前几轮对话：结合上下文累积理解用户信息，用户已回答过的问题不要重复追问；"
+    "当物品名称及颜色样式、时间、建筑楼层等信息攒齐时，输出 intent=draft 并返回完整 form_patch；"
+    "仍缺关键信息时，一次只追问 1-2 个最关键的缺失项，form_patch 保持 null。"
+)
+_CHAT_POLISH_PROMPT = (
+    "用户要求润色发布描述：message 是表单字段摘要（类型/类别/标题/地点/时间/现有描述）。"
+    "基于这些信息写一段 60-120 字、有温度的失物或招领描述：交代时间地点、物品特征，"
+    "结尾加一句自然的求助或致谢。reply 放润色后的完整描述；form_patch 仅含 description 字段"
+    "（与 reply 相同的润色文案）；intent 为 draft；actions 为空数组。不得编造摘要中没有的信息。"
+)
 _CHAT_FALLBACK_REPLY = "模型暂不可用，已按规则整理出草稿，请手动补充。"
 _CHAT_INTRO_REPLY = "我在这里帮你整理丢失或拾获物品的描述，直接告诉我物品特征和地点即可。"
 _FORM_PATCH_KEYS = ("category", "title", "description", "location_area", "building_code", "floor", "time_occurred")
@@ -244,7 +255,10 @@ def draft_post(db: Session, text: str) -> dict:
 
 
 def _chat_messages(
-    text: str, action: str | None = None, history_places: list[str] | None = None
+    text: str,
+    action: str | None = None,
+    history_places: list[str] | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -254,12 +268,17 @@ def _chat_messages(
             "用户明确要求整理草稿：无论信息是否完整，都输出 intent=draft，"
             "把能识别到的字段全部填入 form_patch（能提取多少提取多少），不要追问。"
         )
+    if action == "polish":
+        system += _CHAT_POLISH_PROMPT
+    if history:
+        system += _CHAT_HISTORY_PROMPT
     if history_places:
         system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": _sanitize(text)},
-    ]
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for item in history or []:
+        messages.append({"role": item["role"], "content": _sanitize(item["text"])})
+    messages.append({"role": "user", "content": _sanitize(text)})
+    return messages
 
 
 def _chat_intent(payload: dict) -> str:
@@ -331,7 +350,39 @@ def _model_chat(db: Session, text: str, payload: dict) -> dict:
     }
 
 
+_POLISH_FIELD_PATTERN = re.compile(r"(类型|类别|标题|地点|时间|现有描述)：(.*)")
+
+
+def _rule_polish(text: str) -> dict:
+    """润色降级：从字段摘要正则抽取，套固定模板拼一段基础描述。"""
+    fields = {key.strip(): value.strip() for key, value in _POLISH_FIELD_PATTERN.findall(text)}
+    kind = "不慎遗失" if "丢失" in fields.get("类型", "") else "拾获"
+    lead = ""
+    if fields.get("时间"):
+        lead += fields["时间"]
+    if fields.get("地点"):
+        lead += f"在{fields['地点']}"
+    sentence = f"{lead}{kind}了{fields.get('类别') or '一件物品'}"
+    if fields.get("标题"):
+        sentence += f"（{fields['标题']}）"
+    parts = [sentence.rstrip()]
+    if fields.get("现有描述"):
+        parts.append(fields["现有描述"])
+    parts.append("如有同学发现，恳请与我联系，非常感谢！")
+    reply = "，".join(part for part in parts if part)
+    return {
+        "intent": "draft",
+        "reply": _clip(reply, 2000),
+        "form_patch": {"description": _clip(reply, 2000)},
+        "actions": [],
+        "source": Source.rule,
+        "degraded": True,
+    }
+
+
 def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
+    if action == "polish":
+        return _rule_polish(text)
     draft = _rule_draft(db, text)
     has_item_signal = any(draft.get(key) is not None for key in ("category", "building_code", "floor"))
     if action == "draft":
@@ -380,17 +431,29 @@ def _user_history_places(db: Session, user: User, limit: int = 3) -> list[str]:
     return [row[0] for row in rows]
 
 
-def chat(db: Session, message: str, action: str | None = None, user: User | None = None) -> dict:
+def chat(
+    db: Session,
+    message: str,
+    action: str | None = None,
+    user: User | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> dict:
     cleaned = _sanitize(message.strip())
     history_places = _user_history_places(db, user) if user is not None else []
     if model_client.is_available():
-        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places))
+        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places, history))
         if content is not None:
             payload = _parse_model_json(content)
             if payload is not None:
                 if action == "draft":
                     payload["intent"] = "draft"
-                return _model_chat(db, cleaned, payload)
+                result = _model_chat(db, cleaned, payload)
+                if action == "polish":
+                    # 润色场景语义收敛：reply 即润色文案，form_patch 仅透出 description，不触发预填
+                    result["actions"] = []
+                    if result["form_patch"] is not None:
+                        result["form_patch"] = {"description": result["form_patch"].get("description")}
+                return result
             logger.warning("模型输出无法解析，已降级")
     return _rule_chat(db, cleaned, action)
 

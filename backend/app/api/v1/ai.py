@@ -24,7 +24,8 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return ai_service.chat(db, body.message, body.action, user)
+    history = [{"role": item.role, "text": item.text} for item in body.history]
+    return ai_service.chat(db, body.message, body.action, user, history)
 
 
 @router.get("/suggest-locations", response_model=SuggestLocationsOut)
