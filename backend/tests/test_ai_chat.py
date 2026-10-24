@@ -427,3 +427,23 @@ def test_chat_rule_degradation_polish_ignores_history(client):
     assert body["source"] == "rule"
     assert "雨伞" in body["reply"]
     assert "无关历史内容" not in body["reply"]
+
+
+def test_chat_system_prompt_contains_emotion_guidance(client, monkeypatch):
+    """情感安抚指令进入 system prompt：模型可按情绪决定是否加轻安抚。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN)
+    token = register(client, "chat_emotion")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "好急啊，伞找不到了怎么办"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    system = captured["body"]["messages"][0]["content"]
+    assert "情绪安抚" in system
+    assert "别着急" in system
+    assert "禁止说教" in system
