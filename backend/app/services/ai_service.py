@@ -477,3 +477,99 @@ def suggest_locations(db: Session, keyword: str | None, limit: int = 5) -> dict:
 
 def search_advice(db: Session, user: User, body: SearchAdviceRequest) -> dict:
     return advice_service.recommend(db, user, body)
+
+
+_THANK_YOU_SYSTEM_PROMPT = (
+    "你是校园失物招领助手，帮找回物品的用户向拾获者写感谢语。"
+    "只输出一个 JSON 对象，字段固定为 warm、cute、formal，不得增删字段、不得输出 JSON 以外的任何文本。"
+    "三种风格各写一段：warm 温暖真诚（40-80 字）；cute 活泼可爱、可用表情符号（30-60 字）；"
+    "formal 正式得体（50-100 字）。内容围绕物品与找回地点，拾获者留言如有提供则适当呼应。"
+    "tone 为 short 时三段整体写得更简短。禁止出现联系方式、真实姓名、认领证据等私密信息，禁止 markdown 标记。"
+)
+_THANK_YOU_TEMPLATES = {
+    "warm": "感谢好心人捡到我的{item_title}！在{location}找回来真的太幸运了，非常感谢你的善意 🙏",
+    "cute": "呜呜呜谢谢你捡到我的{item_title}！你人好好哦～祝你天天开心万事胜意 ✨",
+    "formal": "您好，感谢您捡到并归还我的{item_title}。您的善举让我深受感动，特此致谢。",
+}
+_THANK_YOU_TONE_LABELS = {"warm": "温暖", "cute": "活泼", "formal": "正式", "short": "简短"}
+
+
+def _thank_you_messages(
+    item_title: str, item_location: str, finder_note: str | None, tone: str
+) -> list[dict[str, str]]:
+    parts = [f"物品：{item_title}", f"找回地点：{item_location}"]
+    if finder_note:
+        parts.append(f"拾获者留言：{finder_note}")
+    parts.append(f"首选风格：{tone}（{_THANK_YOU_TONE_LABELS.get(tone, tone)}）")
+    return [
+        {"role": "system", "content": _THANK_YOU_SYSTEM_PROMPT},
+        {"role": "user", "content": _sanitize("；".join(parts))},
+    ]
+
+
+def _rule_thank_you(item_title: str, item_location: str) -> dict:
+    # 模板内的占位符按需替换：cute/formal 模板不含地点，format 忽略多余命名参数
+    return {
+        key: template.format(item_title=item_title, location=item_location)
+        for key, template in _THANK_YOU_TEMPLATES.items()
+    }
+
+
+def _model_thank_you(payload: dict) -> dict | None:
+    """提取三风格感谢语；任一风格缺失即整体降级，保证前端总能拿到三段可选项。"""
+    styles = {key: _optional_str(payload, key, 500) for key in ("warm", "cute", "formal")}
+    if any(value is None for value in styles.values()):
+        return None
+    return {key: _strip_markdown(value) for key, value in styles.items()}
+
+
+def thank_you(item_title: str, item_location: str, finder_note: str | None, tone: str) -> dict:
+    cleaned_title = _sanitize(item_title.strip())
+    cleaned_location = _sanitize(item_location.strip())
+    cleaned_note = _sanitize(finder_note.strip()) if finder_note else None
+    if model_client.is_available():
+        content = model_client.chat_completion(_thank_you_messages(cleaned_title, cleaned_location, cleaned_note, tone))
+        if content is not None:
+            payload = _parse_model_json(content)
+            if payload is not None:
+                styles = _model_thank_you(payload)
+                if styles is not None:
+                    return {**styles, "tone": tone, "source": Source.model, "degraded": False}
+            logger.warning("感谢语模型输出无法解析，已降级")
+    return {
+        **_rule_thank_you(cleaned_title, cleaned_location),
+        "tone": tone,
+        "source": Source.rule,
+        "degraded": True,
+    }
+
+
+# 归还建议：纯规则的关键词映射，顺序即优先级（证件类在前避免"校园卡"被泛类误吞）
+_RETURN_TYPE_SUGGESTIONS = (
+    (
+        ("证件", "校园卡", "学生证", "身份证", "一卡通", "饭卡", "钥匙", "护照", "卡包"),
+        ("请喝咖啡", "说声谢谢"),
+    ),
+    (
+        ("手机", "电话", "电脑", "笔记本", "平板", "钱包", "相机", "手表", "耳机"),
+        ("发个小红包", "请吃顿饭", "送个小礼物"),
+    ),
+    (("雨伞", "伞", "水杯", "杯子", "文具", "笔", "书本", "书包", "充电宝", "数据线"), ("请喝杯奶茶", "说声谢谢就好")),
+)
+_RETURN_VALUABLE_SUGGESTIONS = ("正式感谢信", "送花/礼物", "发朋友圈表扬")
+_RETURN_DEFAULT_SUGGESTIONS = ("说声谢谢", "请喝杯奶茶")
+_RETURN_SUGGESTION_MESSAGE = "失而复得已是很幸运的事，一份小小心意，让善意继续传递。"
+
+
+def return_suggestion(item_type: str, item_value: str | None) -> dict:
+    """按物品类型关键词映射感谢方式；类型未命中且价值为高时走贵重物品清单，其余给默认建议。"""
+    cleaned = _sanitize(item_type.strip())
+    lowered = cleaned.lower()
+    suggestions: tuple[str, ...] = _RETURN_DEFAULT_SUGGESTIONS
+    for keywords, mapped in _RETURN_TYPE_SUGGESTIONS:
+        if any(keyword.lower() in lowered for keyword in keywords):
+            suggestions = mapped
+            break
+    if suggestions is _RETURN_DEFAULT_SUGGESTIONS and item_value == "高":
+        suggestions = _RETURN_VALUABLE_SUGGESTIONS
+    return {"suggestions": list(suggestions), "message": _RETURN_SUGGESTION_MESSAGE}

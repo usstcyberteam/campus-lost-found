@@ -12,9 +12,13 @@ from app.schemas.ai import (
     DraftPostRequest,
     MatchOut,
     MatchRequest,
+    ReturnSuggestionOut,
+    ReturnSuggestionRequest,
     SearchAdviceOut,
     SearchAdviceRequest,
     SuggestLocationsOut,
+    ThankYouOut,
+    ThankYouRequest,
 )
 from app.services import ai_service, match_push_service
 
@@ -78,3 +82,20 @@ def search_advice(
     user: User = Depends(get_current_user),
 ):
     return ai_service.search_advice(db, user, body)
+
+
+@router.post("/thank-you", response_model=ThankYouOut)
+def thank_you(
+    body: ThankYouRequest,
+    user: User = Depends(get_current_user),
+):
+    # 感谢语不涉及库表数据，模型调用与规则模板都无需数据库会话
+    return ai_service.thank_you(body.item_title, body.item_location, body.finder_note, body.tone)
+
+
+@router.post("/return-suggestion", response_model=ReturnSuggestionOut)
+def return_suggestion(
+    body: ReturnSuggestionRequest,
+    user: User = Depends(get_current_user),
+):
+    return ai_service.return_suggestion(body.item_type, body.item_value)

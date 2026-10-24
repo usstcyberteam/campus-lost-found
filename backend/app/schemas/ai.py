@@ -96,3 +96,31 @@ class MatchOut(BaseModel):
     notified: int
     items: list[MatchedItemOut]
     source: Source
+
+
+class ThankYouRequest(BaseModel):
+    item_title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    item_location: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    finder_note: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=500)] = None
+    tone: Literal["warm", "cute", "formal", "short"] = "warm"
+
+
+class ThankYouOut(BaseModel):
+    tone: str
+    warm: str
+    cute: str
+    formal: str
+    source: Source
+    degraded: bool
+
+
+class ReturnSuggestionRequest(BaseModel):
+    item_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    item_value: Literal["高", "中", "低"] | None = None
+    # 预留的补充说明字段：纯规则路径暂不消费，供后续模型建议接入
+    context: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=500)] = None
+
+
+class ReturnSuggestionOut(BaseModel):
+    suggestions: list[str]
+    message: str
