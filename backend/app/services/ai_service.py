@@ -75,6 +75,13 @@ _CHAT_HISTORY_PROMPT = (
     "当物品名称及颜色样式、时间、建筑楼层等信息攒齐时，输出 intent=draft 并返回完整 form_patch；"
     "仍缺关键信息时，一次只追问 1-2 个最关键的缺失项，form_patch 保持 null。"
 )
+_CHAT_EMOTION_PROMPT = (
+    "情绪安抚：识别用户消息中的焦虑或沮丧情绪（如出现 急、烦、怎么办、找不到了、好难过 等词）。"
+    "检测到情绪时，约六成概率在 reply 的开头或结尾加一句不超过 20 字的轻安抚，"
+    '例如"别着急，慢慢想 🍀""丢东西确实心烦，深呼吸～""会找到的，我帮你一起回忆"；'
+    "其余四成概率以及用户无明显情绪时省略安抚，正常回应即可。"
+    "禁止说教、禁止每次都加、禁止连续多轮重复同一句安抚。"
+)
 _CHAT_POLISH_PROMPT = (
     "用户要求润色发布描述：message 是表单字段摘要（类型/类别/标题/地点/时间/现有描述）。"
     "基于这些信息写一段 60-120 字、有温度的失物或招领描述：交代时间地点、物品特征，"
@@ -263,7 +270,7 @@ def _chat_messages(
 ) -> list[dict[str, str]]:
     # 注入当前时间，供模型换算"今天/昨天"等相对时间，避免幻觉日期。
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    system = _CHAT_SYSTEM_PROMPT + f"当前时间：{now}。"
+    system = _CHAT_SYSTEM_PROMPT + _CHAT_EMOTION_PROMPT + f"当前时间：{now}。"
     if action == "draft":
         system += (
             "用户明确要求整理草稿：无论信息是否完整，都输出 intent=draft，"

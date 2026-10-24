@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from sqlalchemy import func, or_
@@ -35,6 +36,40 @@ from app.services.model import extract_features
 
 # 可编辑状态：仅进行中的记录允许修改，已找回/已撤销/已归还/已删除不可编辑
 _EDITABLE_STATUSES = (ItemStatus.searching, ItemStatus.pending, ItemStatus.reviewing)
+
+# ===== 公共字段脱敏：保存前替换手机号/微信/QQ/邮箱/宿舍号，原始文本不落库 =====
+# 手机号：1 开头 + 第 2 位 3-9 的 11 位数字，词边界防止截断长数字串
+_PHONE_PATTERN = re.compile(r"(?<!\d)(1[3-9]\d{9})(?!\d)")
+# 微信号：wxid_ 前缀，或显式"微信/vx/wx + 号:分隔"语境下的自定义账号（字母开头 6-20 位字母数字_-）
+_WECHAT_ID_PATTERN = re.compile(r"wxid_[A-Za-z0-9_-]{5,19}")
+_WECHAT_CONTEXT_PATTERN = re.compile(r"(?:微信|加微|vx|wx)\s*(?:号|账号|id)?\s*[:：]?\s*([A-Za-z][A-Za-z0-9_-]{5,19})")
+# QQ：带 QQ 语境的 5-11 位数字，或孤立的 6 位以上数字串（避免误伤楼层/门牌等短数字）
+_QQ_CONTEXT_PATTERN = re.compile(r"(?:QQ|qq|扣扣)\s*(?:号|群)?\s*[:：]?\s*([1-9]\d{4,10})(?!\d)")
+_QQ_BARE_PATTERN = re.compile(r"(?<!\d)([1-9]\d{5,10})(?!\d)")
+# 邮箱
+_EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# 宿舍号："3号楼502"、"2栋301"、"宿舍A-302"、"公寓5-601" 等形态
+_DORM_BUILDING_PATTERN = re.compile(r"\d+\s*[号栋]\s*楼?\s*\d{1,4}")
+_DORM_ROOM_PATTERN = re.compile(r"(?:宿舍|公寓)\s*[A-Za-z]?[-#]?\s*\d{1,4}")
+
+
+def _mask_sensitive(text: str | None) -> str | None:
+    """对公开字段（title/description）做联系方式与宿舍号脱敏，原始文本不保留。
+
+    手机号保留前 3 后 4 便于失主辨认；其余敏感项整段替换为固定提示文案。
+    """
+    if not text:
+        return text
+    result = text
+    result = _PHONE_PATTERN.sub(lambda m: f"{m.group(1)[:3]}****{m.group(1)[-4:]}", result)
+    result = _EMAIL_PATTERN.sub("邮箱已隐藏", result)
+    result = _WECHAT_ID_PATTERN.sub("微信账号已隐藏", result)
+    result = _WECHAT_CONTEXT_PATTERN.sub("微信账号已隐藏", result)
+    result = _QQ_CONTEXT_PATTERN.sub("QQ已隐藏", result)
+    result = _QQ_BARE_PATTERN.sub("QQ已隐藏", result)
+    result = _DORM_BUILDING_PATTERN.sub("宿舍号已隐藏", result)
+    result = _DORM_ROOM_PATTERN.sub("宿舍号已隐藏", result)
+    return result
 
 
 def _get_owned_item(db: Session, user: User, item_id: uuid.UUID, forbidden_message: str) -> Item:
@@ -149,11 +184,12 @@ def create_item(db: Session, user: User, body: ItemCreate) -> dict:
     if body.building_id is not None and db.get(Building, body.building_id) is None:
         raise ApiError(404, "NOT_FOUND", "建筑不存在")
     status = ItemStatus.searching if body.direction == Direction.lost else ItemStatus.pending
+    # 公开字段保存前脱敏：联系方式与宿舍号替换，原始文本不落库
     item = Item(
         direction=body.direction,
         category=body.category,
-        title=body.title,
-        description=body.description,
+        title=_mask_sensitive(body.title),
+        description=_mask_sensitive(body.description),
         location_area=body.location_area,
         precise_location=body.precise_location,
         time_occurred=body.time_occurred,

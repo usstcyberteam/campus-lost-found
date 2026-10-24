@@ -11,6 +11,7 @@ import { aiChat } from '../../api/ai'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
 import type { AiChatResult, FormPatch } from '../../types'
 import { errorMessage } from '../../utils/error'
+import FAQPanel from './FAQPanel'
 import styles from './AiFloatWidget.module.css'
 
 const POS_KEY = 'ai-float-pos-side'
@@ -197,6 +198,11 @@ export default function AiFloatWidget() {
   const voice = useVoiceInput((partial) => {
     setText((voiceBaseRef.current + partial).slice(0, 2000))
   })
+  // FAQ 面板与自动发送：选问题 → 填入输入框 → 下一渲染帧触发表单提交
+  //（不能同步 requestSubmit：onSubmit 闭包会读到旧的 text state）
+  const [faqOpen, setFaqOpen] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
+  const pendingFaqRef = useRef<string | null>(null)
 
   function onMicClick() {
     if (!voice.supported) {
@@ -207,6 +213,20 @@ export default function AiFloatWidget() {
     if (!voice.listening) voiceBaseRef.current = text
     voice.toggle()
   }
+
+  function onFaqSelect(question: string) {
+    setFaqOpen(false)
+    if (busy) return
+    pendingFaqRef.current = question
+    setText(question)
+  }
+
+  // FAQ 问题填入后自动提交（走现有 chat 接口，与手打发送完全同一条链路）
+  useEffect(() => {
+    if (pendingFaqRef.current === null) return
+    pendingFaqRef.current = null
+    formRef.current?.requestSubmit()
+  }, [text])
 
   posRef.current = pos
 
@@ -468,7 +488,7 @@ export default function AiFloatWidget() {
           <button type="button" className={styles.draftButton} onClick={onDraftClick} disabled={draftBusy || busy}>
             {draftBusy ? '整理中…' : '📝 整理为发布草稿'}
           </button>
-          <form className={styles.form} onSubmit={onSubmit}>
+          <form className={styles.form} onSubmit={onSubmit} ref={formRef}>
             <textarea
               className={styles.input}
               value={text}
@@ -479,6 +499,17 @@ export default function AiFloatWidget() {
               readOnly={voice.listening}
               aria-label="发给 AI 助手的消息"
             />
+            <button
+              type="button"
+              className={styles.faqButton}
+              onClick={() => setFaqOpen(true)}
+              disabled={busy}
+              title="常见问题"
+              aria-label="打开常见问题面板"
+              aria-expanded={faqOpen}
+            >
+              ？
+            </button>
             <button
               type="button"
               className={`${styles.mic} ${voice.listening ? styles.micListening : ''}`}
@@ -526,6 +557,7 @@ export default function AiFloatWidget() {
           <img src="/ai-float.png" alt="" draggable={false} />
         </button>
       )}
+      <FAQPanel open={faqOpen} onClose={() => setFaqOpen(false)} onSelect={onFaqSelect} />
     </>
   )
 }

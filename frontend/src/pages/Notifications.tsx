@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listMyNotifications, markNotificationRead } from '../api/notifications'
 import { useAsync } from '../hooks/useAsync'
+import { useTTS } from '../hooks/useTTS'
 import { errorMessage } from '../utils/error'
 import { notificationKindLabels, type NotificationItem } from '../types'
 import Button from '../components/ui/Button'
@@ -29,9 +30,17 @@ export default function Notifications() {
   const [moreError, setMoreError] = useState('')
   // 已读覆盖表：点击通知后乐观置 true，避免整页重拉
   const [readOverrides, setReadOverrides] = useState<Record<string, boolean>>({})
+  // 语音播报：同一时间只播一条，speakingId 标记当前朗读的通知行
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const tts = useTTS()
   const page = useAsync(() => listMyNotifications({ limit: PAGE_SIZE, offset: 0 }), [])
   const items = [...(page.data?.items ?? []), ...extra]
   const total = page.data?.total ?? 0
+
+  // 播报结束（tts.speaking 回落）时清行标记，按钮恢复 🔊
+  useEffect(() => {
+    if (!tts.speaking) setSpeakingId(null)
+  }, [tts.speaking])
 
   async function loadMore() {
     if (busy || !page.data) return
@@ -55,6 +64,16 @@ export default function Notifications() {
     markNotificationRead(row.id).catch(() => {})
   }
 
+  function onSpeak(row: NotificationItem) {
+    if (speakingId === row.id && tts.speaking) {
+      tts.stop()
+      setSpeakingId(null)
+      return
+    }
+    setSpeakingId(row.id)
+    tts.speak(row.content)
+  }
+
   return (
     <PageContainer>
       <PageHeader title="我的通知" backTo="/me" />
@@ -66,19 +85,33 @@ export default function Notifications() {
       <ul className={styles.list}>
         {items.map((row) => {
           const read = row.read || readOverrides[row.id]
+          const speakingThis = tts.speaking && speakingId === row.id
           return (
             <li key={row.id} className={styles.item}>
-              {row.link ? (
-                <Link
-                  className={`${styles.row} ${read ? '' : styles.unread}`}
-                  to={row.link}
-                  onClick={() => onNoticeClick(row)}
-                >
-                  {renderNotice(row, read)}
-                </Link>
-              ) : (
-                <div className={styles.row}>{renderNotice(row, read)}</div>
-              )}
+              <div className={styles.rowWrap}>
+                {row.link ? (
+                  <Link
+                    className={`${styles.row} ${read ? '' : styles.unread}`}
+                    to={row.link}
+                    onClick={() => onNoticeClick(row)}
+                  >
+                    {renderNotice(row, read)}
+                  </Link>
+                ) : (
+                  <div className={`${styles.row} ${read ? '' : styles.unread}`}>{renderNotice(row, read)}</div>
+                )}
+                {tts.isSupported && (
+                  <button
+                    type="button"
+                    className={styles.speak}
+                    onClick={() => onSpeak(row)}
+                    aria-label={speakingThis ? '停止朗读这条通知' : '朗读这条通知'}
+                    aria-pressed={speakingThis}
+                  >
+                    {speakingThis ? '🔇' : '🔊'}
+                  </button>
+                )}
+              </div>
             </li>
           )
         })}
