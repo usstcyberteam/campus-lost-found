@@ -13,13 +13,25 @@ export interface ChatHistoryItem {
   text: string
 }
 
+export type ChatAction = 'draft' | 'polish' | 'translate'
+export type TranslateTargetLang = 'en' | 'ja' | 'ko'
+
 export async function aiChat(
   message: string,
   page?: string,
-  action?: 'draft' | 'polish',
+  action?: ChatAction,
   history?: ChatHistoryItem[],
+  targetLang?: TranslateTargetLang,
 ): Promise<AiChatResult> {
-  const res = await client.post<AiChatResult>('/ai/chat', { message, page, action, history })
+  const res = await client.post<AiChatResult>('/ai/chat', {
+    message,
+    page,
+    action,
+    history,
+    // action=translate：text 与 message 同值承载待译原文，target_lang 指定目标语言
+    text: action === 'translate' ? message : undefined,
+    target_lang: targetLang,
+  })
   return res.data
 }
 

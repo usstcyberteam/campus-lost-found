@@ -50,8 +50,11 @@ class ChatHistoryItem(BaseModel):
 class ChatRequest(BaseModel):
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     page: str | None = None
-    action: Literal["draft", "polish"] | None = None
+    action: Literal["draft", "polish", "translate"] | None = None
     history: list[ChatHistoryItem] = Field(default_factory=list, max_length=10)
+    # action=translate 专用：text 为待译原文（缺省回落 message），target_lang 必填
+    text: Annotated[str | None, StringConstraints(max_length=2000)] = None
+    target_lang: Literal["en", "ja", "ko"] | None = None
 
 
 class SuggestLocationsOut(BaseModel):

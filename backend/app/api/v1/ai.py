@@ -32,7 +32,7 @@ def chat(
     user: User = Depends(get_current_user),
 ):
     history = [{"role": item.role, "text": item.text} for item in body.history]
-    return ai_service.chat(db, body.message, body.action, user, history)
+    return ai_service.chat(db, body.message, body.action, user, history, body.text, body.target_lang)
 
 
 @router.post("/match", response_model=MatchOut)

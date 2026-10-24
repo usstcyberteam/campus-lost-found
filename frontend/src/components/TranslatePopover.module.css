@@ -1,0 +1,198 @@
+/* 翻译浮层遮罩 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--color-overlay);
+}
+
+/* 弹窗：桌面居中（top/transform），移动端底部贴合（拇指易达） */
+.popover {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(calc(var(--space-7) * 10), calc(100vw - var(--space-5)));
+  max-height: calc(100dvh - var(--space-6));
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-md);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--space-6) + var(--space-3));
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 语言选择行：三语并排，触控区 ≥44px */
+.langRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.langButton {
+  flex: 1;
+  min-width: calc(var(--space-7) * 2.5);
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+  font-size: var(--font-base);
+  cursor: pointer;
+}
+
+.langButton:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.langButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.langButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.langButtonActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* 译文区 */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 var(--space-2) var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-2);
+  min-height: calc(var(--space-6) * 3);
+}
+
+.translated {
+  margin: 0;
+  color: var(--color-text-1);
+  font-size: var(--font-base);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.toggleOriginal {
+  align-self: flex-start;
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.toggleOriginal:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.toggleOriginal[aria-pressed='true'] {
+  background: var(--color-primary-soft);
+}
+
+/* loading 骨架屏：三条灰条模拟文本行 */
+.skeleton {
+  display: block;
+  height: var(--font-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-border);
+  animation: skeletonPulse 1.2s ease-in-out infinite;
+}
+
+.skeletonShort {
+  width: 45%;
+}
+
+.skeletonMid {
+  width: 70%;
+}
+
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* 降级 toast 提示 */
+.toast {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: var(--font-base);
+}
+
+/* ===== 移动端（<768px）：底部贴合 ===== */
+@media (max-width: 767.98px) {
+  .popover {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: calc(88dvh - env(safe-area-inset-bottom));
+    padding: var(--space-3) var(--space-3) calc(var(--space-4) + env(safe-area-inset-bottom));
+    border: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    transform: none;
+  }
+}

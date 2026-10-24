@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.errors import ApiError
 from app.models import Building, Item, User
 from app.models.enums import Source
 from app.schemas.ai import SearchAdviceRequest
@@ -431,13 +432,65 @@ def _user_history_places(db: Session, user: User, limit: int = 3) -> list[str]:
     return [row[0] for row in rows]
 
 
+_TRANSLATE_LANG_NAMES = {"en": "English", "ja": "Japanese (日本語)", "ko": "Korean (한국어)"}
+
+
+def _translate_messages(text: str, target_lang: str) -> list[dict[str, str]]:
+    system = (
+        f"你是专业翻译引擎。把用户文本完整翻译成{_TRANSLATE_LANG_NAMES[target_lang]}。"
+        "只输出译文本身：不要解释、不要引号、不要重复原文、不要添加任何额外说明。"
+        "保留数字、标点与换行；无法翻译的专有名词保持原样。"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": text},
+    ]
+
+
+def _translate(text: str, target_lang: str | None) -> dict:
+    """action=translate 分支：模型可用走模型，不可用/失败一律 degraded 降级（reply 为空，前端提示稍后重试）。"""
+    if target_lang not in _TRANSLATE_LANG_NAMES:
+        raise ApiError(400, "VALIDATION", "翻译必须指定目标语言（en/ja/ko）")
+    cleaned = _clip(_sanitize(text.strip()), 2000)
+    if not cleaned:
+        raise ApiError(400, "VALIDATION", "待翻译文本不能为空")
+    if model_client.is_available():
+        content = model_client.chat_completion(_translate_messages(cleaned, target_lang))
+        if content is not None:
+            translated = _clip(_strip_markdown(content.strip()), 2000)
+            if translated:
+                return {
+                    "intent": "chat",
+                    "reply": translated,
+                    "form_patch": None,
+                    "actions": [],
+                    "source": Source.model,
+                    "degraded": False,
+                }
+        logger.warning("翻译模型调用失败或输出为空，已降级")
+    return {
+        "intent": "chat",
+        "reply": "",
+        "form_patch": None,
+        "actions": [],
+        "source": Source.rule,
+        "degraded": True,
+    }
+
+
 def chat(
     db: Session,
     message: str,
     action: str | None = None,
     user: User | None = None,
     history: list[dict[str, str]] | None = None,
+    text: str | None = None,
+    target_lang: str | None = None,
 ) -> dict:
+    # 翻译是单轮确定性任务：不走多轮历史与意图判定，直接短路
+    if action == "translate":
+        source = text.strip() if text is not None and text.strip() else message
+        return _translate(source, target_lang)
     cleaned = _sanitize(message.strip())
     history_places = _user_history_places(db, user) if user is not None else []
     if model_client.is_available():
