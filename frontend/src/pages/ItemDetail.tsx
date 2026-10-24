@@ -26,6 +26,8 @@ import PageContainer from '../components/PageContainer'
 import PageHeader from '../components/AppShell/PageHeader'
 import PhotoGallery from '../components/PhotoGallery/PhotoGallery'
 import FavoriteButton from '../components/Reactions/FavoriteButton'
+import SharePoster from '../components/SharePoster'
+import TranslatePopover from '../components/TranslatePopover'
 import LikeButton from '../components/Reactions/LikeButton'
 import CommentList from '../components/CommentList/CommentList'
 import HelperList from '../components/HelperList/HelperList'
@@ -55,6 +57,9 @@ export default function ItemDetail() {
   const [helperBusy, setHelperBusy] = useState(false)
   const [helperMsg, setHelperMsg] = useState('')
   const key = useRef('')
+  // 任务七/八：描述翻译浮层与分享卡片弹层
+  const [translateOpen, setTranslateOpen] = useState(false)
+  const [posterOpen, setPosterOpen] = useState(false)
 
   const { data: item, error, loading } = useAsync(() => getItem(id ?? ''), [id])
 
@@ -205,6 +210,9 @@ export default function ItemDetail() {
       <div className={styles.reactions}>
         <LikeButton itemId={item.id} liked={item.is_liked} count={item.like_count} />
         <FavoriteButton itemId={item.id} favorited={item.is_favorited} count={item.favorite_count} />
+        <Button variant="secondary" onClick={() => setPosterOpen(true)}>
+          📤 生成分享卡片
+        </Button>
       </div>
       {canTake && (
         <div className={styles.actions}>
@@ -253,7 +261,20 @@ export default function ItemDetail() {
         </div>
       )}
       {deleteMsg && <p role="status">{deleteMsg}</p>}
-      <p>{item.description}</p>
+      <div className={styles.descRow}>
+        <p className={styles.descText}>{item.description}</p>
+        <button
+          type="button"
+          className={styles.translateButton}
+          onClick={() => setTranslateOpen(true)}
+          title="翻译描述"
+          aria-label="翻译帖子描述"
+        >
+          🌐
+        </button>
+      </div>
+      <TranslatePopover open={translateOpen} sourceText={item.description} onClose={() => setTranslateOpen(false)} />
+      <SharePoster open={posterOpen} item={item} onClose={() => setPosterOpen(false)} />
       {item.photos_hidden ? (
         <p className={styles.hint}>为防冒领，拾获照片仅发布者与工作人员可查看</p>
       ) : (

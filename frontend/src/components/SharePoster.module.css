@@ -1,0 +1,158 @@
+/* 分享卡片弹层遮罩 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--color-overlay);
+}
+
+/* 弹窗：桌面居中；移动端底部 sheet */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(calc(var(--space-7) * 11), calc(100vw - var(--space-5)));
+  max-height: calc(100dvh - var(--space-6));
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-md);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--space-6) + var(--space-3));
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 海报预览：375px 规格卡片，宽度自适应 */
+.preview {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2);
+  background: var(--color-bg-2);
+  border-radius: var(--radius-md);
+}
+
+.canvas {
+  width: 100%;
+  max-width: var(--space-7);
+  height: auto;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.canvasHidden {
+  display: none;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-6) var(--space-3);
+  color: var(--color-text-2);
+  font-size: var(--font-base);
+}
+
+/* 操作按钮：触控区 ≥44px（calc(var(--space-6) + var(--space-3)) = 44px） */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) 0;
+}
+
+.actionButton {
+  flex: 1;
+  min-width: calc(var(--space-7) * 2);
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-base);
+  cursor: pointer;
+}
+
+.actionButton:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.actionButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.actionMinor {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-1);
+  color: var(--color-text-1);
+}
+
+.message {
+  margin: var(--space-2) var(--space-2) var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+/* ===== 移动端（<768px）：底部 sheet ===== */
+@media (max-width: 767.98px) {
+  .sheet {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: calc(92dvh - env(safe-area-inset-bottom));
+    padding: var(--space-3) var(--space-3) calc(var(--space-4) + env(safe-area-inset-bottom));
+    border: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    transform: none;
+  }
+
+  /* 移动端海报全宽预览（仍按 375 规格绘制，等比缩放） */
+  .canvas {
+    max-width: 100%;
+  }
+}
