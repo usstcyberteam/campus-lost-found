@@ -6,6 +6,7 @@ import { abandonHelper, takeHelper } from '../api/helpers'
 import { deleteItem, getCandidates, getItem, markItemFound, withdrawItem } from '../api/items'
 import { listMyItems } from '../api/me'
 import { useAsync } from '../hooks/useAsync'
+import { useTTS } from '../hooks/useTTS'
 import { useAuth } from '../auth/AuthContext'
 import { createIdempotencyKey } from '../utils/id'
 import {
@@ -57,6 +58,8 @@ export default function ItemDetail() {
   const key = useRef('')
 
   const { data: item, error, loading } = useAsync(() => getItem(id ?? ''), [id])
+  // 语音播报：朗读标题与描述；切换/离开帖子时 hook 卸载自动停止
+  const tts = useTTS()
 
   useEffect(() => {
     let active = true
@@ -196,6 +199,7 @@ export default function ItemDetail() {
   const canTake = item.direction === 'lost' && !item.is_owner && ['searching', 'reviewing'].includes(status)
   const canModerate = role === 'staff' || role === 'admin'
   const canEdit = item.is_owner === true && ['searching', 'pending', 'reviewing'].includes(status)
+  const speechText = [item.title, item.description].filter(Boolean).join('。')
   return (
     <PageContainer>
       <PageHeader title={item.title} backTo="/hall" />
@@ -205,6 +209,15 @@ export default function ItemDetail() {
       <div className={styles.reactions}>
         <LikeButton itemId={item.id} liked={item.is_liked} count={item.like_count} />
         <FavoriteButton itemId={item.id} favorited={item.is_favorited} count={item.favorite_count} />
+        {tts.isSupported && (
+          <Button
+            variant="secondary"
+            aria-pressed={tts.speaking}
+            onClick={() => (tts.speaking ? tts.stop() : tts.speak(speechText))}
+          >
+            {tts.speaking ? '🔇 停止朗读' : '🔊 朗读'}
+          </Button>
+        )}
       </div>
       {canTake && (
         <div className={styles.actions}>

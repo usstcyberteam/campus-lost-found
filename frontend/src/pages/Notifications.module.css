@@ -10,6 +10,50 @@
   min-width: 0;
 }
 
+/* 行容器：通知卡片 + 右侧朗读按钮（按钮在 Link 外，避免交互元素嵌套） */
+.rowWrap {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.rowWrap .row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 朗读按钮：触控区 ≥44px（calc(var(--space-6) + var(--space-3)) = 44px） */
+.speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: calc(var(--space-6) + var(--space-3));
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-1);
+  font-size: var(--font-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.speak:hover {
+  border-color: var(--color-border-strong);
+}
+
+.speak:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.speak[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
 .row {
   position: relative;
   display: flex;

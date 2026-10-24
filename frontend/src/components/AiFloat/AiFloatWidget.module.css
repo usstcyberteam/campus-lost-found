@@ -201,7 +201,7 @@
 .form {
   display: grid;
   /* 桌面端麦克风隐藏后 auto 列宽为 0，不影响布局 */
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: var(--space-2);
   align-items: end;
   padding: var(--space-2);
@@ -241,8 +241,9 @@
   cursor: not-allowed;
 }
 
-/* 语音输入按钮：桌面与移动端通用可见；不支持语音的浏览器点击时由 JS 提示 */
-.mic {
+/* 语音输入 / FAQ 快捷按钮共用底样式：桌面与移动端通用可见 */
+.mic,
+.faqButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -258,12 +259,14 @@
   cursor: pointer;
 }
 
-.mic:focus-visible {
+.mic:focus-visible,
+.faqButton:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-.mic:disabled {
+.mic:disabled,
+.faqButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -395,7 +398,8 @@
   }
 
   /* 触控区 ≥44px：calc(var(--space-6) + var(--space-3)) = 44px，避免硬编码 */
-  .mic {
+  .mic,
+  .faqButton {
     min-width: calc(var(--space-6) + var(--space-3));
     min-height: calc(var(--space-6) + var(--space-3));
     font-size: var(--font-md);
