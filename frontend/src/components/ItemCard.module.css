@@ -1,0 +1,96 @@
+.cardLink {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  background: var(--color_surface);
+  border-radius: var(--radius_large);
+  overflow: hidden;
+  box-shadow: var(--shadow_small);
+  transition: transform var(--duration_normal) var(--easing_standard), box-shadow var(--duration_normal) var(--easing_standard);
+  cursor: pointer;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow_medium);
+}
+
+.card:active {
+  transform: translateY(0);
+}
+
+.typeBar {
+  width: 4px;
+  flex-shrink: 0;
+}
+
+.lostCard .typeBar {
+  background: var(--color_coral);
+}
+
+.foundCard .typeBar {
+  background: var(--color_mint);
+}
+
+.content {
+  flex: 1;
+  padding: var(--spacing_lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_xs);
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  gap: var(--spacing_xs);
+  align-items: center;
+}
+
+.title {
+  font-size: var(--font_size_md);
+  font-weight: var(--font_weight_semibold);
+  color: var(--color_text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_xs);
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+}
+
+.category {
+  font-weight: var(--font_weight_medium);
+}
+
+.dot {
+  color: var(--color_gray);
+}
+
+.location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing_xs);
+}
+
+.time {
+  font-size: var(--font_size_xs);
+  color: var(--color_gray);
+}

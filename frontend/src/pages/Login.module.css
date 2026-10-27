@@ -1,0 +1,67 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--spacing_xl);
+  gap: var(--spacing_xl);
+  background: linear-gradient(135deg, var(--color_primary_light) 0%, var(--color_secondary_light) 100%);
+}
+
+.brandArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing_sm);
+  text-align: center;
+}
+
+.brandMark {
+  color: var(--color_primary);
+  margin-bottom: var(--spacing_sm);
+}
+
+.brandName {
+  font-size: var(--font_size_2xl);
+  font-weight: var(--font_weight_bold);
+  color: var(--color_text);
+}
+
+.brandSlogan {
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_md);
+  width: 100%;
+  max-width: 360px;
+  padding: var(--spacing_xl);
+  background: var(--color_surface);
+  border-radius: var(--radius_xl);
+  box-shadow: var(--shadow_medium);
+}
+
+.switchLink {
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+}
+
+.switchLink a {
+  color: var(--color_primary);
+  font-weight: var(--font_weight_medium);
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing_md);
+  }
+
+  .form {
+    max-width: 100%;
+    padding: var(--spacing_lg);
+  }
+}

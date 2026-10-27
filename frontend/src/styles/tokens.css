@@ -1,0 +1,69 @@
+:root {
+  --color_primary: #315CF5;
+  --color_primary_light: #E8EEFE;
+  --color_primary_dark: #1E3FCC;
+  --color_secondary: #7B61FF;
+  --color_secondary_light: #EDE8FF;
+  --color_coral: #FF8B5E;
+  --color_coral_light: #FFE8D9;
+  --color_mint: #16B8A6;
+  --color_mint_light: #D4F5F0;
+  --color_background: #F5F7FB;
+  --color_surface: #FFFFFF;
+  --color_text: #0F172A;
+  --color_text_secondary: #64748B;
+  --color_border: #E5EAF2;
+  --color_danger: #DC2626;
+  --color_danger_light: #FEE2E2;
+  --color_gray: #94A3B8;
+  --color_gray_light: #F1F5F9;
+
+  --spacing_xs: 4px;
+  --spacing_sm: 8px;
+  --spacing_md: 12px;
+  --spacing_lg: 16px;
+  --spacing_xl: 24px;
+  --spacing_2xl: 32px;
+  --spacing_3xl: 40px;
+  --spacing_4xl: 48px;
+
+  --radius_small: 6px;
+  --radius_medium: 10px;
+  --radius_large: 16px;
+  --radius_xl: 20px;
+  --radius_full: 9999px;
+
+  --shadow_small: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow_medium: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow_large: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.06);
+
+  --font_size_xs: 12px;
+  --font_size_sm: 14px;
+  --font_size_md: 16px;
+  --font_size_lg: 18px;
+  --font_size_xl: 22px;
+  --font_size_2xl: 28px;
+  --font_size_3xl: 32px;
+
+  --font_weight_normal: 400;
+  --font_weight_medium: 500;
+  --font_weight_semibold: 600;
+  --font_weight_bold: 700;
+
+  --duration_fast: 150ms;
+  --duration_normal: 250ms;
+  --duration_slow: 400ms;
+  --easing_standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing_out: cubic-bezier(0.0, 0, 0.2, 1);
+  --easing_in_out: cubic-bezier(0.4, 0, 0.6, 1);
+
+  --z_index_base: 1;
+  --z_index_sticky: 100;
+  --z_index_overlay: 1000;
+  --z_index_modal: 2000;
+
+  --max_width_content: 1000px;
+  --max_width_form: 480px;
+  --nav_height: 56px;
+  --bottom_nav_height: 64px;
+}

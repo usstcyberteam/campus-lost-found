@@ -1,0 +1,28 @@
+.page {
+  padding: var(--spacing_xl);
+  max-width: var(--max_width_content);
+  margin: 0 auto;
+}
+
+.loadingContainer {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing_3xl);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing_md);
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: var(--spacing_md);
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing_sm);
+  }
+}

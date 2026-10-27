@@ -1,0 +1,33 @@
+.skeleton {
+  background: linear-gradient(90deg, var(--color_gray_light) 25%, var(--color_border) 50%, var(--color_gray_light) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.text {
+  height: 16px;
+  border-radius: var(--radius_small);
+}
+
+.card {
+  height: 120px;
+  border-radius: var(--radius_large);
+}
+
+.circle {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius_full);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--color_gray_light);
+  }
+}

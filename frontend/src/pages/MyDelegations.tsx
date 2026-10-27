@@ -4,12 +4,20 @@ import client, { errorMessage } from '../api/client'
 import {
   claimStatusLabels,
   directionLabels,
-  statusLabels,
   ticketStatusLabels,
   type Claim,
   type Item,
   type Ticket,
 } from '../types'
+import Badge from '../components/ui/Badge'
+import StatusBadge from '../components/ui/StatusBadge'
+import Tag from '../components/ui/Tag'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import LoadingIndicator from '../components/ui/LoadingIndicator'
+import ErrorState from '../components/ui/ErrorState'
+import EmptyState from '../components/ui/EmptyState'
+import styles from './MyDelegations.module.css'
 
 export default function MyDelegations() {
   const [items, setItems] = useState<Item[]>([])
@@ -28,45 +36,84 @@ export default function MyDelegations() {
     return () => { active = false }
   }, [])
 
-  if (loading) return <main className="page">加载中…</main>
-  if (error) return <main className="page"><p role="alert">{error}</p></main>
+  if (loading) return <main className={styles.page}><LoadingIndicator label="加载中…" /></main>
+  if (error) return <main className={styles.page}><ErrorState message={error} /></main>
+
   return (
-    <div style={{ padding: 24 }}>
-      <h1>我的委托</h1>
-      {badges.length > 0 && <p>徽章：{badges.map((b) => b.kind).join('、')}</p>}
+    <main className={styles.page}>
+      <h1 className={styles.title}>我的委托</h1>
 
-      <h2>我的发布</h2>
-      {items.length === 0 && <p>暂无</p>}
-      <ul>
-        {items.map((i) => (
-          <li key={i.id}>
-            <Link to={`/items/${i.id}`}>
-              [{directionLabels[i.direction]}] {i.title}
-            </Link>{' '}
-            · {statusLabels[i.status]}
-            {' '}
-            {i.layer_id && i.norm_x != null && i.norm_y != null && (
-              <Link to={`/map?layer=${i.layer_id}&nx=${i.norm_x}&ny=${i.norm_y}&item=${i.id}`}>地图定位</Link>
-            )}
-          </li>
-        ))}
-      </ul>
+      {badges.length > 0 && (
+        <div className={styles.badges}>
+          {badges.map((b) => (
+            <Badge key={b.id} variant="secondary">{b.kind}</Badge>
+          ))}
+        </div>
+      )}
 
-      <h2>我的认领</h2>
-      {claims.length === 0 && <p>暂无</p>}
-      <ul>
-        {claims.map((c) => (
-          <li key={c.id}><Link to={'/items/' + c.found_item_id}>认领物品</Link> · {claimStatusLabels[c.status]}</li>
-        ))}
-      </ul>
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>我的发布</h2>
+        {items.length === 0 ? (
+          <EmptyState title="暂无发布" description="去大厅发布一条寻物或拾获信息吧" />
+        ) : (
+          <div className={styles.list}>
+            {items.map((i) => (
+              <Card key={i.id} variant="outlined" className={styles.itemCard}>
+                <div className={styles.itemHeader}>
+                  <Tag variant={i.direction === 'lost' ? 'coral' : 'mint'}>{directionLabels[i.direction]}</Tag>
+                  <Link to={`/items/${i.id}`} className={styles.itemTitle}>{i.title}</Link>
+                  <StatusBadge status={i.status} />
+                </div>
+                {i.layer_id && i.norm_x != null && i.norm_y != null && (
+                  <Button variant="secondary" size="sm" onClick={() => window.location.href = `/map?layer=${i.layer_id}&nx=${i.norm_x}&ny=${i.norm_y}&item=${i.id}`}>
+                    地图定位
+                  </Button>
+                )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
-      <h2>我的工单</h2>
-      {tickets.length === 0 && <p>暂无</p>}
-      <ul>
-        {tickets.map((t) => (
-          <li key={t.id}>{ticketStatusLabels[t.status]}</li>
-        ))}
-      </ul>
-    </div>
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>我的认领</h2>
+        {claims.length === 0 ? (
+          <EmptyState title="暂无认领" />
+        ) : (
+          <div className={styles.list}>
+            {claims.map((c) => (
+              <Card key={c.id} variant="outlined" className={styles.itemCard}>
+                <div className={styles.itemHeader}>
+                  <Link to={`/items/${c.found_item_id}`} className={styles.itemTitle}>认领物品</Link>
+                  <Badge variant={c.status === 'pending' ? 'coral' : c.status === 'approved' ? 'mint' : c.status === 'completed' ? 'mint' : 'danger'}>
+                    {claimStatusLabels[c.status]}
+                  </Badge>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>我的工单</h2>
+        {tickets.length === 0 ? (
+          <EmptyState title="暂无工单" />
+        ) : (
+          <div className={styles.list}>
+            {tickets.map((t) => (
+              <Card key={t.id} variant="outlined" className={styles.itemCard}>
+                <div className={styles.itemHeader}>
+                  <span className={styles.itemTitle}>工单 {t.id.slice(0, 8)}</span>
+                  <Badge variant={t.status === 'pending' ? 'coral' : t.status === 'processing' ? 'primary' : 'mint'}>
+                    {ticketStatusLabels[t.status]}
+                  </Badge>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
   )
 }

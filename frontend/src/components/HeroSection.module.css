@@ -1,0 +1,160 @@
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius_xl);
+  background: linear-gradient(135deg, var(--color_primary_light) 0%, var(--color_secondary_light) 100%);
+  padding: var(--spacing_3xl) var(--spacing_xl);
+  margin-bottom: var(--spacing_xl);
+}
+
+.bgPattern {
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.waves {
+  width: 100%;
+  height: 100%;
+}
+
+.node {
+  fill: var(--color_primary);
+  opacity: 0.4;
+}
+
+.line {
+  stroke: var(--color_primary);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.3;
+  stroke-dasharray: 4 4;
+}
+
+.content {
+  position: relative;
+  z-index: var(--z_index_base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--spacing_md);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing_sm);
+  color: var(--color_primary);
+  font-weight: var(--font_weight_semibold);
+  font-size: var(--font_size_sm);
+}
+
+.brandMark {
+  display: inline-flex;
+}
+
+.brandName {
+  letter-spacing: 0.05em;
+}
+
+.title {
+  font-size: var(--font_size_2xl);
+  font-weight: var(--font_weight_bold);
+  color: var(--color_text);
+  margin-top: var(--spacing_sm);
+}
+
+.subtitle {
+  font-size: var(--font_size_md);
+  color: var(--color_text_secondary);
+  max-width: 400px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacing_md);
+  margin-top: var(--spacing_lg);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.actionCard {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_md);
+  padding: var(--spacing_lg) var(--spacing_xl);
+  border-radius: var(--radius_large);
+  background: var(--color_surface);
+  box-shadow: var(--shadow_small);
+  transition: transform var(--duration_normal) var(--easing_standard), box-shadow var(--duration_normal) var(--easing_standard);
+  min-width: 200px;
+  text-align: left;
+}
+
+.actionCard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow_medium);
+}
+
+.actionCard:active {
+  transform: translateY(0);
+}
+
+.actionIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius_medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lost .actionIcon {
+  background: var(--color_coral_light);
+  color: var(--color_coral);
+}
+
+.found .actionIcon {
+  background: var(--color_mint_light);
+  color: var(--color_mint);
+}
+
+.actionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.actionTitle {
+  font-size: var(--font_size_md);
+  font-weight: var(--font_weight_semibold);
+  color: var(--color_text);
+}
+
+.actionDesc {
+  font-size: var(--font_size_xs);
+  color: var(--color_text_secondary);
+}
+
+@media (max-width: 768px) {
+  .hero {
+    padding: var(--spacing_xl) var(--spacing_lg);
+  }
+
+  .title {
+    font-size: var(--font_size_xl);
+  }
+
+  .actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .actionCard {
+    width: 100%;
+    min-width: unset;
+  }
+}

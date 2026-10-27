@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import client, { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { ticketStatusLabels, type Ticket, type Item } from '../types'
+import { type Ticket, type Item } from '../types'
+import Button from '../components/ui/Button'
+import SelectInput from '../components/ui/SelectInput'
+import TicketCard from '../components/TicketCard'
+import LoadingIndicator from '../components/ui/LoadingIndicator'
+import EmptyState from '../components/ui/EmptyState'
+import styles from './Tickets.module.css'
 
 export default function Tickets() {
   const { role, userId } = useAuth()
@@ -43,33 +49,58 @@ export default function Tickets() {
       setEditing(''); setResult('')
     }
   }
-  return <main className="page">
-    <h1>协助工单</h1>
-    {role === 'student' && <div className="actions">
-      <select aria-label="本人寻物记录" value={itemId} disabled={busy} onChange={e => setItemId(e.target.value)}>
-        <option value="">选择本人未关闭的寻物记录</option>
-        {mine.map(i => <option key={i.id} value={i.id}>{i.title}</option>)}
-      </select>
-      <button disabled={!itemId || busy} onClick={() => action('/tickets', { item_id: itemId })}>申请协助</button>
-    </div>}
-    {msg && <p role="status">{msg}</p>}
-    {loading ? <p>加载中…</p> : tickets.length === 0 ? <p>暂无工单</p> : tickets.map(t => <article className="card" key={t.id}>
-      <p>工单 {t.id.slice(0, 8)} · {ticketStatusLabels[t.status]}</p>
-      {t.result && <p>结果：{t.result}</p>}
-      {role === 'staff' && t.status === 'pending' && <button disabled={busy} onClick={() => action('/tickets/' + t.id + '/assign')}>接单</button>}
-      {role === 'staff' && t.status === 'processing' && t.assignee_user_id === userId && editing !== t.id &&
-        <button disabled={busy} onClick={() => { setEditing(t.id); setResult(''); setMsg('') }}>反馈结果</button>}
-      {role === 'staff' && t.status === 'processing' && t.assignee_user_id === userId && editing === t.id && <div>
-        <label>核查结果<textarea aria-label="核查结果" value={result} maxLength={5000} disabled={busy}
-          onChange={e => setResult(e.target.value)} /></label>
-        <div className="actions">
-          <button disabled={busy} onClick={() => feedback(t.id)}>提交反馈</button>
-          <button disabled={busy} onClick={() => { setEditing(''); setResult(''); setMsg('') }}>取消反馈</button>
+
+  const selectOptions = [
+    { value: '', label: '选择本人未关闭的寻物记录' },
+    ...mine.map(i => ({ value: i.id, label: i.title })),
+  ]
+
+  return (
+    <main className={styles.page}>
+      <h1 className={styles.title}>协助工单</h1>
+
+      {role === 'student' && (
+        <div className={styles.applyArea}>
+          <SelectInput
+            options={selectOptions}
+            value={itemId}
+            onChange={setItemId}
+            disabled={busy}
+            aria-label="本人寻物记录"
+          />
+          <Button variant="primary" disabled={!itemId || busy} onClick={() => action('/tickets', { item_id: itemId })}>
+            申请协助
+          </Button>
         </div>
-      </div>}
-      {t.requester_user_id === userId && !t.route_authorized && t.status !== 'feedback' && <button disabled={busy}
-        onClick={() => action('/tickets/' + t.id + '/authorize-route')}>授权接单人员查看我的路线</button>}
-      {t.requester_user_id === userId && t.route_authorized && <p>已授权接单人员查看路线</p>}
-    </article>)}
-  </main>
+      )}
+
+      {msg && <p className={styles.msg} role="status">{msg}</p>}
+
+      {loading ? (
+        <LoadingIndicator label="加载中…" />
+      ) : tickets.length === 0 ? (
+        <EmptyState title="暂无工单" description="申请工作人员协助来寻找你的物品" />
+      ) : (
+        <div className={styles.list}>
+          {tickets.map(t => (
+            <TicketCard
+              key={t.id}
+              ticket={t}
+              role={role}
+              userId={userId}
+              busy={busy}
+              editingId={editing}
+              result={result}
+              onAssign={(id) => action('/tickets/' + id + '/assign')}
+              onStartFeedback={(id) => { setEditing(id); setResult(''); setMsg('') }}
+              onSubmitFeedback={feedback}
+              onCancelFeedback={() => { setEditing(''); setResult(''); setMsg('') }}
+              onResultChange={setResult}
+              onAuthorizeRoute={(id) => action('/tickets/' + id + '/authorize-route')}
+            />
+          ))}
+        </div>
+      )}
+    </main>
+  )
 }

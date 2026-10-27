@@ -5,6 +5,13 @@ import 'leaflet/dist/leaflet.css'
 import client, { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { directionLabels, statusLabels, type Item, type MapItem, type MyRoute, type RouteKind } from '../types'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import Tag from '../components/ui/Tag'
+import StatusBadge from '../components/ui/StatusBadge'
+import ErrorState from '../components/ui/ErrorState'
+import EmptyState from '../components/ui/EmptyState'
+import styles from './MapView.module.css'
 
 interface LayerInfo {
   id: string
@@ -232,7 +239,7 @@ export default function MapView() {
     if (!layer) return
     items.forEach((item) => {
       if (item.norm_x == null || item.norm_y == null) return
-      const color = item.direction === 'lost' ? '#2563eb' : '#16a34a'
+      const color = item.direction === 'lost' ? '#315CF5' : '#16B8A6'
       const marker = L.circleMarker(L.latLng(item.norm_y * layer.height, item.norm_x * layer.width), {
         radius: 6, color, fillColor: color, fillOpacity: 0.9, weight: 2,
       })
@@ -256,7 +263,7 @@ export default function MapView() {
     const layer = layers.find((l) => l.id === selected)
     if (!layer) return
     points.forEach((p) => {
-      L.circleMarker(L.latLng(p.norm_y * layer.height, p.norm_x * layer.width), { color: '#d97706' })
+      L.circleMarker(L.latLng(p.norm_y * layer.height, p.norm_x * layer.width), { color: '#FF8B5E' })
         .bindTooltip(`${esc(p.label)}（模拟点位）`)
         .addTo(group)
     })
@@ -276,24 +283,24 @@ export default function MapView() {
     const toLatLng = (p: NormPoint) => L.latLng(p.y * layer.height, p.x * layer.width)
 
     if (interaction.mode === 'anchor' && interaction.anchor) {
-      L.circleMarker(toLatLng(interaction.anchor), { radius: 8, color: '#7c3aed' }).addTo(group)
+      L.circleMarker(toLatLng(interaction.anchor), { radius: 8, color: '#7B61FF' }).addTo(group)
     }
     if (interaction.mode === 'circle') {
       if (interaction.circleCenter) {
-        L.circleMarker(toLatLng(interaction.circleCenter), { radius: 6, color: '#7c3aed' }).addTo(group)
+        L.circleMarker(toLatLng(interaction.circleCenter), { radius: 6, color: '#7B61FF' }).addTo(group)
       }
       if (interaction.circleCenter && interaction.circleEdge) {
         const center = toLatLng(interaction.circleCenter)
         const edge = toLatLng(interaction.circleEdge)
         const dx = edge.lng - center.lng
         const dy = edge.lat - center.lat
-        L.circle(center, { radius: Math.sqrt(dx * dx + dy * dy), color: '#7c3aed', weight: 2, fillOpacity: 0.1 }).addTo(group)
+        L.circle(center, { radius: Math.sqrt(dx * dx + dy * dy), color: '#7B61FF', weight: 2, fillOpacity: 0.1 }).addTo(group)
       }
     }
     if (interaction.mode === 'polyline' && interaction.polyline.length > 0) {
-      L.polyline(interaction.polyline.map(toLatLng), { color: '#7c3aed', weight: 3 }).addTo(group)
+      L.polyline(interaction.polyline.map(toLatLng), { color: '#7B61FF', weight: 3 }).addTo(group)
       interaction.polyline.forEach((p) => {
-        L.circleMarker(toLatLng(p), { radius: 4, color: '#7c3aed' }).addTo(group)
+        L.circleMarker(toLatLng(p), { radius: 4, color: '#7B61FF' }).addTo(group)
       })
     }
   }, [interaction, layers, selected])
@@ -314,13 +321,13 @@ export default function MapView() {
         const g = r.geometry as { cx: number; cy: number; r: number } | null
         if (!g) return
         L.circle(L.latLng(g.cy * layer.height, g.cx * layer.width), {
-          radius: g.r * layer.width, color: '#7c3aed', weight: 2, fillOpacity: 0.05, dashArray: '6 6',
+          radius: g.r * layer.width, color: '#7B61FF', weight: 2, fillOpacity: 0.05, dashArray: '6 6',
         }).addTo(group)
       } else if (r.kind === 'polyline') {
         const g = r.geometry as { x: number; y: number }[] | null
         if (!g || !Array.isArray(g)) return
         L.polyline(g.map((p) => L.latLng(p.y * layer.height, p.x * layer.width)), {
-          color: '#7c3aed', weight: 3, dashArray: '6 6',
+          color: '#7B61FF', weight: 3, dashArray: '6 6',
         }).addTo(group)
       }
     })
@@ -401,65 +408,99 @@ export default function MapView() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1>地图</h1>
-      {error && <p role="alert">{error}</p>}
-      {layers.length === 0 && !error && <p>暂无图层，请先初始化地图数据。</p>}
-      <div className="actions" style={{ marginBottom: 12 }}>
-        <select value={selected} onChange={(e) => { setSelected(e.target.value); setInteraction(emptyInteraction); setSelectedItem(null) }}>
+    <main className={styles.page}>
+      <h1 className={styles.title}>校园地图</h1>
+
+      {error && <ErrorState message={error} />}
+
+      {layers.length === 0 && !error && (
+        <EmptyState title="暂无图层" description="请先初始化地图数据" />
+      )}
+
+      <div className={styles.controls}>
+        <select
+          className={styles.layerSelect}
+          value={selected}
+          onChange={(e) => { setSelected(e.target.value); setInteraction(emptyInteraction); setSelectedItem(null) }}
+          aria-label="选择图层"
+        >
           {layers.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}{l.scale_calibrated ? '（已标定）' : '（未标定）'}
             </option>
           ))}
         </select>
-        {(Object.keys(modeLabels) as DrawMode[]).map((m) => (
-          <button key={m} onClick={() => changeMode(m)} disabled={interaction.mode === m}
-            style={interaction.mode === m ? { background: '#e0e7ff' } : undefined}>
-            {modeLabels[m]}
-          </button>
-        ))}
+
+        <div className={styles.modeGroup}>
+          {(Object.keys(modeLabels) as DrawMode[]).map((m) => (
+            <button
+              key={m}
+              className={`${styles.modeBtn} ${interaction.mode === m ? styles.modeBtnActive : ''}`}
+              onClick={() => changeMode(m)}
+              disabled={interaction.mode === m}
+            >
+              {modeLabels[m]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {interaction.mode !== 'view' && (
-        <div className="card">
-          <label>
+        <Card variant="outlined" className={styles.drawPanel}>
+          <label className={styles.targetLabel}>
             目标委托（我的发布）：
-            <select value={interaction.targetItemId}
-              onChange={(e) => setInteraction((prev) => ({ ...prev, targetItemId: e.target.value, anchor: null, circleCenter: null, circleEdge: null, polyline: [] }))}>
+            <select
+              className={styles.targetSelect}
+              value={interaction.targetItemId}
+              onChange={(e) => setInteraction((prev) => ({ ...prev, targetItemId: e.target.value, anchor: null, circleCenter: null, circleEdge: null, polyline: [] }))}
+            >
               <option value="">请选择</option>
               {myItems.map((i) => (
                 <option key={i.id} value={i.id}>[{directionLabels[i.direction]}] {i.title}</option>
               ))}
             </select>
           </label>
-          <div className="actions" style={{ marginTop: 8 }}>
-            <button onClick={saveDraw} disabled={busy}>{busy ? '保存中…' : '保存'}</button>
-            <button onClick={resetDraw} disabled={busy}>清空</button>
+          <div className={styles.drawActions}>
+            <Button variant="primary" size="sm" onClick={saveDraw} loading={busy}>保存</Button>
+            <Button variant="ghost" size="sm" onClick={resetDraw} disabled={busy}>清空</Button>
           </div>
-          <p style={{ color: '#6b7280' }}>
+          <p className={styles.drawHint}>
             {interaction.mode === 'anchor' && '在地图上点击一次位置，再点「保存」。'}
             {interaction.mode === 'circle' && '先点圆心，再点半径边缘；再次点击可重画。'}
             {interaction.mode === 'polyline' && '依次点击途经点；「清空」撤销全部，点「保存」完成。'}
           </p>
-          {msg && <p role="status">{msg}</p>}
-        </div>
+          {msg && <p className={styles.drawMsg} role="status">{msg}</p>}
+        </Card>
       )}
 
       {selectedItem && (
-        <div className="card">
-          <strong>[{directionLabels[selectedItem.direction]}] {selectedItem.title}</strong>
-          <div style={{ color: '#6b7280' }}>
-            {selectedItem.category} · {statusLabels[selectedItem.status]}{selectedItem.is_simulated ? '（模拟）' : ''}
+        <Card variant="elevated" className={styles.selectedInfo}>
+          <div className={styles.selectedHeader}>
+            <Tag variant={selectedItem.direction === 'lost' ? 'coral' : 'mint'}>
+              {directionLabels[selectedItem.direction]}
+            </Tag>
+            <strong className={styles.selectedTitle}>{selectedItem.title}</strong>
+          </div>
+          <div className={styles.selectedMeta}>
+            <span>{selectedItem.category}</span>
+            <StatusBadge status={selectedItem.status} />
+            {selectedItem.is_simulated && <Tag variant="secondary">模拟</Tag>}
           </div>
           <Link to={`/items/${selectedItem.id}`}>查看详情</Link>
-        </div>
+        </Card>
       )}
 
-      <div ref={containerRef} style={{ height: 560, marginTop: 12, border: '1px solid #cbd5e1', background: '#f8fafc' }} />
-      <p style={{ color: '#6b7280' }}>
-        点击地图查看归一化坐标；{calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。蓝色=寻物，绿色=拾获，紫色=绘制预览，橙色=工作人员模拟点位。
-      </p>
-    </div>
+      <div ref={containerRef} className={styles.mapContainer} />
+
+      <div className={styles.legend}>
+        <span className={styles.legendItem}><span className={`${styles.legendDot} ${styles.dotPrimary}`} />寻物</span>
+        <span className={styles.legendItem}><span className={`${styles.legendDot} ${styles.dotMint}`} />拾获</span>
+        <span className={styles.legendItem}><span className={`${styles.legendDot} ${styles.dotSecondary}`} />绘制预览</span>
+        <span className={styles.legendItem}><span className={`${styles.legendDot} ${styles.dotCoral}`} />模拟点位</span>
+        <span className={styles.legendItem}>
+          {calibrated ? <Tag variant="mint">已标定比例尺</Tag> : <Tag variant="gray">未标定比例尺</Tag>}
+        </span>
+      </div>
+    </main>
   )
 }

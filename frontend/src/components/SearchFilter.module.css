@@ -1,0 +1,210 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_sm);
+  margin-bottom: var(--spacing_lg);
+}
+
+.primaryRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_sm);
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: var(--spacing_md);
+  color: var(--color_gray);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: var(--spacing_sm) var(--spacing_3xl) var(--spacing_sm) var(--spacing_3xl);
+  border: 1px solid var(--color_border);
+  border-radius: var(--radius_medium);
+  background: var(--color_surface);
+  font-size: var(--font_size_md);
+  min-height: 44px;
+  transition: border-color var(--duration_fast) var(--easing_standard), box-shadow var(--duration_fast) var(--easing_standard);
+}
+
+.searchInput::placeholder {
+  color: var(--color_gray);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--color_primary);
+  box-shadow: 0 0 0 3px var(--color_primary_light);
+}
+
+.clearBtn {
+  position: absolute;
+  right: var(--spacing_sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius_full);
+  color: var(--color_gray);
+  transition: color var(--duration_fast) var(--easing_standard);
+}
+
+.clearBtn:hover {
+  color: var(--color_text);
+  background: var(--color_gray_light);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--color_gray_light);
+  border-radius: var(--radius_medium);
+  padding: 3px;
+}
+
+.tab {
+  padding: var(--spacing_xs) var(--spacing_md);
+  border-radius: var(--radius_small);
+  font-size: var(--font_size_sm);
+  font-weight: var(--font_weight_medium);
+  color: var(--color_text_secondary);
+  transition: all var(--duration_fast) var(--easing_standard);
+  min-height: 36px;
+}
+
+.tabActive {
+  background: var(--color_surface);
+  color: var(--color_primary);
+  box-shadow: var(--shadow_small);
+}
+
+.moreBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing_xs);
+  padding: var(--spacing_xs) var(--spacing_md);
+  border-radius: var(--radius_medium);
+  border: 1px solid var(--color_border);
+  background: var(--color_surface);
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+  transition: all var(--duration_fast) var(--easing_standard);
+  min-height: 36px;
+}
+
+.moreBtn:hover {
+  border-color: var(--color_primary);
+  color: var(--color_primary);
+}
+
+.moreBtnActive {
+  border-color: var(--color_primary);
+  color: var(--color_primary);
+}
+
+.filterDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius_full);
+  background: var(--color_primary);
+}
+
+.advancedRow {
+  display: flex;
+  gap: var(--spacing_md);
+  padding: var(--spacing_sm) 0;
+  animation: slideDown var(--duration_normal) var(--easing_out);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.advancedLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_sm);
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+}
+
+.advancedSelect {
+  padding: var(--spacing_xs) var(--spacing_md);
+  border: 1px solid var(--color_border);
+  border-radius: var(--radius_medium);
+  background: var(--color_surface);
+  font-size: var(--font_size_sm);
+  min-height: 36px;
+}
+
+.advancedSelect:focus {
+  outline: none;
+  border-color: var(--color_primary);
+}
+
+.activeFilters {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_xs);
+  flex-wrap: wrap;
+}
+
+.filterTag {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing_xs) var(--spacing_sm);
+  border-radius: var(--radius_small);
+  background: var(--color_primary_light);
+  color: var(--color_primary);
+  font-size: var(--font_size_xs);
+  font-weight: var(--font_weight_medium);
+}
+
+.clearAllBtn {
+  font-size: var(--font_size_xs);
+  color: var(--color_text_secondary);
+  text-decoration: underline;
+  padding: var(--spacing_xs);
+}
+
+.clearAllBtn:hover {
+  color: var(--color_primary);
+}
+
+@media (max-width: 768px) {
+  .primaryRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchBox {
+    min-width: unset;
+  }
+
+  .tabs {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tab {
+    flex: 1;
+  }
+
+  .moreBtn {
+    width: 100%;
+    justify-content: center;
+  }
+}

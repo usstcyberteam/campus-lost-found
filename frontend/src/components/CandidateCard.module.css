@@ -1,0 +1,52 @@
+.card {
+  margin: var(--spacing_sm) 0;
+}
+
+.link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_xs);
+  text-decoration: none;
+  color: inherit;
+}
+
+.link:hover {
+  text-decoration: none;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing_sm);
+}
+
+.title {
+  font-size: var(--font_size_md);
+  font-weight: var(--font_weight_semibold);
+  color: var(--color_text);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing_xs);
+  font-size: var(--font_size_sm);
+  color: var(--color_text_secondary);
+}
+
+.dot {
+  color: var(--color_gray);
+}
+
+.explanation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing_sm);
+  font-size: var(--font_size_xs);
+}
+
+.reason {
+  color: var(--color_text_secondary);
+}

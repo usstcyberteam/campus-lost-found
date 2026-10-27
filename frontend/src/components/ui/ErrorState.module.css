@@ -1,0 +1,28 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--spacing_2xl);
+  gap: var(--spacing_md);
+}
+
+.icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius_full);
+  background: var(--color_danger_light);
+  color: var(--color_danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font_size_lg);
+  font-weight: var(--font_weight_bold);
+}
+
+.message {
+  font-size: var(--font_size_sm);
+  color: var(--color_danger);
+  max-width: 320px;
+}

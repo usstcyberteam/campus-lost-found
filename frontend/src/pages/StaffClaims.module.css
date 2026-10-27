@@ -1,0 +1,91 @@
+.page {
+  padding: var(--spacing_xl);
+  max-width: var(--max_width_content);
+  margin: 0 auto;
+}
+
+.title {
+  font-size: var(--font_size_xl);
+  font-weight: var(--font_weight_bold);
+  color: var(--color_text);
+  margin-bottom: var(--spacing_md);
+}
+
+.filterBar {
+  margin-bottom: var(--spacing_md);
+  max-width: 240px;
+}
+
+.msg {
+  font-size: var(--font_size_sm);
+  color: var(--color_primary);
+  padding: var(--spacing_sm);
+  background: var(--color_primary_light);
+  border-radius: var(--radius_small);
+  margin-bottom: var(--spacing_md);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--spacing_lg);
+  align-items: start;
+}
+
+.listPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_sm);
+}
+
+.claimList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing_xs);
+}
+
+.claimItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing_md) var(--spacing_lg);
+  border-radius: var(--radius_medium);
+  border: 1px solid var(--color_border);
+  background: var(--color_surface);
+  transition: all var(--duration_fast) var(--easing_standard);
+  text-align: left;
+  width: 100%;
+}
+
+.claimItem:hover {
+  border-color: var(--color_primary);
+}
+
+.claimItemActive {
+  border-color: var(--color_primary);
+  background: var(--color_primary_light);
+}
+
+.claimId {
+  font-size: var(--font_size_sm);
+  font-weight: var(--font_weight_medium);
+  color: var(--color_text);
+}
+
+.detailPanel {
+  min-height: 200px;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: var(--spacing_md);
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .filterBar {
+    max-width: 100%;
+  }
+}

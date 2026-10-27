@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import client, { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { directionLabels, statusLabels, type Candidate, type Item } from '../types'
+import { directionLabels, type Candidate, type Item } from '../types'
+import Tag from '../components/ui/Tag'
+import StatusBadge from '../components/ui/StatusBadge'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import LoadingIndicator from '../components/ui/LoadingIndicator'
+import ErrorState from '../components/ui/ErrorState'
+import CandidateCard from '../components/CandidateCard'
+import ClaimForm from '../components/ClaimForm'
+import styles from './ItemDetail.module.css'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -70,39 +79,68 @@ export default function ItemDetail() {
     finally { setBusy(false) }
   }
 
-  if (loading) return <main className="page">加载中…</main>
-  if (error) return <main className="page"><p role="alert">{error}</p><Link to="/">返回大厅</Link></main>
-  if (!item) return <main className="page">记录不存在</main>
-  return <main className="page">
-    <h1>{item.title}</h1>
-    <p>{directionLabels[item.direction]} · {item.category} · {statusLabels[item.status]}</p>
-    <p>{item.description}</p>
-    <p>地点：{item.location_area || '未知'}</p>
-    {item.precise_location && <p>精确位置：{item.precise_location}</p>}
-    {item.is_owner && item.layer_id && item.norm_x != null && item.norm_y != null && (
-      <p><Link to={`/map?layer=${item.layer_id}&nx=${item.norm_x}&ny=${item.norm_y}&item=${item.id}`}>在地图查看位置</Link></p>
-    )}
-    {item.is_simulated && <p>演示记录 / 模拟位置</p>}
-    {item.direction === 'lost' && item.is_owner && <section>
-      <h2>候选匹配</h2>
-      {candidates.length === 0 && <p>暂无候选，可补充线索或申请协助。</p>}
-      {candidates.map(c => <article className="card" key={c.found_item_id}>
-        <Link to={'/items/' + c.found_item_id + '?lost=' + id}>{c.title}</Link>（{c.category} · {c.location_area || '未知'}）
-        <p>依据：{c.explanation} ｜ 来源：{c.source === 'rule' ? '规则推荐' : c.source}</p>
-      </article>)}
-      <Link to="/tickets">申请工作人员协助</Link>
-    </section>}
-    {item.direction === 'found' && role === 'student' && ['pending', 'reviewing'].includes(item.status) && <section className="card">
-      <h2>认领该物品</h2>
-      <label>私密认领证据<textarea aria-label="私密认领证据" value={evidence}
-        onChange={e => setEvidence(e.target.value)} disabled={busy || submitted} maxLength={5000}
-        placeholder="请描述未公开的标记、划痕等特征" style={{ width: '100%', minHeight: 90 }} /></label>
-      <label>关联本人寻物记录<select aria-label="关联本人寻物记录" value={lostItemId}
-        disabled={busy || submitted} onChange={e => setLostItemId(e.target.value)}>
-        <option value="">不关联</option>{mine.map(i => <option key={i.id} value={i.id}>{i.title}</option>)}
-      </select></label>
-      <p><button disabled={busy || submitted} onClick={submitClaim}>{submitted ? '已提交申请' : busy ? '提交中…' : '提交认领'}</button></p>
-      {msg && <p role="status">{msg}</p>}
-    </section>}
-  </main>
+  if (loading) return <main className={styles.page}><LoadingIndicator label="加载中…" /></main>
+  if (error) return <main className={styles.page}><ErrorState message={error} /><Link to="/">返回大厅</Link></main>
+  if (!item) return <main className={styles.page}><ErrorState message="记录不存在" /></main>
+
+  const isLost = item.direction === 'lost'
+
+  return (
+    <main className={styles.page}>
+      <div className={styles.header}>
+        <div className={styles.headerTags}>
+          <Tag variant={isLost ? 'coral' : 'mint'}>{directionLabels[item.direction]}</Tag>
+          <StatusBadge status={item.status} />
+          {item.is_simulated && <Tag variant="secondary">演示记录</Tag>}
+        </div>
+        <h1 className={styles.title}>{item.title}</h1>
+        <p className={styles.category}>{item.category}</p>
+      </div>
+
+      <div className={styles.content}>
+        <div className={styles.mainInfo}>
+          <Card variant="outlined">
+            <h2 className={styles.sectionTitle}>物品描述</h2>
+            <p className={styles.description}>{item.description || '暂无描述'}</p>
+          </Card>
+
+          <Card variant="outlined">
+            <h2 className={styles.sectionTitle}>位置信息</h2>
+            <p className={styles.location}>地点：{item.location_area || '未知'}</p>
+            {item.precise_location && <p className={styles.preciseLocation}>精确位置：{item.precise_location}</p>}
+            {item.is_owner && item.layer_id && item.norm_x != null && item.norm_y != null && (
+              <Button variant="secondary" size="sm" onClick={() => window.location.href = `/map?layer=${item.layer_id}&nx=${item.norm_x}&ny=${item.norm_y}&item=${item.id}`}>
+                在地图查看位置
+              </Button>
+            )}
+          </Card>
+        </div>
+
+        <div className={styles.sideInfo}>
+          {isLost && item.is_owner && (
+            <section className={styles.candidatesSection}>
+              <h2 className={styles.sectionTitle}>候选匹配</h2>
+              {candidates.length === 0 && <p className={styles.emptyHint}>暂无候选，可补充线索或申请协助。</p>}
+              {candidates.map(c => <CandidateCard key={c.found_item_id} candidate={c} lostItemId={id!} />)}
+              <Link to="/tickets"><Button variant="secondary" size="sm">申请工作人员协助</Button></Link>
+            </section>
+          )}
+
+          {!isLost && role === 'student' && ['pending', 'reviewing'].includes(item.status) && (
+            <ClaimForm
+              evidence={evidence}
+              lostItemId={lostItemId}
+              lostItemOptions={mine}
+              busy={busy}
+              submitted={submitted}
+              onEvidenceChange={setEvidence}
+              onLostItemIdChange={setLostItemId}
+              onSubmit={submitClaim}
+              message={msg}
+            />
+          )}
+        </div>
+      </div>
+    </main>
+  )
 }
