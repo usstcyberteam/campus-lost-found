@@ -52,10 +52,12 @@
   border-radius: var(--radius-md);
 }
 
+/* 按高度等比缩放：带地图的卡片更长，避免预览撑出整屏 */
 .canvas {
-  width: 100%;
-  max-width: var(--space-7);
+  width: auto;
+  max-width: 100%;
   height: auto;
+  max-height: 62vh;
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
 }
@@ -135,8 +137,9 @@
     transform: none;
   }
 
-  /* 移动端海报全宽预览（仍按 375 规格绘制，等比缩放） */
+  /* 移动端海报预览（仍按 375 规格绘制，等比缩放） */
   .canvas {
     max-width: 100%;
+    max-height: 58vh;
   }
 }

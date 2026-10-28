@@ -1,32 +1,10 @@
 import { Link } from 'react-router-dom'
 import { getBuilding } from '../../api/buildings'
-import { getLayerImage, getMapMeta, listLayers } from '../../api/layers'
 import { useAsync } from '../../hooks/useAsync'
-import type { Item, Layer } from '../../types'
+import type { Item } from '../../types'
 import { buildingPoint } from '../CampusMap/mapResults'
+import { loadFlatMap, toPixel } from './flatMap'
 import styles from './LocationMiniMap.module.css'
-
-interface FlatMap {
-  layer: Layer
-  url: string
-}
-
-// 平面底图整站只拉一次：详情页之间来回切换不重复下载
-let flatMapPromise: Promise<FlatMap> | null = null
-
-function loadFlatMap(): Promise<FlatMap> {
-  if (!flatMapPromise) {
-    flatMapPromise = Promise.all([getMapMeta(), listLayers()]).then(async ([meta, layers]) => {
-      const layer = layers.find((row) => row.id === meta.flat_layer_id)
-      if (!layer) throw new Error('缺少室外平面图')
-      return { layer, url: URL.createObjectURL(await getLayerImage(layer.id)) }
-    })
-    flatMapPromise.catch(() => {
-      flatMapPromise = null
-    })
-  }
-  return flatMapPromise
-}
 
 // 视窗宽度占整张平面图的比例：约能看到目标楼和周边一两栋楼
 const VIEW_RATIO = 0.3
@@ -40,7 +18,7 @@ export default function LocationMiniMap({ item }: { item: Item }) {
   )
 
   const layer = flat.data?.layer
-  // 精确点只有发布者能拿到，且必须落在室外平面图上；否则退回"范围到楼"
+  // 帖子在室外平面图上标过点就用标点，否则退回"范围到楼"
   const precise =
     layer && item.layer_id === layer.id && item.norm_x != null && item.norm_y != null
       ? { x: item.norm_x, y: item.norm_y }
@@ -54,10 +32,10 @@ export default function LocationMiniMap({ item }: { item: Item }) {
   const { width, height } = layer
   const viewW = width * VIEW_RATIO
   const viewH = viewW / 2
-  const cx = point.x * width
-  const cy = (1 - point.y) * height
+  const { x: cx, y: cy } = toPixel(layer, point)
   const region = building.data?.click_region
-    ?.map((p) => `${Number(p.x) * width},${(1 - Number(p.y)) * height}`)
+    ?.map((p) => toPixel(layer, { x: Number(p.x), y: Number(p.y) }))
+    .map((p) => `${p.x},${p.y}`)
     .join(' ')
   const name = building.data?.name ?? '帖子位置'
 

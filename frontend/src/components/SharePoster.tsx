@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { placeLabel, type Item } from '../types'
+import { getBuilding } from '../api/buildings'
+import { placeLabel, type Building, type Item, type Layer } from '../types'
+import { buildingPoint } from './CampusMap/mapResults'
+import { loadFlatMap, toPixel } from './LocationMiniMap/flatMap'
 import styles from './SharePoster.module.css'
 
 // 逻辑画布 375×600（任务规格）；实际导出 2x（750×1200）保证清晰
 const POSTER_W = 375
 const POSTER_H = 600
 const EXPORT_SCALE = 2
+const MAP_H = 150
+const MAP_GAP = 18
+// 原 600 高的卡片在地点行与底栏之间本有余量；按最长内容（标题 2 行 + 描述 3 行）算，加地图只需再长 60
+const MAP_EXTRA_H = 60
+// 地图视窗宽度占整张平面图的比例，与详情页小地图一致
+const MAP_VIEW_RATIO = 0.3
 
 const SITE_NAME = '校园失物招领'
 const DIRECTION_LABELS: Record<string, string> = { lost: '寻物启事', found: '失物招领' }
@@ -17,7 +26,29 @@ interface Theme {
   bg1: string
   bg2: string
   border: string
+  borderStrong: string
   inverse: string
+  accentGlow: string
+  paper: string
+}
+
+/** 卡片上的地图块数据：只标到楼，不画发帖人才能看到的精确点（卡片会被转发到公开场合） */
+interface PosterMap {
+  image: HTMLImageElement
+  layer: Layer
+  building: Building
+  point: { x: number; y: number }
+}
+
+async function loadPosterMap(item: Item): Promise<PosterMap | null> {
+  if (!item.building_id) return null
+  const [flat, building] = await Promise.all([loadFlatMap(), getBuilding(item.building_id)])
+  const point = buildingPoint(building)
+  if (!point) return null
+  const image = new Image()
+  image.src = flat.url
+  await image.decode()
+  return { image, layer: flat.layer, building, point }
 }
 
 function readTheme(): Theme {
@@ -30,7 +61,10 @@ function readTheme(): Theme {
     bg1: read('--color-bg-1', '#ffffff'),
     bg2: read('--color-bg-2', '#f5f7fa'),
     border: read('--color-border', '#e5e7eb'),
+    borderStrong: read('--color-border-strong', '#cbd5e1'),
     inverse: read('--color-text-inverse', '#ffffff'),
+    accentGlow: read('--color-accent-glow', 'rgba(242, 201, 76, 0.5)'),
+    paper: read('--color-paper', '#ffffff'),
   }
 }
 
@@ -93,16 +127,96 @@ function drawQrLike(ctx: CanvasRenderingContext2D, url: string, x: number, y: nu
   finder(x, y + cell * (cells - 7))
 }
 
-function drawPoster(canvas: HTMLCanvasElement, item: Item, url: string): void {
+/** 地图块：截取平面图上目标楼附近一块，虚线框出楼体，中心一枚定位环，左下角标楼名。 */
+function drawMapBlock(
+  ctx: CanvasRenderingContext2D,
+  map: PosterMap,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  theme: Theme,
+) {
+  const { layer, image } = map
+  const center = toPixel(layer, map.point)
+  const sw = layer.width * MAP_VIEW_RATIO
+  const sh = sw * (h / w)
+  // 靠近图边的楼：视窗贴边截取，图钉随之偏离中心
+  const sx = Math.min(Math.max(center.x - sw / 2, 0), layer.width - sw)
+  const sy = Math.min(Math.max(center.y - sh / 2, 0), layer.height - sh)
+  const scale = w / sw
+  const toDest = (p: { x: number; y: number }) => ({ x: x + (p.x - sx) * scale, y: y + (p.y - sy) * scale })
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(x, y, w, h, 6)
+  ctx.clip()
+  ctx.drawImage(image, sx, sy, sw, sh, x, y, w, h)
+
+  const region = map.building.click_region
+  if (region && region.length > 2) {
+    ctx.beginPath()
+    region.forEach((p, index) => {
+      const d = toDest(toPixel(layer, { x: Number(p.x), y: Number(p.y) }))
+      if (index === 0) ctx.moveTo(d.x, d.y)
+      else ctx.lineTo(d.x, d.y)
+    })
+    ctx.closePath()
+    ctx.fillStyle = theme.accentGlow
+    ctx.fill()
+    ctx.setLineDash([5, 3])
+    ctx.strokeStyle = theme.primary
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  const pin = toDest(center)
+  ctx.beginPath()
+  ctx.arc(pin.x, pin.y, 16, 0, Math.PI * 2)
+  ctx.globalAlpha = 0.35
+  ctx.strokeStyle = theme.primary
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.globalAlpha = 1
+  ctx.beginPath()
+  ctx.arc(pin.x, pin.y, 8, 0, Math.PI * 2)
+  ctx.fillStyle = theme.paper
+  ctx.fill()
+  ctx.lineWidth = 3.5
+  ctx.stroke()
+  ctx.restore()
+
+  ctx.beginPath()
+  ctx.roundRect(x, y, w, h, 6)
+  ctx.strokeStyle = theme.borderStrong
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  ctx.font = '600 12px system-ui, sans-serif'
+  ctx.textBaseline = 'middle'
+  const label = map.building.name
+  const labelW = ctx.measureText(label).width + 16
+  ctx.fillStyle = theme.paper
+  ctx.fillRect(x + 8, y + h - 30, labelW, 22)
+  ctx.strokeStyle = theme.borderStrong
+  ctx.lineWidth = 1
+  ctx.strokeRect(x + 8, y + h - 30, labelW, 22)
+  ctx.fillStyle = theme.text1
+  ctx.fillText(label, x + 16, y + h - 19)
+}
+
+function drawPoster(canvas: HTMLCanvasElement, item: Item, url: string, map: PosterMap | null): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas 不可用')
   const theme = readTheme()
+  const posterH = POSTER_H + (map ? MAP_EXTRA_H : 0)
   canvas.width = POSTER_W * EXPORT_SCALE
-  canvas.height = POSTER_H * EXPORT_SCALE
+  canvas.height = posterH * EXPORT_SCALE
   ctx.scale(EXPORT_SCALE, EXPORT_SCALE)
 
   ctx.fillStyle = theme.bg1
-  ctx.fillRect(0, 0, POSTER_W, POSTER_H)
+  ctx.fillRect(0, 0, POSTER_W, posterH)
 
   // 顶部：主色横幅 + 圆形 Logo + 站名
   ctx.fillStyle = theme.primary
@@ -152,6 +266,14 @@ function drawPoster(canvas: HTMLCanvasElement, item: Item, url: string): void {
     }
   }
 
+  // 地图块：有建筑时才画
+  if (map) {
+    y += MAP_GAP
+    drawMapBlock(ctx, map, contentX, y, contentW, MAP_H, theme)
+    ctx.textBaseline = 'middle'
+    y += MAP_H
+  }
+
   // 地点 + 时间
   y += 14
   ctx.strokeStyle = theme.border
@@ -172,12 +294,12 @@ function drawPoster(canvas: HTMLCanvasElement, item: Item, url: string): void {
   ctx.fillText(`🕐 ${timeText}`, contentX, y)
 
   // 底部：浅色块 + 链接 + "扫码查看详情" + 伪二维码
-  const footerY = POSTER_H - 116
+  const footerY = posterH - 116
   ctx.fillStyle = theme.bg2
-  ctx.fillRect(0, footerY, POSTER_W, POSTER_H - footerY)
+  ctx.fillRect(0, footerY, POSTER_W, posterH - footerY)
   const qrSize = 84
   const qrX = POSTER_W - qrSize - 20
-  const qrY = footerY + (POSTER_H - footerY - qrSize) / 2
+  const qrY = footerY + (posterH - footerY - qrSize) / 2
   drawQrLike(ctx, url, qrX, qrY, qrSize, theme.text1)
   ctx.fillStyle = theme.text1
   ctx.font = '600 14px system-ui, sans-serif'
@@ -213,11 +335,22 @@ export default function SharePoster({ open, item, onClose }: SharePosterProps) {
 
   useEffect(() => {
     if (!open || !canvasRef.current) return
-    try {
-      drawPoster(canvasRef.current, item, posterUrl)
-      setStatus('ready')
-    } catch {
-      setStatus('failed')
+    const canvas = canvasRef.current
+    let active = true
+    // 地图加载失败不影响出图：退回不带地图的卡片
+    loadPosterMap(item)
+      .catch(() => null)
+      .then((map) => {
+        if (!active) return
+        try {
+          drawPoster(canvas, item, posterUrl, map)
+          setStatus('ready')
+        } catch {
+          setStatus('failed')
+        }
+      })
+    return () => {
+      active = false
     }
   }, [open, item, posterUrl])
 

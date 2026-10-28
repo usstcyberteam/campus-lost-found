@@ -16,6 +16,7 @@ import { directionLabels, type Direction, type Item, type Photo, type RouteKind,
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
 import Field from '../components/Field'
+import LocationPicker, { EMPTY_PICK, type PickedLocation } from '../components/LocationPicker/LocationPicker'
 import PageHeader from '../components/AppShell/PageHeader'
 import PhotoUploader from '../components/PhotoUploader/PhotoUploader'
 import Spinner from '../components/Spinner'
@@ -92,6 +93,20 @@ export default function ItemForm() {
   const [title, setTitle] = useState(preset?.title ?? '')
   const [description, setDescription] = useState(preset?.description ?? '')
   const [locationArea, setLocationArea] = useState(preset?.location_area ?? '')
+  // 地图选点：从地图页带来的楼 / 楼层 / 标点作为初值
+  const [pick, setPick] = useState<PickedLocation>(() =>
+    preset
+      ? {
+          buildingId: preset.building_id ?? null,
+          buildingName: preset.building_name ?? null,
+          floor: preset.floor ?? null,
+          point: preset.norm_x != null && preset.norm_y != null ? { x: preset.norm_x, y: preset.norm_y } : null,
+          layerId: preset.layer_id ?? null,
+        }
+      : EMPTY_PICK,
+  )
+  // 记住上次由选点自动填入的地点：用户手改过就不再覆盖
+  const autoAreaRef = useRef(preset?.location_area ?? '')
   const [preciseLocation, setPreciseLocation] = useState('')
   const [photos, setPhotos] = useState<Photo[]>([])
   const [visibility, setVisibility] = useState<Visibility>(preset?.visibility ?? 'private')
@@ -110,6 +125,13 @@ export default function ItemForm() {
   const scrollRaf = useRef(0)
   const highlightTimer = useRef(0)
   const toastTimer = useRef(0)
+
+  function onPickChange(next: PickedLocation) {
+    setPick(next)
+    const label = next.buildingName ? `${next.buildingName}${next.floor != null ? `${next.floor}F` : ''}` : ''
+    if (!locationArea.trim() || locationArea === autoAreaRef.current) setLocationArea(label)
+    autoAreaRef.current = label
+  }
 
   // 地点输入框聚焦时按历史频次推荐：当前有输入则按关键词过滤，否则给全局热门
   async function onLocationFocus() {
@@ -270,16 +292,16 @@ export default function ItemForm() {
         location_area: locationArea,
         precise_location: preciseLocation || null,
         time_occurred: preset?.time_occurred ?? aiExtra?.time_occurred ?? null,
-        building_id: preset?.building_id ?? null,
-        floor: preset?.floor ?? aiExtra?.floor ?? null,
+        building_id: pick.buildingId,
+        floor: pick.floor ?? aiExtra?.floor ?? null,
         photo_ids: photos.map((photo) => photo.id),
       })
       setCreatedId(item.id)
-      if (preset?.layer_id && preset.norm_x != null && preset.norm_y != null) {
+      if (pick.point && pick.layerId) {
         await setMapAnchor(item.id, {
-          layer_id: preset.layer_id,
-          norm_x: preset.norm_x,
-          norm_y: preset.norm_y,
+          layer_id: pick.layerId,
+          norm_x: pick.point.x,
+          norm_y: pick.point.y,
         })
       }
       if (geometry && routeKind) {
@@ -479,6 +501,13 @@ export default function ItemForm() {
               </div>
             )}
           </section>
+
+          {!editing && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>地图选点</h2>
+              <LocationPicker value={pick} onChange={onPickChange} />
+            </section>
+          )}
 
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>地点与时间</h2>

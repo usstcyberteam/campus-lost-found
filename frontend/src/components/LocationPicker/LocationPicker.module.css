@@ -1,0 +1,121 @@
+.picker {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* 室外 / 室内切换：两枚并排的分类签 */
+.segment {
+  display: flex;
+  overflow: hidden;
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 0 var(--color-ink);
+}
+
+.segment button {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: var(--color-paper);
+  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+  transition: background var(--transition-fast);
+}
+
+.segment button + button {
+  border-left: 1.5px solid var(--color-ink);
+}
+
+.segment button:disabled {
+  color: var(--color-text-3);
+}
+
+.segment .segmentActive {
+  background: var(--color-ink);
+  color: var(--color-text-inverse);
+}
+
+.clear {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+}
+
+/* 地图本身：固定高度，可拖动缩放；地图组件最小高度 320 */
+.mapBox {
+  position: relative;
+  height: 320px;
+  overflow: hidden;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-map-bg);
+  /* 手机上单指拖地图，不让页面跟着滚 */
+  touch-action: none;
+}
+
+.mapBox :global(.leaflet-bottom.leaflet-right) {
+  bottom: 0;
+}
+
+.skeleton {
+  height: 320px;
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-3);
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.summary {
+  padding: 2px var(--space-2);
+  border: 1px dashed var(--color-accent-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-heavy);
+}
+
+.floor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+}
+
+.floor select {
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  color: var(--color-text-1);
+  font-size: var(--font-base);
+}
+
+.note {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--font-sm);
+  line-height: 1.6;
+}

@@ -27,6 +27,10 @@ export interface CampusMapProps {
   onImageError?: (message: string) => void
   /** 归一化坐标；token 变化即触发一次平滑定位（用于列表点击回定位） */
   focus?: { x: number; y: number; token: number } | null
+  /** 地图上下被浮层压住的高度（适配视野时避开）；默认是地图页的搜索栏与抽屉，嵌在表单里传 0 */
+  fitInset?: { top: number; bottom: number }
+  /** 滚轮缩放：嵌在可滚动页面里时关掉，避免滚页面时误缩放地图 */
+  wheelZoom?: boolean
   children?: ReactNode
 }
 
@@ -35,7 +39,16 @@ interface MapInstance {
   layerId: string
 }
 
-export default function CampusMap({ layer, markers, onMapClick, onImageError, focus, children }: CampusMapProps) {
+export default function CampusMap({
+  layer,
+  markers,
+  onMapClick,
+  onImageError,
+  focus,
+  fitInset,
+  wheelZoom = true,
+  children,
+}: CampusMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 记录实例当前承载的图层：切换视图时子图层仍可能持有旧实例引用，只有与当前图层匹配的实例才交给子图层
   const [instance, setInstance] = useState<MapInstance | null>(null)
@@ -46,6 +59,10 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
   const onClickRef = useRef(onMapClick)
   const onErrorRef = useRef(onImageError)
   const layerRef = useRef(layer)
+  const fitInsetRef = useRef(fitInset)
+  fitInsetRef.current = fitInset
+  // 只在创建实例时读取一次
+  const wheelZoomRef = useRef(wheelZoom)
 
   onClickRef.current = onMapClick
   onErrorRef.current = onImageError
@@ -70,6 +87,7 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
       // 允许 1/4 级缩放：整数级吸附会让"适配全图"偏小一大圈
       zoomSnap: 0.25,
       zoomControl: false,
+      scrollWheelZoom: wheelZoomRef.current,
     })
     L.control.zoom({ position: 'bottomright' }).addTo(map)
     mapRef.current = map
@@ -121,10 +139,13 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
         })
     }
 
+    // 先换成新图层的拖动边界再定视野：旧图层的边界还在时会把新视野拽偏
+    map.setMaxBounds(bounds.pad(0.2))
     // 地图上方压着搜索栏、下方压着抽屉，视野要避开这两块；与 MapView.module.css 的抽屉高度一致
     const size = map.getSize()
-    const topPad = 140
-    const bottomPad = size.x < 768 ? 200 : 230
+    const inset = fitInsetRef.current
+    const topPad = inset?.top ?? 140
+    const bottomPad = inset?.bottom ?? (size.x < 768 ? 200 : 230)
     if (size.x < 768) {
       // 手机竖屏：按屏幕宽度铺满，比"整图塞进剩余高度"大得多，上下拖动查看
       map.setView([layer.height / 2, layer.width / 2], Math.log2((size.x - 16) / layer.width), { animate: false })
@@ -132,7 +153,6 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
     } else {
       map.fitBounds(bounds, { paddingTopLeft: [24, topPad], paddingBottomRight: [24, bottomPad] })
     }
-    map.setMaxBounds(bounds.pad(0.2))
 
     return () => {
       active = false
