@@ -3,7 +3,15 @@ import { Link, useNavigate } from 'react-router-dom'
 import { listBuildings } from '../api/buildings'
 import { listItems } from '../api/items'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
-import { placeLabel, type AiChatResult, type Building, type DraftPost, type FormPatch, type Item, type SearchAdvice } from '../types'
+import {
+  placeLabel,
+  type AiChatResult,
+  type Building,
+  type DraftPost,
+  type FormPatch,
+  type Item,
+  type SearchAdvice,
+} from '../types'
 import AiChat from '../components/AiChat/AiChat'
 import BlobStudio from '../components/BlobStudio/BlobStudio'
 import Button from '../components/Button'
@@ -55,18 +63,17 @@ export default function AiPage() {
   // form_patch 只填空字段：已填内容视为用户确认过，不覆盖。
   function applyPatch(patch: FormPatch, result: AiChatResult) {
     setDraft((prev) => {
-      const base: DraftPost =
-        prev ?? {
-          category: null,
-          title: null,
-          description: null,
-          location_area: null,
-          building_code: null,
-          floor: null,
-          time_occurred: null,
-          source: result.source,
-          degraded: result.degraded,
-        }
+      const base: DraftPost = prev ?? {
+        category: null,
+        title: null,
+        description: null,
+        location_area: null,
+        building_code: null,
+        floor: null,
+        time_occurred: null,
+        source: result.source,
+        degraded: result.degraded,
+      }
       const merged: DraftPost = { ...base }
       for (const key of ['category', 'title', 'description', 'location_area', 'building_code'] as const) {
         if (!base[key] && patch[key]) merged[key] = patch[key]
@@ -119,7 +126,10 @@ export default function AiPage() {
       <PageHeader title="AI 助手" />
       <div className={styles.page}>
         <section className={styles.welcome} aria-label="能力说明">
-          <h2 className={styles.welcomeTitle}>我来帮你更快发帖、更快找到</h2>
+          <div className={styles.tape} aria-hidden="true">
+            AI 书记员　在岗　AI 书记员　在岗　AI 书记员　在岗　AI 书记员　在岗
+          </div>
+          <h2 className={styles.welcomeTitle}>我是 AI 书记员，帮你更快立案、更快找到</h2>
           <ul className={styles.capabilities}>
             {CAPABILITIES.map((item) => (
               <li key={item}>{item}</li>

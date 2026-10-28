@@ -1,28 +1,14 @@
 /* FAQ 面板遮罩：盖住聊天窗（9998）与停靠条（9999），点击空白关闭 */
 .overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  background: var(--color-overlay);
+  composes: overlay from '../../styles/overlay.module.css';
+  /* 由 AI 悬浮窗唤起，需压在悬浮窗之上 */
+  z-index: calc(var(--z-overlay) + 10);
 }
 
 /* 桌面默认：居中弹窗 */
 .panel {
-  display: flex;
-  flex-direction: column;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: min(calc(var(--space-7) * 9), calc(100vw - var(--space-6)));
-  max-height: calc(100vh - var(--space-6));
-  overflow-y: auto;
-  box-sizing: border-box;
-  padding: var(--space-3) var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-1);
-  box-shadow: var(--shadow-lg);
-  transform: translate(-50%, -50%);
+  composes: sheet from '../../styles/overlay.module.css';
+  max-width: 440px;
 }
 
 .header {

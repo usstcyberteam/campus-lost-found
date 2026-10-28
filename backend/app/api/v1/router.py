@@ -17,6 +17,7 @@ from app.api.v1 import (
     staff_applications,
     tickets,
     uploads,
+    users,
 )
 
 api_router = APIRouter()
@@ -31,6 +32,7 @@ api_router.include_router(buildings.router, prefix="/buildings")
 api_router.include_router(tickets.router, prefix="/tickets")
 api_router.include_router(me.router, prefix="/me")
 api_router.include_router(uploads.router, prefix="/uploads")
+api_router.include_router(users.router, prefix="/users")
 api_router.include_router(comments.router)
 api_router.include_router(reactions.router)
 api_router.include_router(helpers.router)

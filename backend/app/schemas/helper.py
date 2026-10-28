@@ -22,3 +22,4 @@ class HelperUserOut(BaseModel):
     display_name: str
     title: str
     thanked: bool = False
+    avatar_url: str | None = None

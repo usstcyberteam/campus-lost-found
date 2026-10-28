@@ -10,18 +10,19 @@
   width: 30px;
   height: 30px;
   border-radius: var(--radius-full);
+  border: 2px solid var(--color-bg-1);
   color: var(--color-text-inverse);
   font-size: var(--font-sm);
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  font-weight: var(--weight-bold);
+  box-shadow: var(--shadow-md);
 }
 
 .lost {
-  background: var(--color-primary);
+  background: var(--color-lost);
 }
 
 .found {
-  background: var(--color-success);
+  background: var(--color-found);
 }
 
 .cluster {
@@ -31,10 +32,11 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-full);
-  background: var(--color-warning);
-  color: var(--color-text-1);
+  border: 2px solid var(--color-accent);
+  background: var(--color-ink);
+  color: var(--color-accent);
   font-size: var(--font-sm);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   box-shadow: var(--shadow-md);
 }
 

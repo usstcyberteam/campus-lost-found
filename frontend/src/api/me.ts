@@ -16,6 +16,18 @@ export interface PasswordInput {
   new_password: string
 }
 
+export async function uploadAvatar(file: File): Promise<User> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await client.post<User>('/me/avatar', form)
+  return res.data
+}
+
+export async function deleteAvatar(): Promise<User> {
+  const res = await client.delete<User>('/me/avatar')
+  return res.data
+}
+
 export async function listMyItems(params: ListParams = {}): Promise<Page<Item>> {
   const res = await client.get<Page<Item>>('/me/items', { params })
   return res.data

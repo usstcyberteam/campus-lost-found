@@ -1,14 +1,37 @@
+/* 错误提示：像被退回的公文 */
 .error {
   display: grid;
   gap: var(--space-2);
   justify-items: start;
-  padding: var(--space-4);
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+  border-radius: var(--radius-md);
   background: var(--color-danger-soft);
   color: var(--color-danger);
+  font-size: var(--font-base);
+  font-weight: var(--weight-semibold);
+  animation: shake var(--duration-slow) var(--ease-out);
 }
 
 .text {
   margin: 0;
+  line-height: 1.6;
+}
+
+@keyframes shake {
+  0% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
 }

@@ -47,25 +47,12 @@
 }
 
 .overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: var(--color-overlay);
+  composes: overlay from '../../styles/overlay.module.css';
 }
 
 .dialog {
-  width: 100%;
-  max-width: 420px;
-  max-height: 80vh;
-  overflow-y: auto;
-  padding: var(--space-5);
-  background: var(--color-bg-1);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  composes: sheet from '../../styles/overlay.module.css';
+  max-width: 440px;
 }
 
 .dialogTitle {

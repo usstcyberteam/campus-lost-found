@@ -17,6 +17,7 @@ interface AuthState {
   role: Role | null
   userId: string | null
   displayName: string | null
+  avatarUrl: string | null
   staffStatus: StaffStatus | null
   staffRejectReason: string | null
   ready: boolean
@@ -107,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: user?.role ?? null,
         userId: user?.id ?? null,
         displayName: user?.display_name ?? null,
+        avatarUrl: user?.avatar_url ?? null,
         staffStatus: user?.staff_status ?? null,
         staffRejectReason: user?.staff_reject_reason ?? null,
         ready,

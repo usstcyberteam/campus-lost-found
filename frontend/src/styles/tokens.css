@@ -1,27 +1,80 @@
+/*
+ * 设计令牌 ·「案件档案」主题：牛皮纸、卷宗米白、墨黑、印章红、证物标签黄、卷宗蓝。
+ * 帖子 = 案卷，缩略图 = 证物标签，状态 = 印章。组件与页面一律引用令牌，不写死色值。
+ */
 :root {
-  --color-primary: #2563eb;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+  /* 主操作：印章红 */
+  --color-primary: #b8301e;
+  --color-primary-strong: #8e2213;
+  --color-primary-soft: #f3dcd3;
+  --color-primary-edge: #7a1c10;
+  --color-primary-hover: #c43a27;
+  --color-on-primary: #fff8ec;
 
-  --color-primary-soft: #eff6ff;
-  --color-success-soft: #f0fdf4;
-  --color-warning-soft: #fffbeb;
-  --color-danger-soft: #fef2f2;
+  /* 点缀：证物标签黄（高亮、选中、聚焦） */
+  --color-accent: #f2c94c;
+  --color-accent-strong: #8a5d00;
+  --color-accent-soft: #f8ebc0;
+  --color-accent-glow: rgba(242, 201, 76, 0.5);
 
-  --color-text-1: #1f2937;
-  --color-text-2: #6b7280;
-  --color-text-3: #9ca3af;
-  --color-text-inverse: #ffffff;
+  /* 业务语义：寻物 = 印章红，拾获 = 卷宗蓝 */
+  --color-lost: #b8301e;
+  --color-lost-soft: #f3dcd3;
+  --color-found: #2f5d8a;
+  --color-found-soft: #dce5ee;
 
-  --color-bg-1: #ffffff;
-  --color-bg-2: #f5f7fa;
+  --color-success: #3b6e3a;
+  --color-warning: #8a5d00;
+  --color-danger: #a3241a;
 
-  --color-border: #e5e7eb;
-  --color-border-strong: #cbd5e1;
-  --color-focus-ring: rgba(37, 99, 235, 0.25);
-  --color-overlay: rgba(0, 0, 0, 0.55);
-  --color-map-bg: #f8fafc;
+  --color-success-soft: #e1ebd9;
+  --color-warning-soft: #f6e7be;
+  --color-danger-soft: #f4dad5;
+
+  --color-text-1: #2a2622;
+  --color-text-2: #5c5246;
+  --color-text-3: #776b5b;
+  --color-text-inverse: #fbf6ea;
+
+  /* 纸张层级：桌面 < 档案纸 < 卷宗卡 < 填写纸 */
+  --color-bg-1: #fbf6ea;
+  --color-bg-2: #ede3cc;
+  --color-bg-3: #e3d7bc;
+  --color-paper: #fffdf6;
+  --color-kraft: #c9a86a;
+  --color-kraft-2: #b8955a;
+  --color-desk: #3a2e24;
+  --color-ink: #2a2622;
+  --color-ink-2: #3a2e24;
+
+  /* 深色桌面（桌面端侧栏）上的文字与分隔 */
+  --color-on-desk: rgba(251, 246, 234, 0.72);
+  --color-on-desk-muted: rgba(251, 246, 234, 0.55);
+  --color-on-desk-line: rgba(251, 246, 234, 0.3);
+  --color-on-desk-hover: rgba(251, 246, 234, 0.08);
+  --color-desk-grain: rgba(255, 255, 255, 0.02);
+  --color-lens: rgba(255, 255, 255, 0.7);
+  --color-scrim: rgba(24, 16, 10, 0.86);
+  --color-scrim-soft: rgba(24, 16, 10, 0.3);
+
+  --color-border: #d8c9a8;
+  --color-border-strong: #bfa97e;
+  --color-hairline: rgba(42, 38, 34, 0.12);
+  --color-focus-ring: rgba(242, 201, 76, 0.6);
+  --color-overlay: rgba(30, 22, 14, 0.5);
+  --color-map-bg: #e9e0cb;
+
+  /* 浮层纸面（地图面板、底栏、吸顶栏） */
+  --glass-bg: rgba(251, 246, 234, 0.9);
+  --glass-bg-strong: rgba(251, 246, 234, 0.96);
+  --glass-blur: saturate(140%) blur(14px);
+
+  /* 警戒带与纸纹 */
+  --tape: repeating-linear-gradient(-45deg, #f2c94c 0 14px, #e7b829 14px 28px);
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .27 0 0 0 0 .16 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  --font-mono: 'Courier New', Consolas, 'SFMono-Regular', monospace;
+  --font-stamp: 'STKaiti', 'KaiTi', 'Kaiti SC', 'PingFang SC', serif;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -31,9 +84,10 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
   --radius-full: 999px;
 
   --font-sm: 12px;
@@ -42,10 +96,29 @@
   --font-lg: 20px;
   --font-xl: 24px;
   --font-2xl: 28px;
+  --font-3xl: 34px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-heavy: 800;
+
+  /* 纸张阴影：下沿一道纸边 + 柔和投影 */
+  --shadow-sm: 0 1px 0 rgba(42, 38, 34, 0.05), 0 2px 0 rgba(191, 169, 126, 0.45);
+  --shadow-md: 0 2px 0 rgba(191, 169, 126, 0.55), 0 10px 24px rgba(58, 46, 36, 0.12);
+  --shadow-lg: 0 28px 60px rgba(30, 22, 14, 0.3), 0 6px 14px rgba(30, 22, 14, 0.12);
+  --shadow-glow: 0 6px 18px rgba(242, 201, 76, 0.5);
+  --shadow-paper: 6px 6px 0 rgba(42, 38, 34, 0.18);
+  --shadow-tape: 0 2px 4px rgba(42, 38, 34, 0.18);
+  --shadow-dark-card: 0 18px 40px rgba(30, 22, 14, 0.25);
+
+  /* 实体按键：下沿键边 + 投影；按下时键边收短 */
+  --shadow-key-primary:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 3px 0 var(--color-primary-edge), 0 6px 14px rgba(122, 28, 16, 0.2);
+  --shadow-key-primary-pressed:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 0 var(--color-primary-edge), 0 2px 6px rgba(122, 28, 16, 0.2);
+  --shadow-key: 0 3px 0 var(--color-ink);
+  --shadow-key-pressed: 0 1px 0 var(--color-ink);
 
   --z-dropdown: 500;
   --z-sticky: 800;
@@ -53,5 +126,17 @@
   --z-overlay: 1100;
   --z-toast: 1200;
 
-  --transition-fast: 120ms ease;
+  /* 动效：进入用 out，按键用短促的 press，盖章用回弹 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-press: 90ms;
+  --duration-fast: 140ms;
+  --duration-base: 240ms;
+  --duration-slow: 380ms;
+  --transition-fast: var(--duration-fast) var(--ease-out);
+  --transition-base: var(--duration-base) var(--ease-out);
+
+  --nav-height: 60px;
+  --page-max: 1000px;
 }

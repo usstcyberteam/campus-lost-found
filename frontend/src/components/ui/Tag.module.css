@@ -1,21 +1,26 @@
+/* 标签：像贴在案卷上的小印刷签，直角细边 */
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-full);
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
-  line-height: 1.6;
+  font-weight: var(--weight-heavy);
+  line-height: 20px;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
 .neutral {
-  background: var(--color-bg-2);
+  background: var(--color-bg-3);
   color: var(--color-text-2);
 }
 
 .primary {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
 }
 
 .success {
@@ -31,4 +36,14 @@
 .danger {
   background: var(--color-danger-soft);
   color: var(--color-danger);
+}
+
+.lost {
+  background: var(--color-lost-soft);
+  color: var(--color-lost);
+}
+
+.found {
+  background: var(--color-found-soft);
+  color: var(--color-found);
 }

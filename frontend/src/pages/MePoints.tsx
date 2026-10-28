@@ -11,6 +11,7 @@ import LoadingState from '../components/ui/LoadingState'
 import PageContainer from '../components/PageContainer'
 import PageHeader from '../components/AppShell/PageHeader'
 import Tag from '../components/ui/Tag'
+import { titleStamp } from '../utils/itemTone'
 import styles from './MePoints.module.css'
 
 const PAGE_SIZE = 20
@@ -68,6 +69,7 @@ export default function MePoints() {
       {summary && (
         <>
           <Card className={styles.summary}>
+            <img className={styles.stamp} src={titleStamp(summary.title)} alt="" />
             <div className={styles.headline}>
               <span className={styles.score}>{summary.total}</span>
               <span className={styles.unit}>分</span>
@@ -85,12 +87,10 @@ export default function MePoints() {
                 <div className={`${styles.bar} ${styles[`p${step}`]}`} />
               </div>
             )}
-            <p className={styles.caption}>
-              {progressText(summary.total, summary.next_title, summary.next_threshold)}
-            </p>
+            <p className={styles.caption}>{progressText(summary.total, summary.next_title, summary.next_threshold)}</p>
           </Card>
           <h2 className={styles.sectionTitle}>积分记录</h2>
-          {records.length === 0 && <EmptyState text="还没有积分记录" />}
+          {records.length === 0 && <EmptyState text="还没有积分记录" art="tray" />}
           <ul className={styles.list}>
             {records.map((record) => (
               <li key={record.id} className={styles.row}>

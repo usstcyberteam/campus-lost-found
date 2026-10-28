@@ -7,10 +7,12 @@
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: end;
-  height: calc(60px + env(safe-area-inset-bottom));
+  height: calc(var(--nav-height) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: var(--color-bg-1);
-  border-top: 1px solid var(--color-border);
+  border-top: 1.5px solid var(--color-border-strong);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
 .tab {
@@ -19,69 +21,76 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-height: 60px;
-  color: var(--color-text-2);
-  font-size: var(--font-sm);
+  gap: 3px;
+  min-height: var(--nav-height);
+  color: var(--color-text-3);
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
   text-decoration: none;
-}
-
-.tab:active {
-  background: var(--color-bg-2);
+  transition: color var(--transition-fast);
 }
 
 .icon {
-  display: flex;
-  line-height: 0;
   position: relative;
+  display: flex;
+  padding: 2px 12px;
+  border-radius: var(--radius-sm);
+  line-height: 0;
+  transition:
+    background var(--transition-base),
+    transform var(--duration-press) ease-out;
+}
+
+.tab:active .icon {
+  transform: translateY(1px) scale(0.92);
 }
 
 /* 未读通知徽标：挂在"我的"图标右上角 */
 .badge {
   position: absolute;
   top: -6px;
-  right: -14px;
+  right: 0;
   min-width: 16px;
   padding: 0 4px;
-  border-radius: 8px;
-  background: var(--color-danger);
-  color: var(--color-text-inverse);
+  border: 2px solid var(--color-bg-1);
+  border-radius: 9px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
+  font-weight: var(--weight-heavy);
+  line-height: 14px;
   text-align: center;
+  animation: pop var(--duration-slow) var(--ease-spring);
 }
 
 .label {
   line-height: 1;
 }
 
+/* 选中态：像用荧光笔划过的证物标签 */
 .active {
-  color: var(--color-primary);
-  font-weight: 600;
+  color: var(--color-text-1);
 }
 
-/* 选中态：颜色 + 顶部指示条 */
-.active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 24px;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  background: var(--color-primary);
+.active .icon {
+  background: var(--color-accent);
+  animation: mark var(--duration-base) var(--ease-out);
 }
 
-/* 中央凸起动作按钮：与普通标签明显区分 */
+/* 中央发布按钮：印章红的实体按键 */
 .fab {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
-  min-height: 60px;
-  color: var(--color-text-2);
-  font-size: var(--font-sm);
+  gap: 3px;
+  min-height: var(--nav-height);
+  padding-bottom: 7px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
   text-decoration: none;
 }
 
@@ -89,23 +98,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  margin-top: -18px;
-  border: 3px solid var(--color-bg-1);
-  border-radius: var(--radius-full);
+  width: 50px;
+  height: 50px;
+  margin-top: -22px;
+  border: 1.5px solid var(--color-primary-strong);
+  border-radius: var(--radius-lg);
   background: var(--color-primary);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-md);
-  transition: transform var(--transition-fast);
+  color: var(--color-on-primary);
+  box-shadow:
+    0 0 0 4px var(--color-bg-2),
+    var(--shadow-key-primary);
+  transition:
+    transform var(--duration-press) ease-out,
+    box-shadow var(--duration-press) ease-out;
 }
 
 .fab:active .fabCircle {
-  transform: scale(0.94);
+  transform: translateY(3px);
+  box-shadow:
+    0 0 0 4px var(--color-bg-2),
+    var(--shadow-key-primary-pressed);
 }
 
 .fabActive .fabCircle {
-  box-shadow: 0 0 0 4px var(--color-primary-soft), var(--shadow-md);
+  background: var(--color-primary-strong);
 }
 
 .fabLabel {
@@ -113,8 +129,25 @@
 }
 
 .fabActive {
-  color: var(--color-primary);
-  font-weight: 600;
+  color: var(--color-text-1);
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes mark {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
 }
 
 @media (min-width: 768px) {

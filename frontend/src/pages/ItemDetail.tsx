@@ -32,7 +32,9 @@ import TranslatePopover from '../components/TranslatePopover'
 import LikeButton from '../components/Reactions/LikeButton'
 import CommentList from '../components/CommentList/CommentList'
 import HelperList from '../components/HelperList/HelperList'
-import Spinner from '../components/Spinner'
+import LoadingState from '../components/ui/LoadingState'
+import Tag from '../components/Tag'
+import { STAMP_TONES, caseNumber, categoryArt } from '../utils/itemTone'
 import styles from './ItemDetail.module.css'
 
 export default function ItemDetail() {
@@ -92,9 +94,7 @@ export default function ItemDetail() {
       listMyItems()
         .then((page) => {
           if (!active) return
-          const lost = page.items.filter(
-            (i) => i.direction === 'lost' && ['searching', 'reviewing'].includes(i.status),
-          )
+          const lost = page.items.filter((i) => i.direction === 'lost' && ['searching', 'reviewing'].includes(i.status))
           setMine(lost)
           if (lost.some((i) => i.id === requestedLost)) setLostItemId(requestedLost ?? '')
         })
@@ -184,7 +184,7 @@ export default function ItemDetail() {
   if (loading) {
     return (
       <PageContainer>
-        <Spinner />
+        <LoadingState />
       </PageContainer>
     )
   }
@@ -208,9 +208,19 @@ export default function ItemDetail() {
   return (
     <PageContainer>
       <PageHeader title={item.title} backTo="/hall" />
-      <p>
-        {directionLabels[item.direction]} · {item.category} · {statusLabels[status]}
-      </p>
+      <div className={styles.caseHead}>
+        <img className={styles.caseArt} src={categoryArt(item.category)} alt="" />
+        <div className={styles.meta}>
+          <span className={styles.caseNo}>案件编号 {caseNumber(item)}</span>
+          <Tag tone={item.direction}>{directionLabels[item.direction]}</Tag>
+          <Tag>{item.category}</Tag>
+          {item.is_simulated && <Tag>演示记录 / 模拟位置</Tag>}
+        </div>
+        {/* key 随状态变化：状态一变（如"我已找回"）印章重新盖一次 */}
+        <span key={status} className={`${styles.bigStamp} ${styles[STAMP_TONES[status]]}`}>
+          {statusLabels[status]}
+        </span>
+      </div>
       <div className={styles.reactions}>
         <LikeButton itemId={item.id} liked={item.is_liked} count={item.like_count} />
         <FavoriteButton itemId={item.id} favorited={item.is_favorited} count={item.favorite_count} />
@@ -258,9 +268,7 @@ export default function ItemDetail() {
         </div>
       )}
       {actionMsg && <p role="status">{actionMsg}</p>}
-      {status === 'deleted' && (
-        <p className={styles.hint}>该记录已被删除（下架），不会出现在大厅列表。</p>
-      )}
+      {status === 'deleted' && <p className={styles.hint}>该记录已被删除（下架），不会出现在大厅列表。</p>}
       {(item.is_owner || canModerate) && status !== 'deleted' && (
         <div className={styles.actions}>
           {canEdit && (
@@ -274,18 +282,36 @@ export default function ItemDetail() {
         </div>
       )}
       {deleteMsg && <p role="status">{deleteMsg}</p>}
-      <div className={styles.descRow}>
-        <p className={styles.descText}>{item.description}</p>
-        <button
-          type="button"
-          className={styles.translateButton}
-          onClick={() => setTranslateOpen(true)}
-          title="翻译描述"
-          aria-label="翻译帖子描述"
-        >
-          🌐
-        </button>
-      </div>
+      <section className={styles.info} aria-label="帖子信息">
+        <div className={styles.descRow}>
+          <p className={styles.descText}>{item.description}</p>
+          <button
+            type="button"
+            className={styles.translateButton}
+            onClick={() => setTranslateOpen(true)}
+            title="翻译描述"
+            aria-label="翻译帖子描述"
+          >
+            🌐
+          </button>
+        </div>
+        <dl className={styles.facts}>
+          <div>
+            <dt>地点</dt>
+            <dd>{item.building_name ? placeLabel(item) : item.location_area || '未知'}</dd>
+          </div>
+          {item.precise_location && (
+            <div>
+              <dt>精确位置</dt>
+              <dd>{item.precise_location}</dd>
+            </div>
+          )}
+          <div>
+            <dt>发布时间</dt>
+            <dd>{new Date(item.created_at).toLocaleString('zh-CN', { hour12: false })}</dd>
+          </div>
+        </dl>
+      </section>
       <TranslatePopover open={translateOpen} sourceText={item.description} onClose={() => setTranslateOpen(false)} />
       <SharePoster open={posterOpen} item={item} onClose={() => setPosterOpen(false)} />
       {item.photos_hidden ? (
@@ -299,15 +325,9 @@ export default function ItemDetail() {
           </section>
         )
       )}
-      <p>地点：{item.building_name ? placeLabel(item) : item.location_area || '未知'}</p>
-      {item.precise_location && <p>精确位置：{item.precise_location}</p>}
-      {item.is_simulated && <p>演示记录 / 模拟位置</p>}
+
       {item.direction === 'lost' && (
-        <HelperList
-          itemId={item.id}
-          helpers={helpers}
-          canThank={item.is_owner === true && status === 'found'}
-        />
+        <HelperList itemId={item.id} helpers={helpers} canThank={item.is_owner === true && status === 'found'} />
       )}
       {item.direction === 'lost' && item.is_owner && (
         <section>
@@ -325,41 +345,44 @@ export default function ItemDetail() {
           <Link to="/staff/tickets">申请工作人员协助</Link>
         </section>
       )}
-      {item.direction === 'found' && role === 'student' && !item.is_owner && ['pending', 'reviewing'].includes(status) && (
-        <Card className={styles.block}>
-          <h2>认领该物品</h2>
-          <Field label="私密认领证据">
-            <textarea
-              aria-label="私密认领证据"
-              className={styles.textarea}
-              value={evidence}
-              onChange={(e) => setEvidence(e.target.value)}
-              disabled={busy || submitted}
-              maxLength={5000}
-              placeholder="请描述未公开的标记、划痕等特征"
-            />
-          </Field>
-          <Field label="关联本人寻物记录">
-            <select
-              aria-label="关联本人寻物记录"
-              value={lostItemId}
-              disabled={busy || submitted}
-              onChange={(e) => setLostItemId(e.target.value)}
-            >
-              <option value="">不关联</option>
-              {mine.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.title}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Button disabled={busy || submitted} loading={busy} onClick={submitClaim}>
-            {submitted ? '已提交申请' : busy ? '提交中…' : '提交认领'}
-          </Button>
-          {msg && <p role="status">{msg}</p>}
-        </Card>
-      )}
+      {item.direction === 'found' &&
+        role === 'student' &&
+        !item.is_owner &&
+        ['pending', 'reviewing'].includes(status) && (
+          <Card className={styles.block}>
+            <h2>认领该物品</h2>
+            <Field label="私密认领证据">
+              <textarea
+                aria-label="私密认领证据"
+                className={styles.textarea}
+                value={evidence}
+                onChange={(e) => setEvidence(e.target.value)}
+                disabled={busy || submitted}
+                maxLength={5000}
+                placeholder="请描述未公开的标记、划痕等特征"
+              />
+            </Field>
+            <Field label="关联本人寻物记录">
+              <select
+                aria-label="关联本人寻物记录"
+                value={lostItemId}
+                disabled={busy || submitted}
+                onChange={(e) => setLostItemId(e.target.value)}
+              >
+                <option value="">不关联</option>
+                {mine.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Button disabled={busy || submitted} loading={busy} onClick={submitClaim}>
+              {submitted ? '已提交申请' : busy ? '提交中…' : '提交认领'}
+            </Button>
+            {msg && <p role="status">{msg}</p>}
+          </Card>
+        )}
       <CommentList itemId={item.id} />
     </PageContainer>
   )

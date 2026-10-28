@@ -1,0 +1,250 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-desk);
+}
+
+/* ---------- 封面：办公桌上的卷宗照片，自下而上压暗以托住标题 ---------- */
+.brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-height: 360px;
+  padding: calc(var(--space-6) + env(safe-area-inset-top)) var(--space-5) var(--space-7);
+  overflow: hidden;
+  background:
+    linear-gradient(to top, var(--color-scrim) 0%, var(--color-scrim-soft) 55%, transparent 100%),
+    url('/brand/login-desk.webp') 70% 45% / cover no-repeat,
+    var(--color-desk);
+  color: var(--color-text-inverse);
+}
+
+.label,
+.headline,
+.points {
+  position: relative;
+  margin: 0;
+  animation: rise var(--duration-slow) var(--ease-out) backwards;
+}
+
+/* 贴在封面上的白色档案标签 */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-ink);
+  font-size: var(--font-md);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.08em;
+  transform: rotate(-1.5deg);
+}
+
+.labelKey {
+  display: block;
+  color: var(--color-text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.1em;
+}
+
+.seal {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2.5px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-primary);
+  font-family: var(--font-stamp);
+  font-size: var(--font-lg);
+  transform: rotate(-8deg);
+}
+
+.headline {
+  font-size: var(--font-3xl);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-shadow: 0 2px 12px var(--color-scrim);
+  animation-delay: 80ms;
+}
+
+.points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+  animation-delay: 140ms;
+}
+
+.points li {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-on-desk-line);
+  background: var(--color-scrim-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+  line-height: 22px;
+}
+
+/* ---------- 表单纸：自下而上抽出 ---------- */
+.panel {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-top: calc(var(--space-5) * -1);
+  border-top: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--paper-grain), var(--color-bg-1);
+  box-shadow: var(--shadow-lg);
+  animation: sheetUp 560ms var(--ease-out) backwards;
+}
+
+.card {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.04em;
+}
+
+.subtitle {
+  margin: calc(var(--space-3) * -1) 0 0;
+  color: var(--color-text-2);
+  font-size: var(--font-base);
+  line-height: 1.6;
+}
+
+.card form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* 填写栏：像表格上的下划线，聚焦时荧光笔划过 */
+.card form :is(input, select):not([type='checkbox'], [type='radio']) {
+  padding-right: var(--space-1);
+  padding-left: var(--space-1);
+  border-width: 0 0 1.5px;
+  border-color: var(--color-ink);
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.card form :is(input, select):not([type='checkbox'], [type='radio']):focus {
+  border-color: var(--color-primary);
+  background-color: var(--color-accent-soft);
+  box-shadow: none;
+}
+
+.card form > button[type='submit'] {
+  width: 100%;
+  min-height: 50px;
+  margin-top: var(--space-1);
+  font-size: var(--font-md);
+}
+
+.footer {
+  color: var(--color-text-2);
+  font-size: var(--font-base);
+  text-align: center;
+}
+
+.footer a {
+  color: var(--color-primary);
+  font-weight: var(--weight-heavy);
+}
+
+/* ---------- 桌面端：左边卷宗封面，右边办公桌上的一张表 ---------- */
+@media (min-width: 900px) {
+  .screen {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    background: var(--color-desk);
+  }
+
+  .brand {
+    min-height: 100vh;
+    padding: var(--space-7) 64px 72px;
+    background:
+      linear-gradient(90deg, var(--color-scrim) 0%, var(--color-scrim-soft) 50%, transparent 75%),
+      url('/brand/login-desk.webp') right center / cover no-repeat,
+      var(--color-desk);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .headline {
+    font-size: 54px;
+  }
+
+  .panel {
+    justify-content: center;
+    margin-top: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation-name: fadeIn;
+  }
+
+  .card {
+    padding: var(--space-6);
+    border: 1.5px solid var(--color-ink);
+    border-radius: var(--radius-lg);
+    background: var(--paper-grain), var(--color-bg-1);
+    box-shadow: var(--shadow-paper), var(--shadow-lg);
+    transform: rotate(0.6deg);
+  }
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 结束帧不写 transform：落回元素自身的倾斜角 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+

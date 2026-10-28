@@ -30,7 +30,7 @@
 }
 
 .meta {
-  color: #666;
+  color: var(--color-text-2);
   font-size: 13px;
   margin: var(--space-1, 4px) 0;
 }
@@ -44,12 +44,12 @@
 }
 
 .status {
-  color: var(--color-success, #1e8e3e);
+  color: var(--color-success);
   font-size: 13px;
 }
 
 .hint {
-  color: #666;
+  color: var(--color-text-2);
   font-size: 13px;
   margin-top: var(--space-3);
 }

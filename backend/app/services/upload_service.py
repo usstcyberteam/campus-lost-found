@@ -11,6 +11,7 @@ from app.services.storage import get_storage
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_SIDE = 10000
 MAX_ITEM_PHOTOS = 6
+AVATAR_SIDE = 256
 MAX_COMMENT_IMAGES = 3
 
 _FORMATS = {
@@ -47,6 +48,19 @@ def _normalize(data: bytes) -> tuple[bytes, str, str]:
     else:
         clean.save(buffer, format="WEBP", quality=85, method=4)
     return buffer.getvalue(), mime, ext
+
+
+def normalize_avatar(data: bytes) -> bytes:
+    if not data:
+        raise ApiError(400, "VALIDATION", "上传文件为空")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ApiError(400, "VALIDATION", "图片不能超过 5MB")
+    payload, _, _ = _normalize(data)
+    with Image.open(io.BytesIO(payload)) as image:
+        square = ImageOps.fit(image.convert("RGB"), (AVATAR_SIDE, AVATAR_SIDE), Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        square.save(buffer, format="WEBP", quality=85, method=4)
+    return buffer.getvalue()
 
 
 def upload_photo(db: Session, user: User, data: bytes) -> Attachment:

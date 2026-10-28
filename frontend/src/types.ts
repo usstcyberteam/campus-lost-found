@@ -128,7 +128,11 @@ function trimmed(value: string | null): string {
   return value?.trim() ?? ''
 }
 
-export function placeLabel(item: { building_name: string | null; location_area?: string | null; floor: number | null }): string {
+export function placeLabel(item: {
+  building_name: string | null
+  location_area?: string | null
+  floor: number | null
+}): string {
   const building = trimmed(item.building_name)
   if (!building) return trimmed(item.location_area ?? null) || '未指定地点'
   return item.floor == null ? building : `${building} ${item.floor}F`
@@ -181,6 +185,7 @@ export interface User {
   department: string | null
   staff_reject_reason: string | null
   contact?: string | null
+  avatar_url?: string | null
 }
 
 export interface AdminUser {
@@ -353,6 +358,7 @@ export interface CommentAuthor {
   display_name: string
   role_label: string
   title: string
+  avatar_url?: string | null
 }
 
 export interface Comment {
@@ -378,6 +384,7 @@ export interface HelperUser {
   id: string
   display_name: string
   title: string
+  avatar_url?: string | null
   thanked: boolean
 }
 

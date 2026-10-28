@@ -5,7 +5,7 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 40%, #f8fbff 0%, var(--color-bg-2) 70%);
+  background: radial-gradient(circle at 50% 40%, var(--color-paper) 0%, var(--color-bg-2) 70%);
 }
 
 .backdrop .stage {
@@ -36,7 +36,7 @@
 /* 指针拖拽时的形态过渡保持克制，避免与页面其它动效冲突 */
 .path {
   transition: none;
-  filter: drop-shadow(0 6px 16px rgba(37, 99, 235, 0.18));
+  filter: drop-shadow(0 6px 16px var(--color-hairline));
 }
 
 .hint {

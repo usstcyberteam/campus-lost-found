@@ -4,26 +4,60 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'PingFang SC',
-    'Microsoft YaHei',
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Microsoft YaHei', system-ui,
     sans-serif;
   color: var(--color-text-1);
-  background: var(--color-bg-2);
+  /* 档案纸底 + 细纸纹 */
+  background: var(--paper-grain), var(--color-bg-2);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.01em;
+}
+
+/* 未单独设计的区块标题统一为紧凑的分节标题（模块类名优先级更高，会覆盖这里） */
+h2 {
+  font-size: 18px;
+  font-weight: var(--weight-heavy);
+}
+
+h3 {
+  font-size: var(--font-md);
+  font-weight: var(--weight-bold);
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--color-found);
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-ink);
   outline-offset: 2px;
 }
 
@@ -32,6 +66,7 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 button {
@@ -44,4 +79,85 @@ button:disabled {
 
 textarea {
   resize: vertical;
+}
+
+img {
+  max-width: 100%;
+}
+
+/* 细滚动条：桌面端不抢视觉 */
+@media (hover: hover) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--color-border-strong) padding-box;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* 尊重系统"减少动态效果"设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Leaflet 控件：与地图浮层一致的纸面方块按钮 */
+.leaflet-container {
+  font-family: inherit;
+  background: var(--color-map-bg);
+}
+
+.leaflet-container.leaflet-touch .leaflet-bar,
+.leaflet-container .leaflet-bar {
+  overflow: hidden;
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  box-shadow: 0 3px 0 var(--color-ink);
+}
+
+.leaflet-container.leaflet-touch .leaflet-bar a,
+.leaflet-container .leaflet-bar a {
+  width: 40px;
+  height: 40px;
+  border-bottom-color: var(--color-border);
+  background: var(--glass-bg-strong);
+  color: var(--color-text-1);
+  font-size: 20px;
+  line-height: 40px;
+}
+
+.leaflet-container .leaflet-bar a:hover {
+  background: var(--color-paper);
+}
+
+.leaflet-container .leaflet-bar a:active {
+  background: var(--color-accent-soft);
+}
+
+.leaflet-container .leaflet-bar a.leaflet-disabled {
+  color: var(--color-text-3);
+}
+
+.leaflet-popup-content-wrapper {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  box-shadow: var(--shadow-md);
+}
+
+.leaflet-popup-tip {
+  background: var(--color-bg-1);
 }

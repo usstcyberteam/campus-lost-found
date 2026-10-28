@@ -3,6 +3,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { roleLabels } from '../../types'
 import { HallIcon, MapIcon, PlusIcon, SparkIcon, UserIcon } from '../icons'
 import Button from '../Button'
+import Avatar from '../ui/Avatar'
 import styles from './SideNav.module.css'
 
 const tabs = [
@@ -13,7 +14,7 @@ const tabs = [
 ]
 
 export default function SideNav() {
-  const { role, logout } = useAuth()
+  const { role, displayName, avatarUrl, logout } = useAuth()
   const navigate = useNavigate()
 
   function onLogout() {
@@ -46,8 +47,11 @@ export default function SideNav() {
         ))}
       </div>
       <div className={styles.footer}>
-        {role && <p className={styles.role}>当前身份：{roleLabels[role]}</p>}
-        <Button variant="secondary" onClick={onLogout}>
+        <div className={styles.who}>
+          <Avatar name={displayName || '我'} src={avatarUrl} size="md" />
+          {role && <p className={styles.role}>当前身份：{roleLabels[role]}</p>}
+        </div>
+        <Button variant="secondary" className={styles.logout} onClick={onLogout}>
           退出登录
         </Button>
       </div>

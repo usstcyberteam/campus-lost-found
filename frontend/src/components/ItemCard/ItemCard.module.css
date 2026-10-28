@@ -1,47 +1,118 @@
+/* 一份案卷：左上角档案袋标签页写着案件编号，缩略图是证物标签，状态是一枚印章 */
 .link {
+  position: relative;
+  z-index: 1;
   display: block;
+  padding-top: 21px;
   color: inherit;
   text-decoration: none;
-  border-radius: var(--radius-lg);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+  outline: none;
+}
+
+.link:focus-visible .card {
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.tab {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  padding: 2px 12px 1px;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--color-bg-1);
+  color: var(--color-text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
 }
 
 .card {
+  position: relative;
   display: flex;
   gap: var(--space-3);
   align-items: stretch;
+  padding: var(--space-3);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
 }
 
-.thumbWrap {
-  flex: 0 0 96px;
-  width: 96px;
-  height: 96px;
+.link:active .card {
+  transform: translateY(1px);
+}
+
+@media (hover: hover) {
+  .link:hover .card {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+
+  .link:hover .tab {
+    transform: translateY(-2px);
+  }
+
+  .tab {
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+}
+
+/* 证物：一张垫着纸的证物卡；有照片时右上角挂一枚证物签 */
+.evidence {
+  position: relative;
+  flex: 0 0 76px;
+  width: 76px;
+  height: 84px;
   overflow: hidden;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  box-shadow: 2px 2px 0 var(--color-bg-3);
+}
+
+.art {
+  position: absolute;
+  inset: 4px;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  object-fit: contain;
 }
 
 .thumb {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  animation: develop 600ms var(--ease-out);
 }
 
-.placeholder {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--color-bg-2);
+.withPhoto::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  width: 14px;
+  height: 20px;
+  background: radial-gradient(circle at 50% 5px, var(--color-primary) 0 2px, transparent 2.5px), var(--color-accent);
+  clip-path: polygon(20% 0, 80% 0, 100% 18%, 100% 100%, 0 100%, 0 18%);
+  box-shadow: var(--shadow-sm);
 }
 
 .body {
   display: grid;
   flex: 1;
-  gap: var(--space-1);
+  gap: 4px;
   min-width: 0;
   align-content: start;
 }
@@ -49,15 +120,20 @@
 .tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: 4px;
+  padding-right: 70px;
 }
 
 .title {
+  display: -webkit-box;
   margin: 0;
+  padding-right: 52px;
   overflow: hidden;
   font-size: var(--font-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: var(--weight-heavy);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .meta,
@@ -67,11 +143,21 @@
   font-size: var(--font-sm);
 }
 
+.meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .footer {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 2px var(--space-3);
+  color: var(--color-text-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
 }
+
 .extra {
   display: flex;
   flex-wrap: wrap;
@@ -80,4 +166,52 @@
   margin-top: var(--space-2);
   color: var(--color-text-2);
   font-size: var(--font-sm);
+}
+
+/* 印章：双线边框、略微倾斜、油墨不完全均匀 */
+.stamp {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 1px 7px;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-sm);
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+  font-family: var(--font-stamp);
+  font-size: var(--font-base);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.14em;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.86;
+  transform: rotate(-8deg);
+  mix-blend-mode: multiply;
+}
+
+.red {
+  color: var(--color-primary);
+}
+
+.blue {
+  color: var(--color-found);
+}
+
+.amber {
+  color: var(--color-warning);
+}
+
+.gray {
+  color: var(--color-text-3);
+}
+
+@keyframes develop {
+  from {
+    filter: sepia(1) blur(3px);
+    opacity: 0.4;
+  }
+  to {
+    filter: none;
+    opacity: 1;
+  }
 }

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.models import Direction, HelperStatus, Item, ItemHelper, ItemStatus, PointReason, User
+from app.schemas.auth import avatar_url_for
 from app.schemas.helper import ThankRequest
 from app.services import points_service
 
@@ -71,6 +72,7 @@ def list_helpers(db: Session, item_id: uuid.UUID) -> list[dict]:
             "display_name": user.display_name,
             "title": points_service.title_for(totals.get(user.id, 0)),
             "thanked": helper.thanked,
+            "avatar_url": avatar_url_for(user.id, user.avatar_path),
         }
         for helper, user in rows
     ]

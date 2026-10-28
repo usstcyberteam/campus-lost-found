@@ -1,101 +1,161 @@
 .hero {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 .heroTitle {
   margin: 0;
-  font-size: var(--font-xl);
+  font-size: var(--font-lg);
+  font-weight: var(--weight-heavy);
+  line-height: 1.3;
 }
 
 .heroSub {
   margin: var(--space-1) 0 0;
   color: var(--color-text-2);
-  font-size: var(--font-sm);
+  font-size: var(--font-base);
 }
 
-/* 顶部固定搜索/快捷入口区 */
+/* 吸顶的搜索 / 快捷筛选区：一条纸面工具栏 */
 .searchBar {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
   display: grid;
   gap: var(--space-2);
-  margin: var(--space-3) calc(var(--space-4) * -1) var(--space-3);
+  margin: var(--space-4) calc(var(--space-4) * -1) var(--space-3);
   padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-2);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1.5px solid var(--color-border-strong);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
 .chipsRow {
   display: flex;
   gap: var(--space-2);
+  margin: 0 calc(var(--space-4) * -1);
+  padding: 2px var(--space-4) var(--space-1);
   overflow-x: auto;
-  padding-bottom: var(--space-1);
+  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
 
+.chipsRow::-webkit-scrollbar {
+  display: none;
+}
+
+/* 筛选签：像一排插在卷宗盒上的分类签，按下会下沉 */
 .chip {
   flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-1);
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  box-shadow: 0 2px 0 var(--color-border-strong);
   color: var(--color-text-1);
   font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
   white-space: nowrap;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--duration-press) ease-out,
+    box-shadow var(--duration-press) ease-out;
+}
+
+.chip:active {
+  transform: translateY(2px);
+  box-shadow: none;
 }
 
 .chipActive {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-weight: 600;
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  box-shadow: 0 2px 0 var(--color-primary);
+  color: var(--color-text-inverse);
 }
 
 .chipDivider {
-  flex: 0 0 1px;
+  flex: 0 0 1.5px;
   align-self: stretch;
-  margin: var(--space-1) var(--space-1);
-  background: var(--color-border);
+  margin: 6px 2px;
+  background: var(--color-border-strong);
 }
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
-/* 分组卡片流 */
+.filters input,
+.filters select {
+  min-height: 40px;
+  font-size: var(--font-base);
+}
+
+/* 分组 */
 .group {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 
 .groupTitle {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-md);
+  margin: var(--space-2) 0;
+  font-size: var(--font-lg);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.04em;
 }
 
 .groupCount {
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-1);
-  color: var(--color-text-2);
+  min-width: 26px;
+  padding: 0 6px;
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-primary);
+  font-family: var(--font-mono);
   font-size: var(--font-sm);
-  font-weight: 400;
+  font-weight: var(--weight-heavy);
+  line-height: 20px;
+  text-align: center;
 }
 
 .list {
+  display: grid;
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* 列表逐项错峰浮现，像一份份案卷被递上桌 */
 .item {
-  margin-bottom: var(--space-3);
+  animation: rise var(--duration-slow) var(--ease-out) backwards;
+}
+
+.item:nth-child(2) {
+  animation-delay: 50ms;
+}
+
+.item:nth-child(3) {
+  animation-delay: 100ms;
+}
+
+.item:nth-child(4) {
+  animation-delay: 150ms;
+}
+
+.item:nth-child(n + 5) {
+  animation-delay: 200ms;
+}
+
+@media (min-width: 900px) {
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .more {
@@ -106,27 +166,35 @@
 
 .footNote {
   margin: 0;
-  color: var(--color-text-2);
+  color: var(--color-text-3);
+  font-family: var(--font-mono);
   font-size: var(--font-sm);
   text-align: center;
 }
 
-/* 空状态：给出下一步动作，而不是死胡同 */
+/* 空状态：一个空档案夹 + 下一步动作 */
 .empty {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
   justify-items: center;
   margin-top: var(--space-5);
-  padding: var(--space-6) var(--space-4);
-  border: 1px dashed var(--color-border-strong);
+  padding: var(--space-7) var(--space-4);
+  border: 1.5px dashed var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-bg-1);
   text-align: center;
 }
 
+.emptyArt {
+  width: 150px;
+  height: auto;
+}
+
 .emptyText {
+  max-width: 22em;
   margin: 0;
   color: var(--color-text-2);
+  line-height: 1.6;
 }
 
 .emptyActions {
@@ -135,17 +203,38 @@
   gap: var(--space-2);
   justify-content: center;
 }
-/* AI 能力首见引导条：localStorage 关闭后不再出现 */
+
+/* AI 引导：一张纸条，上沿横着一条警戒带 */
 .aiGuide {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  align-items: flex-end;
+  gap: var(--space-3);
+  overflow: hidden;
+  margin-top: var(--space-4);
+  padding: 40px var(--space-4) var(--space-4);
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-1);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--duration-slow) var(--ease-out) backwards;
+}
+
+.tape {
+  position: absolute;
+  top: 10px;
+  right: -12px;
+  left: -12px;
+  padding: 3px 0;
+  overflow: hidden;
+  background: var(--tape);
+  box-shadow: var(--shadow-tape);
+  color: var(--color-ink);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  transform: rotate(-1.6deg);
 }
 
 .aiGuideText {
@@ -153,27 +242,62 @@
   flex: 1;
   color: var(--color-text-1);
   font-size: var(--font-sm);
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .aiGuideKey {
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: var(--weight-heavy);
+  background: linear-gradient(transparent 60%, var(--color-accent-soft) 60%);
 }
 
 .aiGuideClose {
   flex-shrink: 0;
-  min-height: 28px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-2);
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  box-shadow: 0 2px 0 var(--color-ink);
+  color: var(--color-text-1);
   font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
   cursor: pointer;
+  transition:
+    transform var(--duration-press) ease-out,
+    box-shadow var(--duration-press) ease-out;
 }
 
-.aiGuideClose:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+.aiGuideClose:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .searchBar {
+    margin-right: calc(var(--space-6) * -1);
+    margin-left: calc(var(--space-6) * -1);
+    padding-right: var(--space-6);
+    padding-left: var(--space-6);
+  }
+
+  .chipsRow {
+    margin: 0;
+    padding: 2px 0 var(--space-1);
+  }
+
+  .filters {
+    grid-template-columns: repeat(3, minmax(0, 220px));
+  }
 }

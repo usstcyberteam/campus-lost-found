@@ -1,20 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchPhotoUrl } from '../../api/uploads'
-import { directionLabels, placeLabel, statusLabels, type Item, type ItemStatus } from '../../types'
+import { directionLabels, placeLabel, statusLabels, type Item } from '../../types'
+import { STAMP_TONES, caseNumber, categoryArt } from '../../utils/itemTone'
 import Card from '../ui/Card'
-import Tag, { type TagTone } from '../ui/Tag'
+import Tag from '../ui/Tag'
 import styles from './ItemCard.module.css'
-
-const STATUS_TONES: Record<ItemStatus, TagTone> = {
-  searching: 'warning',
-  pending: 'warning',
-  reviewing: 'primary',
-  found: 'success',
-  returned: 'success',
-  withdrawn: 'neutral',
-  deleted: 'neutral',
-}
 
 function Thumb({ url }: { url: string }) {
   const [src, setSrc] = useState('')
@@ -38,19 +29,23 @@ function Thumb({ url }: { url: string }) {
     }
   }, [url])
 
-  if (!src) return <span className={styles.placeholder} aria-hidden="true" />
+  if (!src) return null
   return <img className={styles.thumb} src={src} alt="" />
 }
 
 export default function ItemCard({ item, extra }: { item: Item; extra?: ReactNode }) {
   return (
     <Link to={`/hall/${item.id}`} className={styles.link}>
+      <span className={styles.tab}>{caseNumber(item)}</span>
       <Card className={styles.card}>
-        <div className={styles.thumbWrap}>{item.first_photo && <Thumb url={item.first_photo.url} />}</div>
+        {/* 证物：有照片放照片（加一枚证物签），没有就放类别插画 */}
+        <div className={`${styles.evidence} ${item.first_photo ? styles.withPhoto : ''}`}>
+          <img className={styles.art} src={categoryArt(item.category)} alt="" loading="lazy" />
+          {item.first_photo && <Thumb url={item.first_photo.url} />}
+        </div>
         <div className={styles.body}>
           <div className={styles.tags}>
-            <Tag tone={item.direction === 'lost' ? 'primary' : 'success'}>{directionLabels[item.direction]}</Tag>
-            <Tag tone={STATUS_TONES[item.status]}>{statusLabels[item.status]}</Tag>
+            <Tag tone={item.direction}>{directionLabels[item.direction]}</Tag>
             {item.is_demo && <Tag tone="neutral">演示</Tag>}
           </div>
           <h3 className={styles.title}>{item.title}</h3>
@@ -65,6 +60,7 @@ export default function ItemCard({ item, extra }: { item: Item; extra?: ReactNod
           </div>
           {extra && <div className={styles.extra}>{extra}</div>}
         </div>
+        <span className={`${styles.stamp} ${styles[STAMP_TONES[item.status]]}`}>{statusLabels[item.status]}</span>
       </Card>
     </Link>
   )

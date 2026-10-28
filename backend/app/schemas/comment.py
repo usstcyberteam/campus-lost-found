@@ -18,6 +18,7 @@ class CommentAuthorOut(BaseModel):
     display_name: str
     role_label: str
     title: str
+    avatar_url: str | None = None
 
 
 class CommentOut(BaseModel):

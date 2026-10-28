@@ -16,10 +16,10 @@ const STIFFNESS = 120
 const DAMPING = 12
 
 const PALETTES: string[][] = [
-  ['#2563eb', '#60a5fa'],
-  ['#16a34a', '#86efac'],
-  ['#d97706', '#fcd34d'],
-  ['#db2777', '#f9a8d4'],
+  ['#b8301e', '#f2c94c'],
+  ['#2f5d8a', '#9db8d6'],
+  ['#2a2622', '#776b5b'],
+  ['#b8955a', '#f2c94c'],
 ]
 
 const SHAPES: { key: BlobShape; label: string }[] = [
@@ -285,7 +285,11 @@ export default function BlobStudio({ variant = 'card', ariaLabel = '可拖拽塑
             {item.label}
           </button>
         ))}
-        <button type="button" className={styles.chip} onClick={() => setPaletteIndex((index) => (index + 1) % PALETTES.length)}>
+        <button
+          type="button"
+          className={styles.chip}
+          onClick={() => setPaletteIndex((index) => (index + 1) % PALETTES.length)}
+        >
           换色
         </button>
         <button type="button" className={styles.chip} onClick={randomize}>

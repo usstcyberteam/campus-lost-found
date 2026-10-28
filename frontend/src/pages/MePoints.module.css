@@ -1,7 +1,14 @@
+/* 功劳簿封面：档案纸 + 红色大号积分 */
 .summary {
+  position: relative;
   display: grid;
   gap: var(--space-3);
-  margin-top: var(--space-3);
+  margin-top: var(--space-1);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--paper-grain), var(--color-bg-1);
+  box-shadow: var(--shadow-md);
 }
 
 .headline {
@@ -9,30 +16,47 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: baseline;
+  padding-right: 84px;
 }
 
 .score {
-  font-size: var(--font-2xl);
-  font-weight: 700;
-  line-height: 1.1;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  font-size: 44px;
+  font-weight: var(--weight-heavy);
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .unit {
   color: var(--color-text-2);
+  font-weight: var(--weight-bold);
 }
 
 .progress {
-  height: var(--space-2);
+  height: 12px;
   overflow: hidden;
-  border-radius: var(--radius-full);
-  background: var(--color-border);
+  border: 1.5px solid var(--color-ink);
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(90deg, var(--color-border-strong) 0 1px, transparent 1px 10%), var(--color-paper);
 }
 
 .bar {
   height: 100%;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  transition: width var(--transition-fast);
+  background: repeating-linear-gradient(-45deg, var(--color-primary) 0 6px, var(--color-primary-hover) 6px 12px);
+  transform-origin: left center;
+  animation: grow 900ms var(--ease-out) backwards;
+  transition: width var(--transition-base);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 
 .p0 {
@@ -103,10 +127,12 @@
   grid-template-columns: 1fr auto;
   gap: var(--space-1) var(--space-2);
   align-items: center;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-kraft);
+  border-radius: var(--radius-sm);
   background: var(--color-bg-1);
+  box-shadow: var(--shadow-sm);
 }
 
 .reason {
@@ -115,13 +141,16 @@
 
 .amount {
   color: var(--color-primary);
-  font-size: var(--font-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-base);
+  font-weight: var(--weight-heavy);
   white-space: nowrap;
 }
 
 .time {
   grid-column: 1 / -1;
-  color: var(--color-text-2);
+  color: var(--color-text-3);
+  font-family: var(--font-mono);
   font-size: var(--font-sm);
 }
 
@@ -129,4 +158,31 @@
   display: flex;
   justify-content: center;
   margin-top: var(--space-4);
+}
+
+.stamp {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 76px;
+  height: 76px;
+  opacity: 0.9;
+  transform: rotate(10deg);
+  mix-blend-mode: multiply;
+  animation: stampIn 560ms var(--ease-spring) 150ms backwards;
+}
+
+@keyframes stampIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.7) rotate(20deg);
+  }
+  55% {
+    opacity: 0.95;
+    transform: scale(0.94) rotate(9deg);
+  }
+  100% {
+    opacity: 0.9;
+    transform: rotate(10deg);
+  }
 }

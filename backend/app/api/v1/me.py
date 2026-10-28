@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -26,6 +26,7 @@ from app.services import (
     reaction_service,
     staff_application_service,
     ticket_service,
+    upload_service,
     user_service,
 )
 
@@ -39,6 +40,21 @@ def update_me(
     user: User = Depends(get_current_user),
 ):
     return user_service.update_profile(db, user, body)
+
+
+@router.post("/avatar", response_model=UserOut)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    data = await file.read(upload_service.MAX_UPLOAD_BYTES + 1)
+    return user_service.set_avatar(db, user, data)
+
+
+@router.delete("/avatar", response_model=UserOut)
+def delete_avatar(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return user_service.remove_avatar(db, user)
 
 
 @router.post("/password", response_model=UserOut)

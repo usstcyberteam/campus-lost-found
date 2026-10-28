@@ -13,7 +13,7 @@ import PageContainer from '../components/PageContainer'
 import PageHeader from '../components/AppShell/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
-import Spinner from '../components/Spinner'
+import LoadingState from '../components/ui/LoadingState'
 import styles from './Hall.module.css'
 
 const PAGE_SIZE = 20
@@ -155,8 +155,11 @@ export default function Hall() {
 
       {aiGuideOpen && (
         <aside className={styles.aiGuide} aria-label="AI 功能引导">
+          <div className={styles.tape} aria-hidden="true">
+            失物招领　请勿越线　失物招领　请勿越线　失物招领　请勿越线
+          </div>
           <p className={styles.aiGuideText}>
-            AI 助手已上线：侧边悬浮条可<span className={styles.aiGuideKey}>对话找物</span>
+            AI 书记员已到岗：侧边悬浮条可<span className={styles.aiGuideKey}>对话找物</span>
             （支持语音）、发布页可<span className={styles.aiGuideKey}>一键润色描述</span>
             ，相似帖子自动聚合展示，有匹配结果会推送通知（底部"我的"显示未读数）。
           </p>
@@ -237,9 +240,10 @@ export default function Hall() {
       </div>
 
       {error && <ErrorNotice message={error} />}
-      {loading && <Spinner />}
+      {loading && <LoadingState />}
       {!loading && !error && items.length === 0 && (
         <div className={styles.empty}>
+          <img className={styles.emptyArt} src="/brand/empty/search.webp" alt="" />
           <p className={styles.emptyText}>没有符合条件的记录，换个筛选试试，或者主动发起一条。</p>
           <div className={styles.emptyActions}>
             <Button onClick={() => navigate('/publish')}>发布第一条</Button>
@@ -274,7 +278,11 @@ export default function Hall() {
           </Button>
         </div>
       )}
-      {!loading && items.length > 0 && <p className={styles.footNote}>已显示 {items.length} / {total} 条</p>}
+      {!loading && items.length > 0 && (
+        <p className={styles.footNote}>
+          已显示 {items.length} / {total} 条
+        </p>
+      )}
     </PageContainer>
   )
 }

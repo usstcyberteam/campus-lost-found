@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.models import Attachment, AttachmentPurpose, Comment, Item, Role, User
+from app.schemas.auth import avatar_url_for
 from app.schemas.comment import CommentCreate
 from app.services import upload_service
 
@@ -40,6 +41,7 @@ def _serialize(comment: Comment, author: User | None, images: list[Attachment]) 
         "display_name": author.display_name if author else "已注销用户",
         "role_label": ROLE_LABELS.get(author.role, "学生") if author else "学生",
         "title": DEFAULT_TITLE,
+        "avatar_url": avatar_url_for(author.id, author.avatar_path) if author else None,
     }
     return {
         "id": comment.id,

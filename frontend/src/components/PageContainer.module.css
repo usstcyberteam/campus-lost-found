@@ -1,5 +1,24 @@
 .page {
-  padding: var(--space-5);
-  max-width: 1000px;
+  max-width: var(--page-max);
   margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  /* 路由切换时页面轻微上浮淡入 */
+  animation: pageIn var(--duration-slow) var(--ease-out) backwards;
+}
+
+@media (min-width: 768px) {
+  .page {
+    padding: var(--space-6) var(--space-6) var(--space-7);
+  }
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

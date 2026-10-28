@@ -8,11 +8,14 @@
   display: grid;
   grid-template-rows: auto auto 1fr;
   height: 190px;
-  border-top: 1px solid var(--color-border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  background: var(--color-bg-1);
-  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
-  transition: height var(--transition-fast);
+  border-top: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-lg);
+  /* 档位切换用较慢的 out 曲线，拖拽中关闭过渡（见 .drawerDragging） */
+  transition: height var(--duration-slow) var(--ease-out);
 }
 
 .drawerExpanded {
@@ -59,8 +62,8 @@
 }
 
 .handleBar {
-  width: 44px;
-  height: 4px;
+  width: 36px;
+  height: 5px;
   border-radius: var(--radius-full);
   background: var(--color-border-strong);
 }
@@ -83,9 +86,9 @@
 
 .tabActive {
   border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-weight: 600;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-weight: var(--weight-semibold);
 }
 
 .drawerBody {
@@ -113,18 +116,25 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  min-height: 44px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
+  min-height: 48px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
   background: var(--color-bg-1);
   color: var(--color-text-1);
   text-align: left;
+  transition:
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.resultItem:active {
+  transform: scale(0.98);
 }
 
 .resultActive {
   border-color: var(--color-primary);
-  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .resultName {

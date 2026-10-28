@@ -14,14 +14,19 @@
   gap: var(--space-1);
   justify-self: start;
   padding: var(--space-1);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-hairline);
   border-radius: var(--radius-full);
-  background: var(--color-bg-1);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-md);
 }
 
 .segmentButton {
   min-width: 72px;
+  transition:
+    background var(--transition-base),
+    color var(--transition-fast);
   min-height: 44px;
   padding: 0 var(--space-4);
   border: 0;
@@ -44,11 +49,14 @@
 }
 
 .search {
-  min-height: 44px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
+  min-height: 46px;
+  padding: 0 var(--space-4);
+  font-size: var(--font-md);
+  border: 1px solid var(--color-hairline);
   border-radius: var(--radius-full);
-  background: var(--color-bg-1);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-md);
 }
 
@@ -56,15 +64,22 @@
   display: flex;
   gap: var(--space-2);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
   flex: 0 0 auto;
   min-height: 32px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-hairline);
   border-radius: var(--radius-full);
-  background: var(--color-bg-1);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   color: var(--color-text-1);
   font-size: var(--font-sm);
   box-shadow: var(--shadow-sm);
@@ -85,8 +100,10 @@
 
 .extra {
   padding: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-1);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-md);
 }

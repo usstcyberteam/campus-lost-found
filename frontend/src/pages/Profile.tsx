@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { me } from '../api/auth'
-import { changePassword, updateProfile } from '../api/me'
+import { changePassword, deleteAvatar, updateProfile, uploadAvatar } from '../api/me'
 import { useAsync } from '../hooks/useAsync'
+import { useAuthedImage } from '../hooks/useAuthedImage'
 import { useAuth } from '../auth/AuthContext'
 import { errorMessage } from '../utils/error'
 import Button from '../components/ui/Button'
@@ -14,8 +15,70 @@ import PageContainer from '../components/PageContainer'
 import PageHeader from '../components/AppShell/PageHeader'
 import styles from './Profile.module.css'
 
+const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024
+
 export default function Profile() {
-  const { refresh } = useAuth()
+  const { refresh, avatarUrl, displayName: currentName } = useAuth()
+  const avatarImage = useAuthedImage(avatarUrl)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState('')
+  const [avatarBusy, setAvatarBusy] = useState<'upload' | 'remove' | null>(null)
+  const [avatarMsg, setAvatarMsg] = useState('')
+  const [avatarError, setAvatarError] = useState('')
+
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview)
+    },
+    [preview],
+  )
+
+  async function pickAvatar(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // 清空选择，允许重复选同一张图
+    e.target.value = ''
+    if (!file || avatarBusy) return
+    setAvatarMsg('')
+    if (!AVATAR_TYPES.includes(file.type)) {
+      setAvatarError('仅支持 JPG、PNG、WebP 图片')
+      return
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setAvatarError('图片不能超过 5MB')
+      return
+    }
+    setAvatarError('')
+    setPreview(URL.createObjectURL(file))
+    setAvatarBusy('upload')
+    try {
+      await uploadAvatar(file)
+      await refresh()
+      setAvatarMsg('证件照已更新')
+    } catch (err) {
+      setAvatarError(errorMessage(err, '上传失败，请重试'))
+    } finally {
+      setAvatarBusy(null)
+      setPreview('')
+    }
+  }
+
+  async function removeAvatar() {
+    if (avatarBusy) return
+    setAvatarBusy('remove')
+    setAvatarError('')
+    setAvatarMsg('')
+    try {
+      await deleteAvatar()
+      await refresh()
+      setAvatarMsg('已恢复默认头像')
+    } catch (err) {
+      setAvatarError(errorMessage(err, '移除失败，请重试'))
+    } finally {
+      setAvatarBusy(null)
+    }
+  }
+
   const { data, loading, error, reload } = useAsync(() => me(), [])
   const [displayName, setDisplayName] = useState('')
   const [contact, setContact] = useState('')
@@ -95,6 +158,68 @@ export default function Profile() {
       {error && <ErrorState message={error} onRetry={reload} />}
       {data && (
         <>
+          <Card className={styles.block}>
+            <h2>证件照</h2>
+            <div className={styles.avatarRow}>
+              <div className={`${styles.photo} ${avatarBusy === 'upload' ? styles.developing : ''}`}>
+                {preview || avatarImage ? (
+                  <img className={styles.photoImg} src={preview || avatarImage} alt="当前头像" />
+                ) : (
+                  <span className={styles.photoInitial} aria-hidden="true">
+                    {(currentName ?? data.display_name).trim().charAt(0) || '寻'}
+                  </span>
+                )}
+                {avatarBusy === 'upload' && (
+                  <span className={styles.developLabel} role="status">
+                    冲洗中…
+                  </span>
+                )}
+              </div>
+              <div className={styles.avatarSide}>
+                <p className={styles.hint}>
+                  支持 JPG、PNG、WebP，5MB 以内。会自动裁成正方形，并去掉照片里的拍摄位置等信息。
+                </p>
+                <div className={styles.avatarActions}>
+                  <Button
+                    loading={avatarBusy === 'upload'}
+                    disabled={avatarBusy !== null}
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    {avatarUrl ? '更换头像' : '上传头像'}
+                  </Button>
+                  {avatarUrl && (
+                    <Button
+                      variant="secondary"
+                      loading={avatarBusy === 'remove'}
+                      disabled={avatarBusy !== null}
+                      onClick={removeAvatar}
+                    >
+                      移除
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={fileRef}
+                  className={styles.fileInput}
+                  type="file"
+                  accept={AVATAR_TYPES.join(',')}
+                  aria-label="选择头像图片"
+                  onChange={pickAvatar}
+                />
+                {avatarError && (
+                  <p className={styles.error} role="alert">
+                    {avatarError}
+                  </p>
+                )}
+                {avatarMsg && (
+                  <p className={styles.status} role="status">
+                    {avatarMsg}
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
+
           <Card className={styles.block}>
             <h2>基本资料</h2>
             <p className={styles.hint}>用户名（不可修改）：{data.username}</p>

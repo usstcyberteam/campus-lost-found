@@ -7,7 +7,9 @@ import { getMyPoints } from '../api/points'
 import { applyStaffApplication } from '../api/staffApplications'
 import { useAuth } from '../auth/AuthContext'
 import { useAsync } from '../hooks/useAsync'
+import { useAuthedImage } from '../hooks/useAuthedImage'
 import { errorMessage } from '../utils/error'
+import { titleStamp } from '../utils/itemTone'
 import { pointProgress, type Role, type StaffStatus } from '../types'
 import Button from '../components/ui/Button'
 import EmptyState from '../components/ui/EmptyState'
@@ -61,7 +63,8 @@ function progressText(total: number, nextTitle: string | null, nextThreshold: nu
 }
 
 export default function Me() {
-  const { role, displayName, staffStatus, staffRejectReason, refresh, logout } = useAuth()
+  const { role, userId, displayName, avatarUrl, staffStatus, staffRejectReason, refresh, logout } = useAuth()
+  const avatarImage = useAuthedImage(avatarUrl)
   const navigate = useNavigate()
   const [badgeOpen, setBadgeOpen] = useState(false)
   const [openApply, setOpenApply] = useState(false)
@@ -145,19 +148,28 @@ export default function Me() {
 
       {/* 1. 身份卡：视觉锚点 */}
       <section className={styles.identity} aria-label="身份信息">
-        <span className={styles.avatar} aria-hidden="true">
-          {initial}
-        </span>
+        {/* 证件照位：点击去资料页换头像 */}
+        <Link to="/me/profile" className={styles.avatar} aria-label="更换头像">
+          {avatarImage ? (
+            <img className={styles.avatarImg} src={avatarImage} alt="" />
+          ) : (
+            <span aria-hidden="true">{initial}</span>
+          )}
+          <span className={styles.avatarHint} aria-hidden="true">
+            换头像
+          </span>
+        </Link>
         <div className={styles.identityBody}>
           <div className={styles.identityHead}>
             <h2 className={styles.name}>{displayName || '未设置昵称'}</h2>
             <Tag tone={identity.tone}>{identity.text}</Tag>
           </div>
+          {userId && <p className={styles.fileNo}>档案号 XW-{userId.replace(/-/g, '').slice(0, 8).toUpperCase()}</p>}
           {points.loading && !points.data && <LoadingState text="正在加载积分…" />}
           {points.data && (
             <div className={styles.points}>
               <div className={styles.pointsHead}>
-                <span className={styles.pointsTitle}>{points.data.title}</span>
+                <span className={styles.pointsTitle}>称号 · {points.data.title}</span>
                 <span className={styles.score}>{points.data.total} 分</span>
               </div>
               {points.data.next_threshold != null && (
@@ -172,10 +184,20 @@ export default function Me() {
                   <div className={`${styles.bar} ${styles[`p${step}`]}`} />
                 </div>
               )}
-              <p className={styles.caption}>{progressText(points.data.total, points.data.next_title, points.data.next_threshold)}</p>
+              <p className={styles.caption}>
+                {progressText(points.data.total, points.data.next_title, points.data.next_threshold)}
+              </p>
             </div>
           )}
         </div>
+        {points.data && (
+          <img
+            key={points.data.title}
+            className={styles.titleStamp}
+            src={titleStamp(points.data.title)}
+            alt={`称号印章：${points.data.title}`}
+          />
+        )}
       </section>
 
       {points.error && !points.data && <ErrorState message={points.error} onRetry={points.reload} />}
@@ -360,7 +382,9 @@ export default function Me() {
             </div>
             {badges.loading && <LoadingState />}
             {badges.error && <ErrorState message={badges.error} onRetry={badges.reload} />}
-            {!badges.loading && !badges.error && badgeList.length === 0 && <EmptyState text="还没有获得徽章" />}
+            {!badges.loading && !badges.error && badgeList.length === 0 && (
+              <EmptyState text="还没有获得徽章" art="tray" />
+            )}
             <ul className={styles.badgeList}>
               {badgeList.map((badge) => (
                 <li key={badge.id} className={styles.badgeRow}>

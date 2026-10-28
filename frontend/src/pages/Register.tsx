@@ -5,6 +5,7 @@ import { errorMessage } from '../utils/error'
 import Button from '../components/Button'
 import ErrorNotice from '../components/ErrorNotice'
 import Field from '../components/Field'
+import AuthLayout from '../components/AuthLayout/AuthLayout'
 import styles from './Register.module.css'
 
 type RegisterRole = 'student' | 'staff'
@@ -52,20 +53,28 @@ export default function Register() {
 
   if (submitted) {
     return (
-      <div className={styles.container}>
-        <h1>申请已提交</h1>
+      <AuthLayout title="申请已提交">
         <p className={styles.notice} role="status">
           教职工申请已进入待审核状态，审核通过前你仍按学生权限使用。管理员审核后重新登录即可生效。
         </p>
-        <Link to="/hall">进入大厅</Link>
-      </div>
+        <Link className={styles.enter} to="/hall">
+          进入大厅
+        </Link>
+      </AuthLayout>
     )
   }
 
   return (
-    <div className={styles.container}>
-      <h1>注册账号</h1>
-      <form onSubmit={onSubmit} className={styles.form}>
+    <AuthLayout
+      title="注册账号"
+      subtitle="学生注册即用；教职工需管理员审核"
+      footer={
+        <>
+          已有账号？<Link to="/login">登录</Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit}>
         <Field label="身份" htmlFor="register-role" required>
           <select
             id="register-role"
@@ -134,9 +143,6 @@ export default function Register() {
           {role === 'staff' ? '提交申请' : '注册'}
         </Button>
       </form>
-      <p>
-        已有账号？<Link to="/login">登录</Link>
-      </p>
-    </div>
+    </AuthLayout>
   )
 }

@@ -43,7 +43,7 @@ export default function HelperList({ itemId, helpers, canThank }: HelperListProp
         <ul className={styles.list}>
           {rows.map((helper) => (
             <li key={helper.id} className={styles.item}>
-              <Avatar name={helper.display_name} size="sm" />
+              <Avatar name={helper.display_name} src={helper.avatar_url} size="sm" />
               <span className={styles.name}>{helper.display_name}</span>
               <Tag tone="primary">{helper.title}</Tag>
               {helper.thanked && <Tag tone="success">已致谢</Tag>}

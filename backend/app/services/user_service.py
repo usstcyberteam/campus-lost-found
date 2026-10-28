@@ -7,6 +7,8 @@ from app.core.security import hash_password, verify_password
 from app.errors import ApiError
 from app.models import Role, StaffStatus, User
 from app.schemas.auth import AdminUserUpdate, PasswordChangeRequest, ProfileUpdate
+from app.services import upload_service
+from app.services.storage import get_storage
 
 
 def create_user(
@@ -102,3 +104,36 @@ def update_user(db: Session, actor: User, target_id: uuid.UUID, body: AdminUserU
     db.commit()
     db.refresh(target)
     return target
+
+
+def set_avatar(db: Session, user: User, data: bytes) -> User:
+    payload = upload_service.normalize_avatar(data)
+    storage = get_storage()
+    old_path = user.avatar_path
+    user.avatar_path = storage.save(f"avatars/{uuid.uuid4().hex}.webp", payload, "image/webp")
+    db.commit()
+    db.refresh(user)
+    # 新头像落库后再删旧文件，避免中途失败导致头像丢失
+    if old_path:
+        storage.delete(old_path)
+    return user
+
+
+def remove_avatar(db: Session, user: User) -> User:
+    old_path = user.avatar_path
+    user.avatar_path = None
+    db.commit()
+    db.refresh(user)
+    if old_path:
+        get_storage().delete(old_path)
+    return user
+
+
+def load_avatar(db: Session, user_id: uuid.UUID) -> bytes:
+    user = db.get(User, user_id)
+    if user is None or not user.avatar_path:
+        raise ApiError(404, "NOT_FOUND", "头像不存在")
+    try:
+        return get_storage().load(user.avatar_path)
+    except FileNotFoundError as exc:
+        raise ApiError(404, "NOT_FOUND", "头像不存在") from exc

@@ -1,11 +1,13 @@
 .field {
   display: grid;
-  gap: var(--space-1);
+  gap: 6px;
+  min-width: 0;
 }
 
 .label {
-  font-size: var(--font-base);
-  color: var(--color-text-1);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-2);
 }
 
 .required {
@@ -16,4 +18,56 @@
   margin: 0;
   font-size: var(--font-sm);
   color: var(--color-danger);
+}
+
+/* Field 内直接放原生控件时，自动获得与 ui/Input 一致的外观 */
+.field > input:not([type='checkbox'], [type='radio'], [type='file'], [type='range']),
+.field > select,
+.field > textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-paper);
+  color: var(--color-text-1);
+  font-size: var(--font-md);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-base);
+}
+
+.field > textarea {
+  min-height: 96px;
+  padding: var(--space-3);
+  line-height: 1.6;
+}
+
+.field > input::placeholder,
+.field > textarea::placeholder {
+  color: var(--color-text-3);
+}
+
+.field > input:hover:not(:disabled),
+.field > select:hover:not(:disabled),
+.field > textarea:hover:not(:disabled) {
+  border-color: var(--color-kraft-2);
+}
+
+.field > input:focus,
+.field > select:focus,
+.field > textarea:focus {
+  outline: none;
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 4px var(--color-focus-ring);
+}
+
+.field > select {
+  padding-right: 36px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%235c5246' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
 }

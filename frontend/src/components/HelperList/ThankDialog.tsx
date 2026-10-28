@@ -70,7 +70,7 @@ export default function ThankDialog({ itemId, helpers, onClose, onThanked }: Tha
                   disabled={helper.thanked || busy}
                   onChange={() => toggle(helper)}
                 />
-                <Avatar name={helper.display_name} size="sm" />
+                <Avatar name={helper.display_name} src={helper.avatar_url} size="sm" />
                 <span className={styles.choiceName}>{helper.display_name}</span>
                 <span className={styles.choiceTitle}>{helper.thanked ? '已致谢' : helper.title}</span>
               </label>

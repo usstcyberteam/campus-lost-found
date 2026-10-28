@@ -24,7 +24,7 @@ export default function CommentItem({
   const canDelete = !comment.is_deleted && (canModerate || comment.author.id === currentUserId)
   return (
     <li className={`${styles.item} ${isReply ? styles.replyItem : ''}`}>
-      <Avatar name={comment.author.display_name} size="sm" />
+      <Avatar name={comment.author.display_name} src={comment.author.avatar_url} size="sm" />
       <div className={styles.main}>
         <div className={styles.head}>
           <span className={styles.name}>{comment.author.display_name}</span>

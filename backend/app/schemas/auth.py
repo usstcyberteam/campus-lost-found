@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field, model_validator
 
 from app.models.enums import Role, StaffStatus
 from app.schemas.validation import DisplayName, Password, Username
@@ -39,6 +40,13 @@ class TokenResponse(BaseModel):
     role: Role
 
 
+def avatar_url_for(user_id: uuid.UUID, avatar_path: str | None) -> str | None:
+    """头像访问地址；文件名随每次上传变化，作为 v 参数让浏览器缓存自动失效。"""
+    if not avatar_path:
+        return None
+    return f"/api/v1/users/{user_id}/avatar?v={PurePosixPath(avatar_path).stem[:12]}"
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,6 +59,12 @@ class UserOut(BaseModel):
     department: str | None
     staff_reject_reason: str | None
     contact: str | None = None
+    avatar_path: str | None = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def avatar_url(self) -> str | None:
+        return avatar_url_for(self.id, self.avatar_path)
 
 
 class BadgeOut(BaseModel):

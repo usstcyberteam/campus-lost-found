@@ -1,59 +1,91 @@
+/*
+ * 按钮质感：像打字机按键 / 印章手柄——下沿一道实色"键边"，
+ * 按下时整体下沉 2px、键边收短，松开回弹。
+ */
 .button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid transparent;
+  padding: var(--space-2) var(--space-5);
+  border: 1.5px solid transparent;
   border-radius: var(--radius-md);
-  font-size: var(--font-md);
-  font-weight: 500;
+  font-size: var(--font-base);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
   transition:
     background var(--transition-fast),
+    color var(--transition-fast),
     border-color var(--transition-fast),
-    color var(--transition-fast);
+    box-shadow var(--duration-press) ease-out,
+    transform var(--duration-press) ease-out;
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(2px);
 }
 
 .button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .primary {
+  border-color: var(--color-primary-strong);
   background: var(--color-primary);
-  color: var(--color-text-inverse);
+  color: var(--color-on-primary);
+  box-shadow: var(--shadow-key-primary);
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--color-primary);
-  filter: brightness(0.95);
+  background: var(--color-primary-hover);
+}
+
+.primary:active:not(:disabled) {
+  box-shadow: var(--shadow-key-primary-pressed);
 }
 
 .secondary {
-  background: var(--color-bg-1);
+  border-color: var(--color-ink);
+  background: var(--color-paper);
   color: var(--color-text-1);
-  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-key);
 }
 
 .secondary:hover:not(:disabled) {
-  background: var(--color-bg-2);
+  background: var(--color-accent-soft);
+}
+
+.secondary:active:not(:disabled) {
+  box-shadow: var(--shadow-key-pressed);
 }
 
 .ghost {
   background: transparent;
-  color: var(--color-primary);
+  color: var(--color-text-1);
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 4px;
 }
 
 .ghost:hover:not(:disabled) {
-  background: var(--color-primary-soft);
+  background: var(--color-bg-3);
 }
 
 .danger {
-  background: var(--color-danger);
-  color: var(--color-text-inverse);
+  border-color: var(--color-danger);
+  background: var(--color-paper);
+  color: var(--color-danger);
+  box-shadow: 0 3px 0 var(--color-danger);
 }
 
 .danger:hover:not(:disabled) {
-  background: var(--color-danger);
-  filter: brightness(0.95);
+  background: var(--color-danger-soft);
+}
+
+.danger:active:not(:disabled) {
+  box-shadow: 0 1px 0 var(--color-danger);
 }
