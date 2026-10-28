@@ -101,7 +101,7 @@ export default function MapDrawerTools({
         </Button>
       )}
       <p className={styles.note}>
-        点击地图获取归一化坐标；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
+        点建筑可直接在该楼发帖；建筑层与帖子点位仅在室外底图可用；监控点为模拟数据，仅工作人员可见；
         {layer.scale_calibrated ? '已标定比例尺' : '未标定比例尺，不换算实际米数'}。
       </p>
     </div>

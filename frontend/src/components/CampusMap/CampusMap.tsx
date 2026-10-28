@@ -67,6 +67,8 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
       crs: L.CRS.Simple,
       minZoom: -3,
       maxZoom: 3,
+      // 允许 1/4 级缩放：整数级吸附会让"适配全图"偏小一大圈
+      zoomSnap: 0.25,
       zoomControl: false,
     })
     L.control.zoom({ position: 'bottomright' }).addTo(map)
@@ -119,7 +121,17 @@ export default function CampusMap({ layer, markers, onMapClick, onImageError, fo
         })
     }
 
-    map.fitBounds(bounds)
+    // 地图上方压着搜索栏、下方压着抽屉，视野要避开这两块；与 MapView.module.css 的抽屉高度一致
+    const size = map.getSize()
+    const topPad = 140
+    const bottomPad = size.x < 768 ? 200 : 230
+    if (size.x < 768) {
+      // 手机竖屏：按屏幕宽度铺满，比"整图塞进剩余高度"大得多，上下拖动查看
+      map.setView([layer.height / 2, layer.width / 2], Math.log2((size.x - 16) / layer.width), { animate: false })
+      map.panBy([0, (bottomPad - topPad) / 2], { animate: false })
+    } else {
+      map.fitBounds(bounds, { paddingTopLeft: [24, topPad], paddingBottomRight: [24, bottomPad] })
+    }
     map.setMaxBounds(bounds.pad(0.2))
 
     return () => {

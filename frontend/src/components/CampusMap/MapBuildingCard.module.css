@@ -4,7 +4,8 @@
   right: var(--space-3);
   bottom: calc(var(--space-3) + 190px);
   left: var(--space-3);
-  z-index: var(--z-dropdown);
+  /* 要压过 Leaflet 的标记与弹窗层（最高 700），但低于顶栏和底部抽屉 */
+  z-index: calc(var(--z-sticky) - 50);
   pointer-events: none;
 }
 

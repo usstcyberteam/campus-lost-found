@@ -23,6 +23,7 @@ import Tag from '../components/Tag'
 import styles from './ItemForm.module.css'
 
 interface MapPublishState {
+  direction?: Direction
   building_id?: string | null
   building_name?: string | null
   floor?: number | null
@@ -86,7 +87,7 @@ export default function ItemForm() {
     loading,
     error: loadError,
   } = useAsync<Item | null>(() => (id ? getItem(id) : Promise.resolve(null)), [id])
-  const [direction, setDirection] = useState<Direction>('lost')
+  const [direction, setDirection] = useState<Direction>(preset?.direction ?? 'lost')
   const [category, setCategory] = useState(preset?.category ?? '')
   const [title, setTitle] = useState(preset?.title ?? '')
   const [description, setDescription] = useState(preset?.description ?? '')
@@ -453,11 +454,7 @@ export default function ItemForm() {
                     >
                       {description.trim() ? '替换现有描述' : '采用'}
                     </button>
-                    <button
-                      type="button"
-                      className={styles.polishDiscard}
-                      onClick={() => setPolishPreview(null)}
-                    >
+                    <button type="button" className={styles.polishDiscard} onClick={() => setPolishPreview(null)}>
                       放弃
                     </button>
                   </div>
@@ -554,7 +551,7 @@ export default function ItemForm() {
           <h2 className={styles.previewTitle}>实时预览</h2>
           <article className={styles.previewCard}>
             <div className={styles.previewTags}>
-              <Tag tone={direction === 'lost' ? 'primary' : 'success'}>{directionLabels[direction]}</Tag>
+              <Tag tone={direction}>{directionLabels[direction]}</Tag>
               <span className={styles.previewCategory}>{category || '未填写类别'}</span>
             </div>
             <h3 className={styles.previewHeading}>{title || '未填写标题'}</h3>

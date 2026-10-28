@@ -1,4 +1,4 @@
-import type { Building, Layer } from '../../types'
+import type { Building, Direction, Layer } from '../../types'
 
 import BuildingCard from './BuildingCard'
 import styles from './MapBuildingCard.module.css'
@@ -14,6 +14,7 @@ interface MapBuildingCardProps {
   onClose: () => void
   onEnterFloor: (layerId: string) => void
   onLocateOutdoor?: () => void
+  onPublish?: (direction: Direction, floor: number | null) => void
 }
 
 // 悬浮在地图上的建筑卡片：避开顶部搜索区与底部抽屉
@@ -26,6 +27,7 @@ export default function MapBuildingCard({
   onClose,
   onEnterFloor,
   onLocateOutdoor,
+  onPublish,
 }: MapBuildingCardProps) {
   return (
     <div className={`${styles.wrap} ${belowTopBar ? styles.belowTopBar : ''}`}>
@@ -38,8 +40,8 @@ export default function MapBuildingCard({
         onClose={onClose}
         onEnterFloor={onEnterFloor}
         onLocateOutdoor={onLocateOutdoor}
+        onPublish={onPublish}
       />
     </div>
   )
 }
-

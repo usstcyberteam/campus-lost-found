@@ -39,7 +39,20 @@ _FLOOR_PATTERNS = (
     re.compile(r"(\d{1,2})\s*(?:F|f|层)"),
     re.compile(r"(\d{1,2})\s*楼(?!号)"),
 )
+_CN_FLOOR_PATTERN = re.compile(r"(?<![第\d])([一二三四五六七八九十])\s*(?:楼|层)(?!号)")
+_CN_DIGITS = {c: i for i, c in enumerate("一二三四五六七八九十", start=1)}
 _DATE_PATTERN = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+_LOST_WORDS = ("丢了", "丢失", "弄丢", "遗失", "掉了", "落在", "落下", "找不到", "不见了")
+_FOUND_WORDS = ("捡到", "拾到", "拾获", "捡了", "有人落下", "谁的")
+_COLOR_PATTERN = re.compile(r"(黑|白|红|橙|黄|绿|蓝|青|紫|粉|灰|棕|咖啡|银|金|米|透明)色")
+_TIME_PATTERN = re.compile(
+    r"(?:今天|昨天|前天|今早|今晚|昨晚|上周[一二三四五六日天]?|周[一二三四五六日天])"
+    r"(?:早上|上午|中午|下午|傍晚|晚上)?(?:\d{1,2}点(?:半|\d{1,2}分)?(?:左右)?)?"
+    r"|(?:早上|上午|中午|下午|傍晚|晚上)(?:\d{1,2}点(?:半|\d{1,2}分)?(?:左右)?)?"
+)
+# "在 XX 丢了 / 捡到"里的 XX：用户自己写的地点短语，限制长度避免吞掉整句
+_PLACE_PATTERN = re.compile(r"在([^，。,；;！!？?\s]{2,14}?)(?:附近|旁边|里|内)?(?:丢|掉|捡|拾|遗失|弄丢|落|发现|找到)")
+_CLAUSE_SPLIT = re.compile(r"[，。,；;！!？?\n]+")
 _FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 _BOLD_PATTERN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
 _HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s*", re.MULTILINE)
@@ -112,7 +125,9 @@ def _parse_floor(text: str) -> int | None:
         floor = int(match.group(1))
         if -3 <= floor <= 100:
             return floor
-    return None
+    # "二楼""三层"这类中文数字（"一食堂""第三教学楼"不会命中：后面不是楼 / 层或前面是"第"）
+    match = _CN_FLOOR_PATTERN.search(text)
+    return _CN_DIGITS[match.group(1)] if match else None
 
 
 def _parse_time(text: str) -> datetime | None:
@@ -129,6 +144,9 @@ def _match_building(db: Session, text: str) -> Building | None:
     lowered = text.lower()
     for building in db.query(Building).order_by(Building.code).all():
         if building.name in text or building.code.lower() in lowered:
+            return building
+        # 口语常省略"第"：一食堂 = 第一食堂
+        if building.name.startswith("第") and len(building.name) > 2 and building.name[1:] in text:
             return building
     return None
 
@@ -151,13 +169,85 @@ def _first_sentence(text: str) -> str:
     return re.split(r"[。！？!?\n]", text, maxsplit=1)[0].strip() or text
 
 
+def _detect_direction(text: str) -> str | None:
+    if any(word in text for word in _FOUND_WORDS):
+        return "found"
+    if any(word in text for word in _LOST_WORDS):
+        return "lost"
+    return None
+
+
+def _item_phrase(text: str, category: str | None) -> str | None:
+    """颜色 + 类别，如"蓝色雨伞"；没认出类别时不硬凑。
+
+    颜色只从"丢了/捡到"所在的主句里找，避免把"卡套是黑色的"当成卡的颜色。
+    """
+    if category is None:
+        return None
+    main = next(
+        (c for c in _CLAUSE_SPLIT.split(text) if any(w in c for w in (*_LOST_WORDS, *_FOUND_WORDS))),
+        text,
+    )
+    color = _COLOR_PATTERN.search(main)
+    return f"{color.group(0)}{category}" if color else category
+
+
+def _place_phrase(text: str, building: Building | None, floor: int | None) -> str | None:
+    if building is not None:
+        return _area_label(building, floor)
+    match = _PLACE_PATTERN.search(text)
+    return match.group(1) if match else None
+
+
+def _detail_clauses(text: str, used: list[str | None]) -> list[str]:
+    """原话里除了"在哪丢了什么"主句之外的补充特征（如"伞柄有磨损"），逐句保留。"""
+    clauses = [clause.strip() for clause in _CLAUSE_SPLIT.split(text) if clause.strip()]
+    # 主句（含"丢了/捡到"）的信息已拆进物品、地点、时间；只剩时间或地点的短句也不重复
+    return [
+        clause
+        for clause in clauses
+        if not any(word in clause for word in (*_LOST_WORDS, *_FOUND_WORDS)) and clause not in used
+    ]
+
+
+def _rule_title(direction: str | None, place: str | None, item: str | None, text: str) -> str:
+    if item is None:
+        return _clip(_first_sentence(text), 30)
+    verb = "捡到" if direction == "found" else "丢失"
+    return _clip(f"{place or ''}{verb}{item}", 30)
+
+
+def _rule_description(
+    direction: str | None, item: str | None, place: str | None, when: str | None, details: list[str]
+) -> str:
+    lines = [f"物品：{item or '见标题'}"]
+    if place:
+        lines.append(f"地点：{place}")
+    if when:
+        lines.append(f"时间：{when}")
+    if details:
+        lines.append(f"特征：{'，'.join(details)}")
+    if direction == "found":
+        lines.append("物品已妥善保管。失主请留言说明只有你知道的特征，核验后归还。")
+    else:
+        lines.append("如有同学捡到，请在帖子下留言或私信我，非常感谢！")
+    return _clip("\n".join(lines), 2000)
+
+
 def _rule_draft(db: Session, text: str) -> dict:
     building = _match_building(db, text)
     floor = _parse_floor(text)
+    category = _detect_category(text)
+    direction = _detect_direction(text)
+    item = _item_phrase(text, category)
+    place = _place_phrase(text, building, floor)
+    time_match = _TIME_PATTERN.search(text)
+    when = time_match.group(0) if time_match else None
+    details = _detail_clauses(text, [place, when])
     return {
-        "category": _detect_category(text),
-        "title": _clip(_first_sentence(text), 128),
-        "description": _clip(text, 2000),
+        "category": category,
+        "title": _rule_title(direction, place, item, text),
+        "description": _rule_description(direction, item, place, when, details) if item else _clip(text, 2000),
         "location_area": _area_label(building, floor),
         "building_code": building.code if building is not None else None,
         "floor": floor,
@@ -165,6 +255,21 @@ def _rule_draft(db: Session, text: str) -> dict:
         "source": Source.rule,
         "degraded": True,
     }
+
+
+def _rule_reply(draft: dict) -> str:
+    """规则模式的回复：说清认出了什么，而不是只说"模型不可用"。"""
+    found = [
+        f"{label}「{value}」"
+        for label, value in (
+            ("标题", draft.get("title") if draft.get("category") else None),
+            ("地点", draft.get("location_area")),
+        )
+        if value
+    ]
+    if not found:
+        return _CHAT_FALLBACK_REPLY
+    return _clip(f"已按关键词整理出{'、'.join(found)}，请核对后发布。", 120)
 
 
 def _model_messages(text: str) -> list[dict[str, str]]:
@@ -402,7 +507,7 @@ def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
             patch["title"] = _clip(text, 128)
         return {
             "intent": "draft",
-            "reply": "模型暂不可用，已按规则整理出草稿，请手动补充。",
+            "reply": _rule_reply(draft),
             "form_patch": patch,
             "actions": ["prefill_form"],
             "source": Source.rule,
@@ -411,7 +516,7 @@ def _rule_chat(db: Session, text: str, action: str | None = None) -> dict:
     if has_item_signal:
         return {
             "intent": "draft",
-            "reply": _CHAT_FALLBACK_REPLY,
+            "reply": _rule_reply(draft),
             "form_patch": _form_patch_only(draft),
             "actions": ["prefill_form"],
             "source": Source.rule,

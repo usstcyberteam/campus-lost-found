@@ -37,6 +37,8 @@ interface MapCanvasProps {
   helpPoints: LayerPoint[]
   monitorPoints: LayerPoint[]
   canSeeMonitor: boolean
+  /** 点击弹出归一化坐标：标定素材用，只给管理员 */
+  showCoords?: boolean
   selectedBuilding: Building | null
   focus: { x: number; y: number; token: number } | null
   show: MapLayerSwitches
@@ -57,6 +59,7 @@ export default function MapCanvas({
   helpPoints,
   monitorPoints,
   canSeeMonitor,
+  showCoords = false,
   selectedBuilding,
   focus,
   show,
@@ -116,7 +119,7 @@ export default function MapCanvas({
           <BuildingLayer buildings={NO_BUILDINGS} selectedId={null} rooms={layer.rooms ?? undefined} />
         )}
         {canDraw && <DrawToolLayer tool={tool} />}
-        {canDraw && !drawing && <ClickCoordsPopup />}
+        {showCoords && canDraw && !drawing && <ClickCoordsPopup />}
       </CampusMap>
       {indoor && !layer.image_path && (
         <div className={styles.placeholder} aria-live="polite">

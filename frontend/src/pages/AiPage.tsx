@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listBuildings } from '../api/buildings'
-import { listItems } from '../api/items'
+import { listAllBuildings } from '../api/buildings'
+import { listMyItems } from '../api/me'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
 import {
   placeLabel,
@@ -49,10 +49,13 @@ export default function AiPage() {
   const adviceRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    Promise.all([listBuildings({ limit: 100 }), listItems({ direction: 'lost', limit: 50 })])
-      .then(([buildingPage, itemPage]) => {
-        setBuildings(buildingPage.items)
-        setLostItems(itemPage.items)
+    // 地点推荐只对自己仍在寻找的帖子有意义；建筑要取全量，否则编号匹配不到后面的楼
+    Promise.all([listAllBuildings(), listMyItems({ limit: 50 })])
+      .then(([allBuildings, mine]) => {
+        setBuildings(allBuildings)
+        setLostItems(
+          mine.items.filter((item) => item.direction === 'lost' && ['searching', 'reviewing'].includes(item.status)),
+        )
       })
       .catch(() => {})
   }, [])
@@ -208,7 +211,7 @@ export default function AiPage() {
               </Tag>
             </div>
             <label className={styles.selectLabel}>
-              选择一条寻物帖
+              选择我的一条寻物帖
               <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
                 <option value="">请选择</option>
                 {lostItems.map((item) => (

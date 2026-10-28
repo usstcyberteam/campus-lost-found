@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listItems } from '../../api/items'
-import { directionLabels, statusLabels, type Building, type Item, type Layer } from '../../types'
+import { directionLabels, statusLabels, type Building, type Direction, type Item, type Layer } from '../../types'
 import { errorMessage } from '../../utils/error'
 import Button from '../Button'
 import Tag from '../Tag'
@@ -17,6 +17,8 @@ interface BuildingCardProps {
   onClose: () => void
   onEnterFloor: (layerId: string) => void
   onLocateOutdoor?: () => void
+  /** 以这栋楼为地点直接发帖；floor 为空表示不指定楼层 */
+  onPublish?: (direction: Direction, floor: number | null) => void
 }
 
 export default function BuildingCard({
@@ -27,12 +29,20 @@ export default function BuildingCard({
   onClose,
   onEnterFloor,
   onLocateOutdoor,
+  onPublish,
 }: BuildingCardProps) {
   const [items, setItems] = useState<Item[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const floors = [...floorLayers].sort((left, right) => (left.floor ?? 0) - (right.floor ?? 0))
+  // 只有带底图的楼层才算"有楼层图"：没有底图的楼层进去是一片空白
+  const floors = floorLayers
+    .filter((layer) => layer.image_path)
+    .sort((left, right) => (left.floor ?? 0) - (right.floor ?? 0))
+  // 发帖可选楼层：没有楼层图的楼也能精确到层
+  const [pickFloor, setPickFloor] = useState<number | null>(filterFloor)
+  const floorOptions = Array.from({ length: Math.max(building.floors, 0) }, (_, index) => index + 1)
+  const where = pickFloor != null ? `${pickFloor}F` : '这里'
   const visible = filterFloor == null ? items : items.filter((item) => item.floor === filterFloor)
   const emptyText = filterFloor == null ? '该建筑暂无相关帖子' : '该楼层暂无相关帖子'
 
@@ -70,6 +80,30 @@ export default function BuildingCard({
         <span>进行中 {building.active_item_count} 条</span>
         <span>{floors.length > 0 ? '有楼层图' : '暂无楼层图'}</span>
       </div>
+      {onPublish && (
+        <div className={styles.publish} role="group" aria-label={`在${building.name}发帖`}>
+          {floorOptions.length > 0 && (
+            <label className={styles.floorPick}>
+              楼层
+              <select
+                value={pickFloor ?? ''}
+                onChange={(e) => setPickFloor(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">不确定</option>
+                {floorOptions.map((floor) => (
+                  <option key={floor} value={floor}>
+                    {floor}F
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Button onClick={() => onPublish('lost', pickFloor)}>我在{where}丢了东西</Button>
+          <Button variant="secondary" onClick={() => onPublish('found', pickFloor)}>
+            我在{where}捡到东西
+          </Button>
+        </div>
+      )}
       <div className={styles.actions}>
         <Button variant="secondary" onClick={toggleItems} aria-expanded={open}>
           {open ? '收起帖子' : '查看这栋楼的帖子'}

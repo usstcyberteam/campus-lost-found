@@ -31,6 +31,7 @@ import SharePoster from '../components/SharePoster'
 import TranslatePopover from '../components/TranslatePopover'
 import LikeButton from '../components/Reactions/LikeButton'
 import CommentList from '../components/CommentList/CommentList'
+import LocationMiniMap from '../components/LocationMiniMap/LocationMiniMap'
 import HelperList from '../components/HelperList/HelperList'
 import LoadingState from '../components/ui/LoadingState'
 import Tag from '../components/Tag'
@@ -298,7 +299,14 @@ export default function ItemDetail() {
         <dl className={styles.facts}>
           <div>
             <dt>地点</dt>
-            <dd>{item.building_name ? placeLabel(item) : item.location_area || '未知'}</dd>
+            <dd>
+              {item.building_name ? placeLabel(item) : item.location_area || '未知'}
+              {item.building_id && (
+                <Link className={styles.mapLink} to={`/map?building=${item.building_id}`}>
+                  在地图上看
+                </Link>
+              )}
+            </dd>
           </div>
           {item.precise_location && (
             <div>
@@ -311,6 +319,7 @@ export default function ItemDetail() {
             <dd>{new Date(item.created_at).toLocaleString('zh-CN', { hour12: false })}</dd>
           </div>
         </dl>
+        <LocationMiniMap item={item} />
       </section>
       <TranslatePopover open={translateOpen} sourceText={item.description} onClose={() => setTranslateOpen(false)} />
       <SharePoster open={posterOpen} item={item} onClose={() => setPosterOpen(false)} />

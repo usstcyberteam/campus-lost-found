@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { getMapMeta, listLayerPoints } from '../api/layers'
 import { useAsync } from '../hooks/useAsync'
 import { useCampusMapLayers } from '../hooks/useCampusMapLayers'
@@ -7,7 +7,7 @@ import { useDrawTool } from '../hooks/useDrawTool'
 import { useLayers } from '../hooks/useLayers'
 import { useSearchAdvice } from '../hooks/useSearchAdvice'
 import { useAuth } from '../auth/AuthContext'
-import type { Building, LayerPoints, SearchAdvice } from '../types'
+import type { Building, Direction, LayerPoints, SearchAdvice } from '../types'
 import ErrorNotice from '../components/ErrorNotice'
 import { buildingAt } from '../components/CampusMap/BuildingLayer'
 import { flatBuildingAt, isoBuildingAt } from '../components/CampusMap/coords'
@@ -23,6 +23,7 @@ import styles from './MapView.module.css'
 export default function MapView() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { role } = useAuth()
   const [initial] = useState(readStoredSwitches)
   const initialAdvice = (location.state as { advice?: SearchAdvice } | null)?.advice ?? null
@@ -81,6 +82,20 @@ export default function MapView() {
       : []
 
   useEffect(() => saveStoredSwitches(show), [show])
+
+  // 从帖子详情"在地图上看"跳来（/map?building=…）：数据就绪后选中并定位该楼，参数用完即清
+  const targetBuildingId = searchParams.get('building')
+  useEffect(() => {
+    if (!targetBuildingId || !mapLayers || layer?.id !== flatLayerId) return
+    const target = mapLayers.buildings.find((building) => building.id === targetBuildingId)
+    if (target) {
+      setSelectedBuilding(target)
+      setCardClosed(false)
+      const point = buildingPoint(target)
+      if (point) setFocus({ ...point, token: Date.now() })
+    }
+    setSearchParams({}, { replace: true })
+  }, [targetBuildingId, mapLayers, layer, flatLayerId, setSearchParams])
 
   // 切换视图会重设视野，定位要等新图层挂载后再执行，否则会被 fitBounds 覆盖
   useEffect(() => {
@@ -183,6 +198,19 @@ export default function MapView() {
     })
   }
 
+  // 点建筑直接发帖：地点精确到楼（选了楼层就到层），不伪造具体坐标
+  function publishAtBuilding(building: Building, direction: Direction, floor: number | null) {
+    navigate('/publish', {
+      state: {
+        direction,
+        building_id: building.id,
+        building_name: building.name,
+        floor,
+        location_area: `${building.name}${floor != null ? `${floor}F` : ''}`,
+      },
+    })
+  }
+
   async function recommend() {
     if (await request({ geometry: tool.geometry() })) toggleLayer('advice', true)
   }
@@ -203,6 +231,7 @@ export default function MapView() {
             helpPoints={helpPoints}
             monitorPoints={monitorPoints}
             canSeeMonitor={canSeeMonitor}
+            showCoords={role === 'admin'}
             selectedBuilding={selectedBuilding}
             focus={focus}
             show={show}
@@ -251,9 +280,9 @@ export default function MapView() {
             }}
             onEnterFloor={openFloor}
             onLocateOutdoor={indoor ? locateOutdoor : undefined}
+            onPublish={(direction, floor) => publishAtBuilding(cardBuilding, direction, floor)}
           />
         )}
-
       </div>
 
       <MapDrawer

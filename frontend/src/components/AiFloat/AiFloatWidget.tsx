@@ -56,7 +56,7 @@ interface RouteTarget {
 
 const WELCOME: ChatMessage = {
   role: 'assistant',
-  text: '你好，我是校园失物招领助手。描述你丢失或拾获的物品，我帮你整理成发帖草稿。',
+  text: '你好，我是寻物侦探。说说你丢了或捡到了什么、大概在哪儿，我帮你把线索整理成发帖草稿。',
 }
 
 function isDesktopViewport(): boolean {
@@ -168,6 +168,14 @@ function applyResult(
   }
 }
 
+// 面板顶部侦探娘的状态说明，与头像表情一一对应
+const MOOD_TEXT = {
+  idle: '随时待命，说说你丢了什么',
+  thinking: '正在推理线索…',
+  wink: '线索整理好了',
+  confused: '这条没太看懂，换个说法试试',
+} as const
+
 export default function AiFloatWidget() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -230,7 +238,40 @@ export default function AiFloatWidget() {
 
   posRef.current = pos
 
-  const hidden = /^\/(login|register|admin)/.test(location.pathname)
+  // 发布 / 编辑页有自己的 AI 润色和底部提交栏，AI 页本身就是助手，地图页底部是抽屉：这些页不再叠一个悬浮入口
+  const hidden = /^\/(login|register|admin|publish|ai$|map)|^\/items\/[^/]+\/edit/.test(location.pathname)
+  const [tucked, setTucked] = useState(false)
+  // 侦探娘表情：回复中托腮思考；回复完成眨眼、出错或降级歪头疑惑，2.5 秒后回到默认
+  const [flash, setFlash] = useState<'wink' | 'confused' | null>(null)
+  const mood = busy || draftBusy ? 'thinking' : (flash ?? 'idle')
+  const avatarSrc = `/brand/detective/${mood}.webp`
+
+  useEffect(() => {
+    if (!flash) return
+    const timer = window.setTimeout(() => setFlash(null), 2500)
+    return () => window.clearTimeout(timer)
+  }, [flash])
+
+  // 预先加载其余表情，切换时不闪白
+  useEffect(() => {
+    for (const name of ['thinking', 'wink', 'confused']) new Image().src = `/brand/detective/${name}.webp`
+  }, [])
+
+  // 手机端滚动时把圆钮收到屏幕右缘，停下 0.6 秒后再探出来，避免挡住正在看的卡片
+  useEffect(() => {
+    if (isDesktop) return
+    let timer = 0
+    function onScroll() {
+      setTucked(true)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setTucked(false), 600)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.clearTimeout(timer)
+    }
+  }, [isDesktop])
 
   useEffect(() => {
     const list = listRef.current
@@ -363,11 +404,13 @@ export default function AiFloatWidget() {
       }))
       const result: AiChatResult = await aiChat(value, location.pathname, undefined, history)
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
+      setFlash(result.degraded ? 'confused' : 'wink')
       // 方向词可能在历史任一轮：传全部用户文本判定，避免多轮补充时 direction 回落 lost
       const userTexts = [...messages.filter((m) => m.role === 'user').map((m) => m.text), value]
       applyResult(result, userTexts, setTarget, setNotice, navigate, () => setOpen(false))
     } catch (err) {
       setError(errorMessage(err))
+      setFlash('confused')
     } finally {
       setBusy(false)
     }
@@ -404,11 +447,14 @@ export default function AiFloatWidget() {
           patch: result.form_patch,
         })
         setNotice('已整理草稿，点击跳转发布')
+        setFlash('wink')
       } else {
         setError('未能从对话中提取到发布信息，请补充描述。')
+        setFlash('confused')
       }
     } catch (err) {
       setError(errorMessage(err))
+      setFlash('confused')
     } finally {
       setDraftBusy(false)
     }
@@ -465,6 +511,15 @@ export default function AiFloatWidget() {
               onPointerCancel={onHandlePointerUp}
             />
           )}
+          <div className={styles.persona}>
+            <img className={styles.personaAvatar} src={avatarSrc} alt="" />
+            <div>
+              <p className={styles.personaName}>寻物侦探</p>
+              <p className={styles.personaStatus} aria-live="polite">
+                {MOOD_TEXT[mood]}
+              </p>
+            </div>
+          </div>
           {notice && (
             <button type="button" className={styles.notice} onClick={onNoticeClick}>
               {notice} →
@@ -542,19 +597,19 @@ export default function AiFloatWidget() {
           title="AI 助手（可拖动）"
         >
           <span className={styles.barInner}>
-            <img src="/ai-float.png" alt="" draggable={false} />
+            <img src={avatarSrc} alt="" draggable={false} />
             <span className={styles.barLabel}>AI</span>
           </span>
         </button>
       ) : (
         <button
           type="button"
-          className={`${styles.barMobile} ${open ? styles.barMobileHidden : ''}`}
+          className={`${styles.barMobile} ${open ? styles.barMobileHidden : ''} ${tucked ? styles.barMobileTucked : ''}`}
           onClick={() => setOpen((value) => !value)}
           aria-label="AI 助手"
           aria-expanded={open}
         >
-          <img src="/ai-float.png" alt="" draggable={false} />
+          <img src={avatarSrc} alt="" draggable={false} />
         </button>
       )}
       <FAQPanel open={faqOpen} onClose={() => setFaqOpen(false)} onSelect={onFaqSelect} />

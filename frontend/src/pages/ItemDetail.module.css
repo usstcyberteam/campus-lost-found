@@ -210,3 +210,11 @@
   font-weight: var(--weight-medium);
   overflow-wrap: anywhere;
 }
+
+.mapLink {
+  margin-left: var(--space-2);
+  color: var(--color-found);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}

@@ -61,6 +61,7 @@
   height: 40px;
   object-fit: cover;
   border-radius: 50%;
+  background: var(--color-accent-soft);
   pointer-events: none;
   user-select: none;
 }
@@ -301,33 +302,39 @@
 }
 /* ===== 移动端（<768px，分界与团队 min-width: 768px 一致）===== */
 
-/* 底部居中圆形停靠按钮（tap 展开，不做侧边停靠/拖拽）：
-   抬高到底部导航上方，避免遮挡队友 BottomNav 的中央凸起发布按钮 */
+/* 右下角圆形停靠按钮（tap 展开，不做侧边停靠/拖拽）：
+   抬高到底部导航上方；放右侧而不是居中，避免压在列表卡片正中 */
 .barMobile {
   position: fixed;
-  left: 50%;
+  right: var(--space-3);
   bottom: calc(76px + env(safe-area-inset-bottom) + var(--space-4));
   z-index: calc(var(--z-overlay) - 9);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 54px;
+  height: 54px;
   padding: 0;
-  border: none;
+  border: 2px solid var(--color-kraft-2);
   border-radius: var(--radius-full);
-  background: var(--color-bg-1);
+  background: var(--color-accent-soft);
   box-shadow: var(--shadow-md);
-  transform: translateX(-50%);
   cursor: pointer;
   transition:
     opacity var(--transition-fast),
+    transform var(--transition-base),
     box-shadow 0.2s ease;
 }
 
+/* 滚动中：只露出左侧一小半，停下后回来 */
+.barMobileTucked {
+  opacity: 0.55;
+  transform: translateX(calc(100% - 4px));
+}
+
 .barMobile img {
-  width: 32px;
-  height: 32px;
+  width: 48px;
+  height: 48px;
   object-fit: cover;
   border-radius: 50%;
   pointer-events: none;
@@ -413,3 +420,37 @@
     font-size: var(--font-md);
   }
 }
+
+/* 面板顶部：侦探娘头像 + 随表情变化的状态 */
+.persona {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1.5px dashed var(--color-border-strong);
+}
+
+.personaAvatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border: 2px solid var(--color-kraft-2);
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  object-fit: cover;
+}
+
+.personaName {
+  margin: 0;
+  font-size: var(--font-base);
+  font-weight: var(--weight-heavy);
+  letter-spacing: 0.06em;
+}
+
+.personaStatus {
+  margin: 2px 0 0;
+  color: var(--color-text-2);
+  font-size: var(--font-sm);
+}
+
