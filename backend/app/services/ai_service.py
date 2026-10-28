@@ -279,13 +279,65 @@ def _model_messages(text: str) -> list[dict[str, str]]:
     ]
 
 
-def _parse_model_json(content: str) -> dict | None:
-    stripped = _FENCE_PATTERN.sub("", content).strip()
+_THINK_TAG_PATTERN = re.compile(r"<think>.*?</think>|<thinking>.*?</thinking>", re.DOTALL)
+_THINK_TAIL_PATTERN = re.compile(r"<think>.*$|<thinking>.*$", re.DOTALL)
+
+
+def _repair_truncated_json(text: str, start: int) -> dict | None:
+    """截断修复：思考模型可能把 max_tokens 耗在推理上导致 JSON 截断，
+    按括号配对状态机（跳过字符串字面量与转义）补齐缺失的闭合符后重试。"""
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+    tail = text[start:].rstrip().rstrip(",")
+    if in_string:
+        tail += '"'
+    tail += "".join("}" if ch == "{" else "]" for ch in reversed(stack))
     try:
-        payload = json.loads(stripped)
-    except (json.JSONDecodeError, TypeError):
+        payload = json.loads(tail)
+    except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _parse_model_json(content: str) -> dict | None:
+    # 思考模型的 content 可能残留思考标记，先剥离（含未闭合的尾部标记）
+    cleaned = _FENCE_PATTERN.sub("", content)
+    cleaned = _THINK_TAG_PATTERN.sub("", cleaned)
+    cleaned = _THINK_TAIL_PATTERN.sub("", cleaned).strip()
+    try:
+        payload = json.loads(cleaned)
+        return payload if isinstance(payload, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = cleaned.find("{")
+    if start == -1:
+        return None
+    # 整体解析失败后，提取首个完整 JSON 对象（容忍 JSON 前后的杂文）
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(cleaned, start)
+        if isinstance(payload, dict):
+            return payload
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return _repair_truncated_json(cleaned, start)
 
 
 def _optional_str(payload: dict, key: str, limit: int) -> str | None:
@@ -388,9 +440,20 @@ def _chat_messages(
     if history_places:
         system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
-    for item in history or []:
-        messages.append({"role": item["role"], "content": _sanitize(item["text"])})
-    messages.append({"role": "user", "content": _sanitize(text)})
+    # 多轮历史拼进 user 消息，而不作为 assistant 消息回传：
+    # 思考模式 API（DeepSeek reasoning 系列）要求历史 assistant 消息回传 reasoning_content，
+    # 后端不保存该字段，原样回传会被 400 拒绝（The reasoning_content in the thinking mode
+    # must be passed back to the API）。拼接进 user 内容可完整保留上下文，
+    # 且不依赖任何网关特定的 thinking 开关参数，对全部 OpenAI 兼容端点通用。
+    user_content = _sanitize(text)
+    if history:
+        lines = ["[历史对话记录]"]
+        for item in history:
+            speaker = "用户" if item["role"] == "user" else "助手"
+            lines.append(f"{speaker}：{_sanitize(item['text'])}")
+        lines.append("[当前消息]")
+        user_content = "\n".join(lines) + "\n" + user_content
+    messages.append({"role": "user", "content": user_content})
     return messages
 
 

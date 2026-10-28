@@ -280,11 +280,16 @@ def test_chat_history_passed_to_model(client, monkeypatch):
 
     assert response.status_code == 200
     messages = captured["body"]["messages"]
-    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
-    assert messages[1]["content"] == "丢了伞"
-    assert messages[3]["content"] == "蓝色，图书馆"
+    # 历史拼进 user 消息、不回传 assistant 消息：
+    # 思考模式 API 要求历史 assistant 消息带 reasoning_content，原样回传会被 400 拒绝
+    assert [m["role"] for m in messages] == ["system", "user"]
+    user_content = messages[1]["content"]
+    assert "丢了伞" in user_content
+    assert "什么颜色？在哪丢的？" in user_content
+    assert "蓝色，图书馆" in user_content
     system = messages[0]["content"]
     assert "历史消息" in system or "上下文" in system
+    assert response.json()["source"] == "model"
 
 
 def test_chat_history_sanitized(client, monkeypatch):
@@ -305,6 +310,54 @@ def test_chat_history_sanitized(client, monkeypatch):
     sent = " ".join(m["content"] for m in captured["body"]["messages"])
     assert "13800138000" not in sent
     assert "[已脱敏]" in sent
+
+
+CHAT_MODEL_THINKING_PREFIX = (
+    "<thinking>\n用户说丢了伞，我需要引导补充颜色和地点。\n</thinking>\n"
+    '{"intent":"chat","reply":"什么颜色？在哪丢的？","form_patch":null,"actions":[]}'
+)
+
+CHAT_MODEL_TRUNCATED = (
+    '{"intent":"chat","reply":"别着急，蓝色折叠伞已记录","form_patch":null,"actions":['
+)
+
+
+def test_chat_tolerates_thinking_prefix(client, monkeypatch):
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_THINKING_PREFIX)
+    token = register(client, "chat_thinking")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "丢了伞"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "model"
+    assert body["degraded"] is False
+    assert body["reply"] == "什么颜色？在哪丢的？"
+
+
+def test_chat_repairs_truncated_model_json(client, monkeypatch):
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_TRUNCATED)
+    token = register(client, "chat_truncated")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "丢了蓝色折叠伞"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "model"
+    assert body["degraded"] is False
+    assert body["reply"] == "别着急，蓝色折叠伞已记录"
 
 
 def test_chat_history_rejects_bad_role(client):
