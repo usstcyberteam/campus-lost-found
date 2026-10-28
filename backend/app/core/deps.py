@@ -40,3 +40,7 @@ def require_role(*roles: Role) -> Callable:
         return user
 
     return dependency
+
+
+# 管理员守卫快捷依赖：未登录 401（get_current_user），非管理员 403
+require_admin = require_role(Role.admin)

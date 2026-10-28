@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from app.errors import ApiError
 from app.models import (
     Attachment,
     AttachmentPurpose,
+    AuditLog,
     Building,
     Claim,
     ClaimStatus,
@@ -326,9 +328,26 @@ def delete_item(db: Session, user: User, item_id: uuid.UUID) -> dict:
     if _approved_claim_exists(db, item.id):
         raise ApiError(409, "STATE_CONFLICT", "已有通过的认领，请走归还流程")
     item.status = ItemStatus.deleted
+    # 软删除留痕 + 审计日志：操作人、时间、帖子 id、操作类型
+    item.deleted_at = datetime.now(UTC)
+    item.deleted_by_id = user.id
+    db.add(AuditLog(operator_user_id=user.id, item_id=item.id, action="soft_delete"))
     db.commit()
     db.refresh(item)
     return serialize_items(db, [item], user)[0]
+
+
+def batch_delete_items(db: Session, admin: User, post_ids: list[uuid.UUID]) -> dict:
+    """管理员批量软删除：逐条独立提交，部分失败不影响其余帖子，返回逐条结果。"""
+    results = []
+    for post_id in post_ids:
+        try:
+            delete_item(db, admin, post_id)
+        except ApiError as exc:
+            results.append({"post_id": post_id, "deleted": False, "reason": exc.message})
+        else:
+            results.append({"post_id": post_id, "deleted": True, "reason": None})
+    return {"deleted": sum(1 for result in results if result["deleted"]), "results": results}
 
 
 def bind_photos(db: Session, user: User, item_id: uuid.UUID, photo_ids: list[uuid.UUID]) -> Item:

@@ -110,6 +110,22 @@ class FeatureExtractRequest(BaseModel):
     text: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None = None
 
 
+class BatchDeleteRequest(BaseModel):
+    # 管理员批量软删除：上限 100 条防误操作大范围下架
+    post_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+class BatchDeleteResult(BaseModel):
+    post_id: uuid.UUID
+    deleted: bool
+    reason: str | None = None
+
+
+class BatchDeleteOut(BaseModel):
+    deleted: int
+    results: list[BatchDeleteResult]
+
+
 class FeatureExtractionOut(BaseModel):
     labels: dict | None = None
     extracted_text: str | None = None

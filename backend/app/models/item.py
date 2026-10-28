@@ -38,6 +38,9 @@ class Item(Base):
     )
     # 相似帖聚合分组（发布时规则判定：地点/类别/关键词重叠率/时间差满足 2 条以上即同组）
     group_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    # 软删除留痕：何时删除、由谁删除（审计追溯，不设外键约束）
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

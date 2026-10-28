@@ -1,4 +1,5 @@
 from app.models.announcement import Announcement, AnnouncementFavorite
+from app.models.audit import AuditLog
 from app.models.building import Building
 from app.models.claim import Claim, ClaimEvidence
 from app.models.comment import Comment
@@ -32,6 +33,7 @@ from app.models.user import Badge, User
 __all__ = [
     "Announcement",
     "AnnouncementFavorite",
+    "AuditLog",
     "Building",
     "Claim",
     "ClaimEvidence",
