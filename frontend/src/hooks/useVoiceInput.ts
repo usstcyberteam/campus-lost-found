@@ -52,10 +52,13 @@ const INPUT_MAX = 2000
 const ERROR_MESSAGES: Record<string, string> = {
   'no-speech': '没有听到声音，请靠近麦克风再试',
   'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许',
-  'service-not-allowed': '语音服务不可用，请稍后再试',
+  'service-not-allowed': '语音识别服务不可用：浏览器的语音识别依赖在线服务，当前网络无法访问，请检查代理或改用文字输入',
   'audio-capture': '没有检测到可用麦克风',
-  network: '语音识别网络异常，请稍后再试',
+  network: '语音识别服务连接失败：浏览器的语音识别依赖在线服务，当前网络无法访问，请检查代理或改用文字输入',
 }
+
+// 用户主动停止时 Chrome 会先触发 aborted 错误再 onend：这不是错误，静默处理避免误报
+const SILENT_ERRORS = new Set(['aborted'])
 
 function getRecognitionCtor(): SpeechRecognitionCtor | null {
   const w = window as SpeechRecognitionWindow
@@ -84,6 +87,8 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
   const silenceTimer = useRef(0)
   const onUpdateRef = useRef(onUpdate)
   const disposedRef = useRef(false)
+  // getUserMedia 异步期间 listening 仍为 false：连点麦克风会重复创建识别实例，需独立守卫
+  const pendingRef = useRef(false)
   onUpdateRef.current = onUpdate
 
   const clearSilenceTimer = useCallback(() => {
@@ -128,9 +133,12 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
   const start = useCallback(() => {
     const Ctor = getRecognitionCtor()
     if (Ctor === null) return
+    if (pendingRef.current) return
+    pendingRef.current = true
     setError('')
     finalRef.current = ''
     void requestMicPermission().then((granted) => {
+      pendingRef.current = false
       if (!granted || disposedRef.current) return
       const recognition = new Ctor()
       recognition.lang = VOICE_LANG
@@ -149,6 +157,7 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
         silenceTimer.current = window.setTimeout(() => recognition.stop(), SILENCE_STOP_MS)
       }
       recognition.onerror = (event) => {
+        if (SILENT_ERRORS.has(event.error)) return
         setError(ERROR_MESSAGES[event.error] ?? '语音识别失败，请稍后再试')
       }
       recognition.onend = finish
@@ -166,6 +175,7 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
   }, [clearSilenceTimer, finish, requestMicPermission])
 
   const stop = useCallback(() => {
+    pendingRef.current = false
     recognitionRef.current?.stop()
     finish()
   }, [finish])
