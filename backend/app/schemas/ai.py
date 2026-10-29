@@ -45,6 +45,9 @@ class SearchAdviceOut(BaseModel):
 class ChatHistoryItem(BaseModel):
     role: Literal["user", "assistant"]
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+    # 思考模式 API 要求历史 assistant 消息原样回传 reasoning_content；
+    # 前端从上一轮响应拿到后随历史传回，缺省时后端退化为拼接方案（不发 assistant 消息）
+    reasoning_content: Annotated[str | None, StringConstraints(max_length=8000)] = None
 
 
 class ChatRequest(BaseModel):
@@ -78,6 +81,8 @@ class ChatOut(BaseModel):
     actions: list[str]
     source: Source
     degraded: bool
+    # 思考过程（思考模式模型返回）：前端存储并在下一轮 history 原样传回，保持上下文完整
+    reasoning_content: str | None = None
 
 
 class MatchRequest(BaseModel):

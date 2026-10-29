@@ -11,6 +11,8 @@ export interface SearchAdviceInput {
 export interface ChatHistoryItem {
   role: 'user' | 'assistant'
   text: string
+  // 思考模式多轮上下文：原样回传上一轮 reasoning_content，后端组装标准 assistant 消息
+  reasoning_content?: string | null
 }
 
 export type ChatAction = 'draft' | 'polish' | 'translate'

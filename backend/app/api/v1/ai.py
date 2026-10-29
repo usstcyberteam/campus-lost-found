@@ -31,7 +31,10 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    history = [{"role": item.role, "text": item.text} for item in body.history]
+    # reasoning_content 原样透传：思考模式多轮对话要求历史 assistant 消息携带该字段
+    history = [
+        {"role": item.role, "text": item.text, "reasoning_content": item.reasoning_content} for item in body.history
+    ]
     return ai_service.chat(db, body.message, body.action, user, history, body.text, body.target_lang)
 
 

@@ -49,6 +49,7 @@ export interface AiChatResult {
   actions: string[]
   source: Source
   degraded: boolean
+  reasoning_content?: string | null
 }
 
 export interface Page<T> {

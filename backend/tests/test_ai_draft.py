@@ -18,19 +18,31 @@ def configure_model(monkeypatch) -> None:
 
 
 class FakeResponse:
-    def __init__(self, content: str):
+    def __init__(self, content: str, reasoning_content: str | None = None):
         self.content = content
+        self.reasoning_content = reasoning_content
 
     def raise_for_status(self) -> None:
         return None
 
     def json(self) -> dict:
-        return {"choices": [{"message": {"content": self.content}}]}
+        message: dict = {"content": self.content}
+        if self.reasoning_content is not None:
+            message["reasoning_content"] = self.reasoning_content
+        return {"choices": [{"message": message}]}
 
 
 def install_fake_client(
-    monkeypatch, captured: dict, content: str | None = None, error: Exception | None = None
+    monkeypatch,
+    captured: dict,
+    content: str | None = None,
+    error: Exception | None = None,
+    reasoning_content: str | None = None,
+    # 重试测试：按调用序返回不同输出（解析失败 → 重试恢复）
+    contents_by_call: list[tuple[str, str | None]] | None = None,
 ) -> None:
+    calls: list[int] = [0]
+
     class FakeClient:
         def __init__(self, *args, **kwargs):
             captured["timeout"] = kwargs.get("timeout")
@@ -43,11 +55,17 @@ def install_fake_client(
 
         def post(self, url, json=None, headers=None):
             captured["url"] = url
+            captured.setdefault("bodies", []).append(json)
             captured["body"] = json
             captured["headers"] = headers
             if error is not None:
                 raise error
-            return FakeResponse(content or "")
+            if contents_by_call is not None:
+                index = min(calls[0], len(contents_by_call) - 1)
+                item_content, item_reasoning = contents_by_call[index]
+                calls[0] += 1
+                return FakeResponse(item_content, item_reasoning)
+            return FakeResponse(content or "", reasoning_content)
 
     monkeypatch.setattr(model_client.httpx, "Client", FakeClient)
 

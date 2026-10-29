@@ -3,7 +3,8 @@ import { getToken } from './token'
 
 const client = axios.create({
   baseURL: '/api/v1',
-  timeout: 15000,
+  // AI 聊天含模型调用 + 解析失败重试一次，最坏 2×模型超时；普通接口远快于此值
+  timeout: 30000,
 })
 
 client.interceptors.request.use((config) => {

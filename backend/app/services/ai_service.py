@@ -440,20 +440,43 @@ def _chat_messages(
     if history_places:
         system += f"该用户历史发帖常涉及的地点：{'、'.join(history_places)}（可在回复中适当参考推荐）。"
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
-    # 多轮历史拼进 user 消息，而不作为 assistant 消息回传：
-    # 思考模式 API（DeepSeek reasoning 系列）要求历史 assistant 消息回传 reasoning_content，
-    # 后端不保存该字段，原样回传会被 400 拒绝（The reasoning_content in the thinking mode
-    # must be passed back to the API）。拼接进 user 内容可完整保留上下文，
-    # 且不依赖任何网关特定的 thinking 开关参数，对全部 OpenAI 兼容端点通用。
+    # 多轮历史回传策略（思考模式兼容）：
+    # 1. 前端随历史传回 reasoning_content 的 assistant 轮次 → 组装为标准 assistant 消息，
+    #    原样保留并回传 reasoning_content（思考模式 API 要求，缺失会被 400 拒绝）；
+    # 2. 未携带 reasoning_content 的历史 → 仍拼接进 user 消息（不发 assistant 消息），
+    #    避免部分网关对无 reasoning_content 的 assistant 历史严格校验，兼容全部端点。
     user_content = _sanitize(text)
-    if history:
-        lines = ["[历史对话记录]"]
-        for item in history:
+    replay: list[dict[str, str]] = []
+    pending_lines: list[str] = []
+    for item in history or []:
+        reasoning = item.get("reasoning_content")
+        if item["role"] == "assistant" and isinstance(reasoning, str) and reasoning.strip():
+            if pending_lines:
+                replay.append({"role": "user", "content": "\n".join(pending_lines)})
+                pending_lines = []
+            replay.append(
+                {
+                    "role": "assistant",
+                    "content": _sanitize(item["text"]),
+                    "reasoning_content": reasoning,
+                }
+            )
+        else:
             speaker = "用户" if item["role"] == "user" else "助手"
-            lines.append(f"{speaker}：{_sanitize(item['text'])}")
-        lines.append("[当前消息]")
-        user_content = "\n".join(lines) + "\n" + user_content
-    messages.append({"role": "user", "content": user_content})
+            pending_lines.append(f"{speaker}：{_sanitize(item['text'])}")
+    if pending_lines or replay:
+        if replay:
+            # 已有标准多轮消息：剩余无 reasoning 的轮次以同样格式补进一条 user 消息
+            if pending_lines:
+                replay.append({"role": "user", "content": "\n".join(pending_lines)})
+            replay.append({"role": "user", "content": user_content})
+            messages.extend(replay)
+        else:
+            lines = ["[历史对话记录]", *pending_lines, "[当前消息]"]
+            user_content = "\n".join(lines) + "\n" + user_content
+            messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": user_content})
     return messages
 
 
@@ -666,6 +689,33 @@ def _translate(text: str, target_lang: str | None) -> dict:
     }
 
 
+def _retry_feedback(bad_output: str) -> str:
+    """解析失败时的重试提示：把模型的错误输出回传，触发按格式重新生成。"""
+    return (
+        "你刚才的回复无法解析为系统要求的 JSON 格式，刚才输出的开头是："
+        f"{bad_output[:200]}。"
+        "请严格按系统提示重新输出一个合法的 JSON 对象（以 { 开头、以 } 结尾），"
+        "包含 intent、reply、form_patch、actions 字段，"
+        "不要输出思考过程、解释或 markdown 代码块。"
+    )
+
+
+def _reasoning_clip(reasoning: str | None) -> str | None:
+    return _clip(reasoning.strip(), 8000) if reasoning and reasoning.strip() else None
+
+
+def _plain_chat_result(plain: str, reasoning: str | None) -> dict:
+    return {
+        "intent": "chat",
+        "reply": plain,
+        "form_patch": None,
+        "actions": [],
+        "source": Source.model,
+        "degraded": False,
+        "reasoning_content": _reasoning_clip(reasoning),
+    }
+
+
 def chat(
     db: Session,
     message: str,
@@ -682,33 +732,40 @@ def chat(
     cleaned = _sanitize(message.strip())
     history_places = _user_history_places(db, user) if user is not None else []
     if model_client.is_available():
-        content = model_client.chat_completion(_chat_messages(cleaned, action, history_places, history))
+        base_messages = _chat_messages(cleaned, action, history_places, history)
+        content, reasoning = model_client.chat_completion_with_reasoning(base_messages)
         if content is not None:
             payload = _parse_model_json(content)
+            if payload is None:
+                # JSON 解析失败的纯文本兜底：仅普通对话（action 为空）适用。
+                # FAQ 咨询类问题（如"捡到东西交到哪里"）在多轮上下文下模型常直接输出纯文本，
+                # 此时内容仍由模型生成，直接作为回复返回，不再降级到规则模式。
+                if action is None:
+                    plain = _plain_text_reply(content)
+                    if plain is not None:
+                        return _plain_chat_result(plain, reasoning)
+                # 重试一次：把错误输出回传给模型，要求严格按 JSON 格式重新生成，
+                # 救回 draft/polish 等需要结构化字段的场景与兜底不适用/失败的场景
+                retry_content, reasoning = model_client.chat_completion_with_reasoning(
+                    [*base_messages, {"role": "user", "content": _retry_feedback(content)}]
+                )
+                if retry_content is not None:
+                    payload = _parse_model_json(retry_content)
+                    if payload is None and action is None:
+                        plain = _plain_text_reply(retry_content)
+                        if plain is not None:
+                            return _plain_chat_result(plain, reasoning)
             if payload is not None:
                 if action == "draft":
                     payload["intent"] = "draft"
                 result = _model_chat(db, cleaned, payload)
+                result["reasoning_content"] = _reasoning_clip(reasoning)
                 if action == "polish":
                     # 润色场景语义收敛：reply 即润色文案，form_patch 仅透出 description，不触发预填
                     result["actions"] = []
                     if result["form_patch"] is not None:
                         result["form_patch"] = {"description": result["form_patch"].get("description")}
                 return result
-            # JSON 解析失败的纯文本兜底：仅普通对话（action 为空）适用。
-            # FAQ 咨询类问题（如"捡到东西交到哪里"）在多轮上下文下模型常直接输出纯文本，
-            # 此时内容仍由模型生成，直接作为回复返回，不再降级到规则模式。
-            if action is None:
-                plain = _plain_text_reply(content)
-                if plain is not None:
-                    return {
-                        "intent": "chat",
-                        "reply": plain,
-                        "form_patch": None,
-                        "actions": [],
-                        "source": Source.model,
-                        "degraded": False,
-                    }
             logger.warning("模型输出无法解析，已降级")
     # 规则降级同样要吃进多轮信息：把历史用户消息拼接进提取文本，
     # 避免模型不可用时只按最后一轮提取（信息分散在几轮补充里会被丢弃）。

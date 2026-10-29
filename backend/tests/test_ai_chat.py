@@ -55,7 +55,7 @@ def test_chat_returns_locked_json_and_strips_markdown(client, monkeypatch, impor
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"intent", "reply", "form_patch", "actions", "source", "degraded"}
+    assert set(body) == {"intent", "reply", "form_patch", "actions", "source", "degraded", "reasoning_content"}
     assert body["intent"] == "draft"
     assert body["source"] == "model"
     assert body["degraded"] is False
@@ -411,6 +411,118 @@ def test_chat_blank_model_output_still_degrades(client, monkeypatch):
     body = response.json()
     assert body["degraded"] is True
     assert body["source"] == "rule"
+
+
+def test_chat_retries_with_error_feedback_then_recovers(client, monkeypatch):
+    """解析失败重试：draft 场景第一次输出坏格式，错误信息回传后第二次输出合法 JSON，不再降级。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(
+        monkeypatch,
+        captured,
+        contents_by_call=[
+            ("无法整理这个请求", None),
+            (CHAT_MODEL_PLAIN, "用户提供了物品信息，我按格式输出 JSON"),
+        ],
+    )
+    token = register(client, "chat_retry")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "图书馆丢了一把蓝色雨伞", "action": "draft"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source"] == "model"
+    assert body["degraded"] is False
+    assert body["reasoning_content"] == "用户提供了物品信息，我按格式输出 JSON"
+    # 恰好两次调用：第二次请求携带错误反馈（重试提示 + 坏输出引用）
+    assert len(captured["bodies"]) == 2
+    retry_messages = captured["bodies"][1]["messages"]
+    feedback = retry_messages[-1]
+    assert feedback["role"] == "user"
+    assert "无法解析" in feedback["content"]
+    assert "无法整理这个请求" in feedback["content"]
+
+
+def test_chat_returns_reasoning_content_for_next_round(client, monkeypatch):
+    """思考模式：reasoning_content 随响应下发，前端存储后下一轮历史原样回传。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(
+        monkeypatch,
+        captured,
+        content=CHAT_MODEL_PLAIN,
+        reasoning_content="用户在打招呼，我引导描述物品",
+    )
+    token = register(client, "chat_reasoning")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "你好"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "model"
+    assert body["reasoning_content"] == "用户在打招呼，我引导描述物品"
+
+    install_fake_client(
+        monkeypatch,
+        captured,
+        content=CHAT_MODEL_PLAIN,
+        reasoning_content="延续上一轮，继续引导",
+    )
+    followup = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "丢了伞",
+            "history": [
+                {"role": "user", "text": "你好"},
+                {
+                    "role": "assistant",
+                    "text": "你好，我是失物招领助手。",
+                    "reasoning_content": "用户在打招呼，我引导描述物品",
+                },
+            ],
+        },
+        headers=auth(token),
+    )
+    assert followup.status_code == 200
+    # 带 reasoning_content 的 assistant 历史组装为标准 assistant 消息原样回传
+    messages = captured["bodies"][-1]["messages"]
+    roles = [m["role"] for m in messages]
+    assert roles == ["system", "user", "assistant", "user"]
+    assistant_msg = messages[2]
+    assert assistant_msg["reasoning_content"] == "用户在打招呼，我引导描述物品"
+    assert assistant_msg["content"] == "你好，我是失物招领助手。"
+
+
+def test_chat_history_without_reasoning_still_concatenates(client, monkeypatch):
+    """不带 reasoning_content 的历史（旧前端/官方 API 场景）仍拼接进 user 消息，不发 assistant 消息。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN)
+    token = register(client, "chat_no_reasoning")
+
+    client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "丢了伞",
+            "history": [
+                {"role": "user", "text": "你好"},
+                {"role": "assistant", "text": "你好，说说你丢了什么？"},
+            ],
+        },
+        headers=auth(token),
+    )
+
+    messages = captured["bodies"][-1]["messages"]
+    assert [m["role"] for m in messages] == ["system", "user"]
+    assert "你好，说说你丢了什么？" in messages[1]["content"]
 
 
 def test_chat_history_rejects_bad_role(client):

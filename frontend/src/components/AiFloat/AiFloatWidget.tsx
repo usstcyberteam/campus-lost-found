@@ -36,6 +36,8 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
   degraded?: boolean
+  // 思考模式多轮上下文：存储上一轮 reasoning_content，构建 history 时原样传回
+  reasoning?: string | null
 }
 
 interface Pos {
@@ -398,12 +400,17 @@ export default function AiFloatWidget() {
     setBusy(true)
     try {
       // 多轮上下文：带最近 5 轮（10 条）历史，模型累积理解信息再决定追问或出草稿
+      // assistant 轮附带 reasoning_content 原样回传（思考模式 API 要求），不携带时后端自动退化为拼接
       const history = messages.slice(-10).map((message) => ({
         role: message.role,
         text: message.text,
+        reasoning_content: message.reasoning ?? undefined,
       }))
       const result: AiChatResult = await aiChat(value, location.pathname, undefined, history)
-      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: result.reply, degraded: result.degraded, reasoning: result.reasoning_content },
+      ])
       setFlash(result.degraded ? 'confused' : 'wink')
       // 方向词可能在历史任一轮：传全部用户文本判定，避免多轮补充时 direction 回落 lost
       const userTexts = [...messages.filter((m) => m.role === 'user').map((m) => m.text), value]
@@ -434,9 +441,16 @@ export default function AiFloatWidget() {
       const history = messages
         .slice(0, lastUserIndex)
         .slice(-10)
-        .map((message) => ({ role: message.role, text: message.text }))
+        .map((message) => ({
+          role: message.role,
+          text: message.text,
+          reasoning_content: message.reasoning ?? undefined,
+        }))
       const result: AiChatResult = await aiChat(lastUser.text, 'ai', 'draft', history)
-      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, degraded: result.degraded }])
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: result.reply, degraded: result.degraded, reasoning: result.reasoning_content },
+      ])
       if (result.form_patch && hasPrefillValue(result.form_patch)) {
         // 方向词可能在历史任一轮用户消息：扫描全部用户文本，避免 direction 回落 lost
         const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text)
