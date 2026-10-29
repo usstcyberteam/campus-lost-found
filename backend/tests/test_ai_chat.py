@@ -317,9 +317,15 @@ CHAT_MODEL_THINKING_PREFIX = (
     '{"intent":"chat","reply":"什么颜色？在哪丢的？","form_patch":null,"actions":[]}'
 )
 
-CHAT_MODEL_TRUNCATED = (
-    '{"intent":"chat","reply":"别着急，蓝色折叠伞已记录","form_patch":null,"actions":['
-)
+CHAT_MODEL_TRUNCATED = '{"intent":"chat","reply":"别着急，蓝色折叠伞已记录","form_patch":null,"actions":['
+
+CHAT_MODEL_PLAIN_TEXT_NO_JSON = "捡到物品可以交到图书馆服务台或宿管值班室，你在哪捡到的？"
+
+CHAT_MODEL_BLANK_TEXT_NO_JSON = "  \n  "
+
+CHAT_MODEL_PLAIN_TEXT_NO_JSON = "捡到物品可以交到图书馆服务台或宿管值班室，你在哪捡到的？"
+
+CHAT_MODEL_BLANK_TEXT_NO_JSON = "  \n  "
 
 
 def test_chat_tolerates_thinking_prefix(client, monkeypatch):
@@ -358,6 +364,53 @@ def test_chat_repairs_truncated_model_json(client, monkeypatch):
     assert body["source"] == "model"
     assert body["degraded"] is False
     assert body["reply"] == "别着急，蓝色折叠伞已记录"
+
+
+def test_chat_falls_back_to_plain_text_reply_without_json(client, monkeypatch):
+    """思考模型对 FAQ 咨询类问题有时直接输出无 JSON 的纯文本：清洗后作为回复，不降级规则模式。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_PLAIN_TEXT_NO_JSON)
+    token = register(client, "chat_plain_faq")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "message": "捡到东西交到哪里？",
+            "history": [
+                {"role": "user", "text": "你好"},
+                {"role": "assistant", "text": "你好，说说你丢了什么？"},
+            ],
+        },
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "model"
+    assert body["degraded"] is False
+    assert body["intent"] == "chat"
+    assert body["form_patch"] is None
+    assert body["reply"] == CHAT_MODEL_PLAIN_TEXT_NO_JSON
+
+
+def test_chat_blank_model_output_still_degrades(client, monkeypatch):
+    """纯文本兜底仅限有实质内容：空白输出不能当回复，仍走规则降级。"""
+    configure_model(monkeypatch)
+    captured: dict = {}
+    install_fake_client(monkeypatch, captured, content=CHAT_MODEL_BLANK_TEXT_NO_JSON)
+    token = register(client, "chat_blank_out")
+
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={"message": "捡到东西交到哪里？"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["degraded"] is True
+    assert body["source"] == "rule"
 
 
 def test_chat_history_rejects_bad_role(client):

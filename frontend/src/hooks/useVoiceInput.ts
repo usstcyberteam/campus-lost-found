@@ -83,6 +83,7 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
   const finalRef = useRef('')
   const silenceTimer = useRef(0)
   const onUpdateRef = useRef(onUpdate)
+  const disposedRef = useRef(false)
   onUpdateRef.current = onUpdate
 
   const clearSilenceTimer = useCallback(() => {
@@ -97,41 +98,72 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
     setListening(false)
   }, [clearSilenceTimer])
 
+  /**
+   * 显式申请麦克风权限：SpeechRecognition 在权限状态未知时可能静默失败（不弹申请框），
+   * 先在用户手势的同步调用栈里发起 getUserMedia 触发浏览器权限弹窗，
+   * 授权后立即释放音轨再启动识别，拒绝时给出可操作的错误提示。
+   */
+  const requestMicPermission = useCallback((): Promise<boolean> => {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setError('语音输入需要 HTTPS 或 localhost 环境，当前页面无法访问麦克风')
+      return Promise.resolve(false)
+    }
+    const media = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
+    if (!media?.getUserMedia) {
+      // 无 getUserMedia 但存在 SpeechRecognition：保持直接启动（浏览器自行处理权限）
+      return Promise.resolve(true)
+    }
+    return media
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        stream.getTracks().forEach((track) => track.stop())
+        return true
+      })
+      .catch(() => {
+        setError('麦克风权限被拒绝，请在浏览器地址栏或站点设置中允许后重试')
+        return false
+      })
+  }, [])
+
   const start = useCallback(() => {
     const Ctor = getRecognitionCtor()
     if (Ctor === null) return
     setError('')
     finalRef.current = ''
-    const recognition = new Ctor()
-    recognition.lang = VOICE_LANG
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.onresult = (event) => {
-      let interim = ''
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i]
-        const transcript = result[0]?.transcript ?? ''
-        if (result.isFinal) finalRef.current += transcript
-        else interim += transcript
+    void requestMicPermission().then((granted) => {
+      if (!granted || disposedRef.current) return
+      const recognition = new Ctor()
+      recognition.lang = VOICE_LANG
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.onresult = (event) => {
+        let interim = ''
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i]
+          const transcript = result[0]?.transcript ?? ''
+          if (result.isFinal) finalRef.current += transcript
+          else interim += transcript
+        }
+        onUpdateRef.current((finalRef.current + interim).slice(0, INPUT_MAX))
+        clearSilenceTimer()
+        silenceTimer.current = window.setTimeout(() => recognition.stop(), SILENCE_STOP_MS)
       }
-      onUpdateRef.current((finalRef.current + interim).slice(0, INPUT_MAX))
-      clearSilenceTimer()
-      silenceTimer.current = window.setTimeout(() => recognition.stop(), SILENCE_STOP_MS)
-    }
-    recognition.onerror = (event) => {
-      setError(ERROR_MESSAGES[event.error] ?? '语音识别失败，请稍后再试')
-    }
-    recognition.onend = finish
-    recognitionRef.current = recognition
-    try {
-      recognition.start()
-      setListening(true)
-    } catch {
-      // start 可能因状态机异常抛 InvalidStateError：丢弃实例，回到未录音状态
-      recognitionRef.current = null
-      setListening(false)
-    }
-  }, [clearSilenceTimer, finish])
+      recognition.onerror = (event) => {
+        setError(ERROR_MESSAGES[event.error] ?? '语音识别失败，请稍后再试')
+      }
+      recognition.onend = finish
+      recognitionRef.current = recognition
+      try {
+        recognition.start()
+        setListening(true)
+      } catch {
+        // start 可能因状态机异常抛 InvalidStateError：丢弃实例并给出提示，不再静默
+        recognitionRef.current = null
+        setListening(false)
+        setError('无法启动语音识别，请稍后重试')
+      }
+    })
+  }, [clearSilenceTimer, finish, requestMicPermission])
 
   const stop = useCallback(() => {
     recognitionRef.current?.stop()
@@ -146,9 +178,10 @@ export function useVoiceInput(onUpdate: (partial: string) => void): VoiceInput {
     start()
   }, [listening, start, stop])
 
-  // 卸载时必须释放麦克风
+  // 卸载时必须释放麦克风，并阻止权限申请回调在卸载后再启动识别
   useEffect(
     () => () => {
+      disposedRef.current = true
       clearSilenceTimer()
       recognitionRef.current?.abort()
       recognitionRef.current = null

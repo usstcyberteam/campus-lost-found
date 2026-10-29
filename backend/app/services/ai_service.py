@@ -510,6 +510,19 @@ def _chat_form_patch(db: Session, text: str, payload: dict) -> dict | None:
     return patch
 
 
+def _plain_text_reply(content: str) -> str | None:
+    """思考模型对咨询类问题有时直接输出无 JSON 的纯文本回复（不带任何结构）。
+
+    剥离思考标记与 markdown、脱敏后若仍有实质内容，则可作为 chat 回复兜底：
+    内容来自模型而非规则规则模板，故不算降级；draft/polish 需要结构化字段，不适用。
+    """
+    cleaned = _FENCE_PATTERN.sub("", content)
+    cleaned = _THINK_TAG_PATTERN.sub("", cleaned)
+    cleaned = _THINK_TAIL_PATTERN.sub("", cleaned)
+    cleaned = _sanitize(_strip_markdown(cleaned)).strip()
+    return _clip(cleaned, 2000) if len(cleaned) >= 2 else None
+
+
 def _model_chat(db: Session, text: str, payload: dict) -> dict:
     intent = _chat_intent(payload)
     form_patch = _chat_form_patch(db, text, payload) if intent == "draft" else None
@@ -682,6 +695,20 @@ def chat(
                     if result["form_patch"] is not None:
                         result["form_patch"] = {"description": result["form_patch"].get("description")}
                 return result
+            # JSON 解析失败的纯文本兜底：仅普通对话（action 为空）适用。
+            # FAQ 咨询类问题（如"捡到东西交到哪里"）在多轮上下文下模型常直接输出纯文本，
+            # 此时内容仍由模型生成，直接作为回复返回，不再降级到规则模式。
+            if action is None:
+                plain = _plain_text_reply(content)
+                if plain is not None:
+                    return {
+                        "intent": "chat",
+                        "reply": plain,
+                        "form_patch": None,
+                        "actions": [],
+                        "source": Source.model,
+                        "degraded": False,
+                    }
             logger.warning("模型输出无法解析，已降级")
     # 规则降级同样要吃进多轮信息：把历史用户消息拼接进提取文本，
     # 避免模型不可用时只按最后一轮提取（信息分散在几轮补充里会被丢弃）。
